@@ -8,7 +8,15 @@
 import { el, clear } from '../dom';
 import { store } from '../../data/store';
 import { RECORD_KINDS, type RecordKind } from '../../data/types';
-import { fmtBytes, fmtCount } from '../format';
+import { fmtBytes, fmtCount, fmtDateTime, fmtHumane, zoneLabel } from '../format';
+
+const KIND_DESCRIPTIONS: Record<RecordKind, string> = {
+  transaction: 'top-level units of work (requests, jobs)',
+  span: 'timed operations within a transaction (db, http, …)',
+  error: 'captured exceptions and log errors',
+  event: 'custom app events and log lines',
+  metricset: 'runtime and breakdown metric samples',
+};
 
 interface FileRow {
   key: string;
@@ -19,6 +27,7 @@ interface FileRow {
   evicted: boolean;
   sizeCompressed: number;
   sizeUncompressed: number;
+  lastModified?: number;
   total: number;
   byKind: Map<RecordKind, number>;
 }
@@ -39,6 +48,7 @@ export function renderStoreView(container: HTMLElement): () => void {
         evicted: info.evicted,
         sizeCompressed: info.sizeCompressed,
         sizeUncompressed: info.sizeUncompressed,
+        lastModified: info.lastModified,
         total: 0,
         byKind: new Map(),
       });
@@ -126,8 +136,9 @@ export function renderStoreView(container: HTMLElement): () => void {
       el('thead', {}, [
         el('tr', {}, [
           th('file', ''),
+          th('modified', 'width:120px'),
           th('records', 'width:100px;text-align:right'),
-          th('kinds', 'width:24%'),
+          th('kinds', 'width:22%'),
           th('compressed', 'width:110px;text-align:right'),
           th('uncompressed', 'width:120px;text-align:right'),
           el('th', { attrs: { style: 'width:90px' } }),
@@ -151,6 +162,13 @@ export function renderStoreView(container: HTMLElement): () => void {
 
       const tr = el('tr', { className: row.evicted ? 'evicted-row' : '' }, [
         el('td', { className: 'mono', text: row.key, title: row.key }),
+        el('td', {
+          className: 'num',
+          text: row.lastModified ? fmtHumane(row.lastModified) : '',
+          title: row.lastModified
+            ? `${fmtDateTime(row.lastModified)} ${zoneLabel()}`
+            : undefined,
+        }),
         el('td', {
           className: 'num',
           text: row.evicted ? '—' : fmtCount(row.total),
@@ -182,7 +200,7 @@ export function renderStoreView(container: HTMLElement): () => void {
       const count = row.byKind.get(kind) ?? 0;
       if (count === 0) continue;
       const seg = el('span', {
-        title: `${kind}: ${fmtCount(count)}`,
+        title: `${kind} — ${KIND_DESCRIPTIONS[kind]}\n${fmtCount(count)} of ${fmtCount(row.total)} records`,
         attrs: { style: `background: var(--kind-${kind}); flex: ${count}` },
       });
       bar.append(seg);

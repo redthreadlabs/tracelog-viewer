@@ -19,6 +19,8 @@ export interface FileInfo {
   sizeUncompressed: number;
   /** records were evicted from memory by the user */
   evicted: boolean;
+  /** S3 Last-Modified from the listing, epoch-ms */
+  lastModified?: number;
 }
 
 export interface ScanProgress {
@@ -62,6 +64,7 @@ export class Store extends EventTarget {
         ? (existing?.sizeUncompressed ?? 0) + uncompressedBytes
         : uncompressedBytes,
       evicted: false,
+      lastModified: file.lastModified?.getTime() ?? existing?.lastModified,
     });
   }
 

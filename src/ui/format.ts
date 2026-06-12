@@ -59,9 +59,54 @@ export function fmtBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
-/** counts with thin-space grouping: 12 345 */
+/** counts with comma grouping: 12,345 */
 export function fmtCount(n: number): string {
-  return n.toLocaleString('en-US').replace(/,/g, ' ');
+  return n.toLocaleString('en-US');
+}
+
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/**
+ * Humane timestamps: "30 seconds ago", "12 minutes ago", "4:30p" (today),
+ * "yesterday", "June 3", "June 3, 2025". Day boundaries and clock time
+ * respect the active zone (UTC toggle).
+ */
+export function fmtHumane(ms: number, now = Date.now()): string {
+  const diff = now - ms;
+  if (diff < 0) return fmtDateTime(ms); // future: be literal
+  if (diff < 60_000) {
+    const s = Math.max(1, Math.round(diff / 1000));
+    return s === 1 ? '1 second ago' : `${s} seconds ago`;
+  }
+  if (diff < 60 * 60_000) {
+    const m = Math.round(diff / 60_000);
+    return m === 1 ? '1 minute ago' : `${m} minutes ago`;
+  }
+
+  const d = new Date(ms);
+  const ref = new Date(now);
+  const dayStart = (x: Date) =>
+    utcMode
+      ? Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), x.getUTCDate())
+      : new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const dayDiff = Math.round((dayStart(ref) - dayStart(d)) / 86_400_000);
+
+  if (dayDiff === 0) {
+    const h24 = utcMode ? d.getUTCHours() : d.getHours();
+    const min = utcMode ? d.getUTCMinutes() : d.getMinutes();
+    const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+    return `${h12}:${String(min).padStart(2, '0')}${h24 < 12 ? 'a' : 'p'}`;
+  }
+  if (dayDiff === 1) return 'yesterday';
+
+  const month = MONTHS[utcMode ? d.getUTCMonth() : d.getMonth()];
+  const dayOfMonth = utcMode ? d.getUTCDate() : d.getDate();
+  const year = utcMode ? d.getUTCFullYear() : d.getFullYear();
+  const refYear = utcMode ? ref.getUTCFullYear() : ref.getFullYear();
+  return year === refYear ? `${month} ${dayOfMonth}` : `${month} ${dayOfMonth}, ${year}`;
 }
 
 function pad2(n: number): string {

@@ -1020,6 +1020,10 @@ th.sortable.on {
   gap: 1px;
 }
 
+.kind-bar span {
+  min-width: 4px; /* slivers stay hoverable for their tooltip */
+}
+
 .evicted-row td {
   opacity: 0.45;
 }

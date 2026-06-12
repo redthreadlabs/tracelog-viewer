@@ -370,7 +370,7 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
   tabular-nums`) everywhere numbers align — tables, axes, tooltips.
 - **Shared chart chrome**: one axis/grid/tooltip/legend component family so
   every chart agrees on tick formatting (durations as `1.2 s` / `840 ms` /
-  `64 µs`, bytes as `3.2 MB`, counts with thin-space grouping), margins, and
+  `64 µs`, bytes as `3.2 MB`, counts with comma grouping), margins, and
   hover behavior.
 - **Interaction grammar**: brush horizontally to zoom time (double-click to
   reset); hovering any time-axis chart shows a synced crosshair in the
