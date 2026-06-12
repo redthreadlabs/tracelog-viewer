@@ -49,7 +49,7 @@ export function renderScatter(
   const innerW = width - MARGIN.left - MARGIN.right;
   const innerH = HEIGHT - MARGIN.top - MARGIN.bottom;
 
-  const styles = getComputedStyle(document.documentElement);
+  const styles = getComputedStyle(container); // resolve tokens in the panel scope
   const colorOf = (family: ResultFamily) =>
     styles.getPropertyValue(FAMILY_TOKEN[family]).trim();
   const lineColor = styles.getPropertyValue('--line-strong').trim();

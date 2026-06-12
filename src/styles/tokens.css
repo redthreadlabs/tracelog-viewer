@@ -33,26 +33,26 @@
   --thread-strong: #e84a57;
   --thread-wash: #553a3d;
 
-  /* record kinds — one stable hue per kind, everywhere */
-  --kind-transaction: #6f97c9;
-  --kind-span: #76ad8e;
-  --kind-event: #c0a259;
+  /* record kinds — the chart palette, brightened for the grey canvas */
+  --kind-transaction: #6757ff;
+  --kind-span: #1fa51f;
+  --kind-event: #ffd54d;
   --kind-error: #c2081d;
-  --kind-metricset: #a08fc0;
+  --kind-metricset: #a64ddb;
 
   /* event levels — fixed semantic mapping (SPEC §7) */
   --level-debug: #9d9b97;
   --level-info: #c9c7c3;
-  --level-warn: #d4a032;
+  --level-warn: #f59b1e;
   --level-error: #c2081d;
 
   /* span types — one stable hue per type/subtype */
-  --spantype-db-mongodb: #76ad8e;
-  --spantype-db-redis: #cf8158;
-  --spantype-db: #6da7af;
-  --spantype-storage: #c0a259;
-  --spantype-external: #6f97c9;
-  --spantype-app: #a08fc0;
+  --spantype-db-mongodb: #1fa51f;
+  --spantype-db-redis: #fd0366;
+  --spantype-db: #29c3f2;
+  --spantype-storage: #f59b1e;
+  --spantype-external: #6757ff;
+  --spantype-app: #a64ddb;
   --spantype-other: #8f8d89;
 
   /* misc */
@@ -89,23 +89,23 @@
   --thread-strong: #9b0617;
   --thread-wash: #f9e7e9;
 
-  --kind-transaction: #355e93;
-  --kind-span: #3e7a5e;
-  --kind-event: #8a6d2f;
+  --kind-transaction: #2502ba;
+  --kind-span: #057a05;
+  --kind-event: #ffd54d;
   --kind-error: #c2081d;
-  --kind-metricset: #6f5e8f;
+  --kind-metricset: #8202c7;
 
   --level-debug: #7c7973;
   --level-info: #555350;
-  --level-warn: #b07c10;
+  --level-warn: #de8502;
   --level-error: #c2081d;
 
-  --spantype-db-mongodb: #3e7a5e;
-  --spantype-db-redis: #b3552c;
-  --spantype-db: #2e6a72;
-  --spantype-storage: #8a6d2f;
-  --spantype-external: #355e93;
-  --spantype-app: #6f5e8f;
+  --spantype-db-mongodb: #057a05;
+  --spantype-db-redis: #fd0366;
+  --spantype-db: #29c3f2;
+  --spantype-storage: #de8502;
+  --spantype-external: #2502ba;
+  --spantype-app: #8202c7;
   --spantype-other: #75706a;
 
   /* restart color inheritance: without this, body's canvas-light ink
@@ -132,23 +132,23 @@
   --thread-strong: #e84a57;
   --thread-wash: #3a2225;
 
-  --kind-transaction: #7da3d4;
-  --kind-span: #84b89c;
-  --kind-event: #c4a563;
+  --kind-transaction: #6757ff;
+  --kind-span: #1fa51f;
+  --kind-event: #ffd54d;
   --kind-error: #c2081d;
-  --kind-metricset: #a995c9;
+  --kind-metricset: #a64ddb;
 
   --level-debug: #787671;
   --level-info: #a8a6a1;
-  --level-warn: #d4a032;
+  --level-warn: #f59b1e;
   --level-error: #c2081d;
 
-  --spantype-db-mongodb: #84b89c;
-  --spantype-db-redis: #d98e63;
-  --spantype-db: #7eb3bb;
-  --spantype-storage: #c4a563;
-  --spantype-external: #7da3d4;
-  --spantype-app: #a995c9;
+  --spantype-db-mongodb: #1fa51f;
+  --spantype-db-redis: #fd0366;
+  --spantype-db: #29c3f2;
+  --spantype-storage: #f59b1e;
+  --spantype-external: #6757ff;
+  --spantype-app: #a64ddb;
   --spantype-other: #98928a;
 
   --grain-opacity: 0.5;

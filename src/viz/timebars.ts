@@ -33,7 +33,7 @@ export function renderTimebars(
   const innerW = width - MARGIN.left - MARGIN.right;
   const innerH = HEIGHT - MARGIN.top - MARGIN.bottom;
 
-  const styles = getComputedStyle(document.documentElement);
+  const styles = getComputedStyle(container); // resolve tokens in the panel scope
   const kindColor = (kind: RecordKind) => styles.getPropertyValue(`--kind-${kind}`).trim();
   const lineColor = styles.getPropertyValue('--line-strong').trim();
   const inkFaint = styles.getPropertyValue('--ink-faint').trim();

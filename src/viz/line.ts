@@ -33,7 +33,7 @@ export function renderLine(
   const innerW = width - MARGIN.left - MARGIN.right;
   const innerH = HEIGHT - MARGIN.top - MARGIN.bottom;
 
-  const styles = getComputedStyle(document.documentElement);
+  const styles = getComputedStyle(container); // resolve tokens in the panel scope
   const lineColor = styles.getPropertyValue('--kind-metricset').trim();
   const gridColor = styles.getPropertyValue('--line-strong').trim();
   const inkFaint = styles.getPropertyValue('--ink-faint').trim();

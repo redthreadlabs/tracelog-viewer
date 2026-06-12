@@ -22,7 +22,7 @@ export function renderHistogram(container: HTMLElement, buckets: HistBucket[]): 
   const innerW = width - MARGIN.left - MARGIN.right;
   const innerH = HEIGHT - MARGIN.top - MARGIN.bottom;
 
-  const styles = getComputedStyle(document.documentElement);
+  const styles = getComputedStyle(container); // resolve tokens in the panel scope
   const barColor = styles.getPropertyValue('--kind-transaction').trim();
   const lineColor = styles.getPropertyValue('--line-strong').trim();
   const inkFaint = styles.getPropertyValue('--ink-faint').trim();
