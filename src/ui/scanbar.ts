@@ -500,6 +500,20 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
 
   store.addEventListener('data', updateLoadedText);
 
+  /** the MEM/loading readout is one pill — same chrome in both states */
+  function storePill(text: string, title: string): HTMLAnchorElement {
+    const link = document.createElement('a');
+    link.href = '#/internals/store';
+    link.className = 'store-pill';
+    link.title = title;
+    link.textContent = text;
+    link.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      setView('/internals/store');
+    });
+    return link;
+  }
+
   function updateLoadedText(): void {
     if (state.planning || state.error) return; // those states own the text
     const { running, filesTotal, bytesDone } = store.progress;
@@ -507,23 +521,24 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     if (!budget || filesTotal === 0) return;
     if (running) {
       const total = state.plan?.totalBytes ?? 0;
-      budget.textContent =
-        total > 0 ? `loading ${fmtBytes(bytesDone)} of ${fmtBytes(total)}…` : 'loading…';
+      clearEl(budget);
+      budget.append(
+        storePill(
+          total > 0 ? `loading ${fmtBytes(bytesDone)} of ${fmtBytes(total)}…` : 'loading…',
+          'loading — inspect progress in the store inspector',
+        ),
+      );
       return;
     }
     if (store.records.length === 0 && store.files.size === 0) return;
     clearEl(budget);
     const inMemory = [...store.files.values()].reduce((s, f) => s + f.sizeUncompressed, 0);
-    const link = document.createElement('a');
-    link.href = '#/internals/store';
-    link.className = 'store-pill';
-    link.title = 'inspect the in-memory store (files, sizes, eviction)';
-    link.textContent = `MEM: ${fmtCount(store.records.length)} records · ${fmtBytes(inMemory)}`;
-    link.addEventListener('click', (ev) => {
-      ev.preventDefault();
-      setView('/internals/store');
-    });
-    budget.append(link);
+    budget.append(
+      storePill(
+        `MEM: ${fmtCount(store.records.length)} records · ${fmtBytes(inMemory)}`,
+        'inspect the in-memory store (files, sizes, eviction)',
+      ),
+    );
   }
 
   function clearEl(node: HTMLElement): void {
