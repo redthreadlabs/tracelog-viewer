@@ -35,7 +35,7 @@ export interface PerfEntry {
   heap?: number;
 }
 
-const MAX_ENTRIES = 1000;
+const MAX_ENTRIES = 2500; // a 448-file scan emits ~950 entries — leave room
 
 function heapNow(): number | undefined {
   const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;

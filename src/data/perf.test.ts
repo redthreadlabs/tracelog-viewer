@@ -22,10 +22,10 @@ describe('PerfLog', () => {
 
   it('caps the ring buffer and drops the oldest entries', () => {
     const log = new PerfLog();
-    for (let i = 0; i < 1100; i++) log.push(entry({ name: `op-${i}` }));
-    expect(log.entries).toHaveLength(1000);
+    for (let i = 0; i < 2600; i++) log.push(entry({ name: `op-${i}` }));
+    expect(log.entries).toHaveLength(2500);
     expect(log.entries[0].name).toBe('op-100');
-    expect(log.entries[999].name).toBe('op-1099');
+    expect(log.entries[2499].name).toBe('op-2599');
   });
 
   it('dispatches an event per push and bumps the generation', () => {
