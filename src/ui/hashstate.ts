@@ -22,9 +22,28 @@ export function readHash(): HashState {
   return { view, params };
 }
 
-/** Navigate to a view, preserving the current params. Fires hashchange. */
+/**
+ * Params that only mean something on certain views: dropped when
+ * navigating anywhere else, so a filter set on Events doesn't lurk in
+ * every URL copied afterwards (`user=` outliving its page). Global params
+ * (ch, from, to, w, b) always travel.
+ */
+const SCOPED_PARAMS: Record<string, (view: string) => boolean> = {
+  q: (view) => view === '/records' || view === '/events',
+  user: (view) => view === '/events',
+  type: (view) => view === '/events',
+};
+
+/**
+ * Navigate to a view, preserving the params that apply there. Fires
+ * hashchange. (The back button still restores old URLs verbatim — scoping
+ * only shapes *forward* navigation.)
+ */
 export function setView(view: string): void {
   const { params } = readHash();
+  for (const [key, appliesTo] of Object.entries(SCOPED_PARAMS)) {
+    if (params.has(key) && !appliesTo(view)) params.delete(key);
+  }
   const qs = params.toString();
   const next = `#${view}${qs ? '?' + qs : ''}`;
   if (location.hash === next) {
