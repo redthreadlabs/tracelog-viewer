@@ -44,6 +44,9 @@ const TIERS = [
   { channel: 'tier-10k', target: 10_000, days: 1, hosts: 1 },
   { channel: 'tier-100k', target: 100_000, days: 3, hosts: 1 },
   { channel: 'tier-1m', target: 1_000_000, days: 7, hosts: 4 },
+  // the wall-finder: ~3 GB of projected heap is past Chromium's default
+  // per-tab limit — this tier exists to measure where and how it breaks
+  { channel: 'tier-10m', target: 10_000_000, days: 14, hosts: 16 },
 ].filter((t) => !args.tiers || args.tiers.split(',').includes(t.channel));
 
 // Force `_seq` overflow files at the high end (SPEC §8.1 realism note).
