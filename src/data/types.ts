@@ -30,6 +30,8 @@ export interface Rec {
   ts: number;
   channel: string;
   host: string;
+  /** S3 key of the file this record came from — live mode replaces by key */
+  sourceKey: string;
   meta: FileMeta;
   /** primary display string: transaction/span name, event type, error message, … */
   name: string;

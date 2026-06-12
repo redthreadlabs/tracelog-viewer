@@ -17,6 +17,7 @@ function rec(partial: Partial<Rec>): Rec {
     ts: 0,
     channel: 'server',
     host: 'h',
+    sourceKey: 'k',
     meta: {},
     name: 'x',
     raw: {},

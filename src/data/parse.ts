@@ -96,6 +96,7 @@ function normalize(
     ts: usToMs(body.timestamp),
     channel: file.channel,
     host: file.host,
+    sourceKey: file.key,
     meta,
     name: '',
     raw: body,

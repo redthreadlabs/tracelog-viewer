@@ -66,7 +66,43 @@ export function renderRecDrawer(
   metaRow('trace', rec.traceId);
   metaRow('user', rec.userId);
 
-  drawer.append(el('div', { className: 'drawer-body' }, [meta, prettyJson(rec.raw)]));
+  const body = el('div', { className: 'drawer-body' }, [meta]);
+  const errorBlock = renderErrorBlock(rec);
+  if (errorBlock) body.append(errorBlock);
+  body.append(prettyJson(rec.raw));
+  drawer.append(body);
+}
+
+/**
+ * Error inspector (SPEC §6.4): when the record carries error details —
+ * `event.error` or an error record's `exception`/`log` — surface message,
+ * type, code, and stack above the raw JSON.
+ */
+function renderErrorBlock(rec: Rec): HTMLElement | null {
+  const source = (rec.raw.error ?? rec.raw.exception ?? rec.raw.log) as
+    | Record<string, unknown>
+    | undefined;
+  if (!source || typeof source !== 'object') return null;
+  const message = typeof source.message === 'string' ? source.message : undefined;
+  const type = typeof source.type === 'string' ? source.type : undefined;
+  const code = typeof source.code === 'string' || typeof source.code === 'number'
+    ? String(source.code)
+    : undefined;
+  const stack = typeof source.stack === 'string' ? source.stack : undefined;
+  if (!message && !stack) return null;
+
+  const block = el('div', { className: 'error-block' });
+  block.append(
+    el('div', { className: 'error-headline' }, [
+      el('span', { className: 'lvl', text: type ?? 'error', attrs: { style: 'color: var(--level-error)' } }),
+      code ? el('span', { className: 'chip', text: `code ${code}`, attrs: { style: 'cursor:default' } }) : '',
+      el('span', { className: 'error-message', text: message ?? '' }),
+    ]),
+  );
+  if (stack) {
+    block.append(el('pre', { className: 'json error-stack', text: stack }));
+  }
+  return block;
 }
 
 /** Minimal JSON syntax highlighting — keys, strings, numbers, booleans. */

@@ -11,6 +11,7 @@ function rec(partial: Partial<Rec> & { raw?: Record<string, unknown> }): Rec {
     ts: 0,
     channel: 'server',
     host: 'h',
+    sourceKey: 'k',
     meta: {},
     name: 'x',
     traceId: TRACE,

@@ -7,6 +7,7 @@ import { el, clear } from './dom';
 import { LogBucket } from '../s3/client';
 import { planScan, type ScanPlan } from '../s3/scanner';
 import { executeScan } from '../data/scan';
+import { LiveUpdater } from '../data/live';
 import { store } from '../data/store';
 import { fmtBytes, fmtCount, utcDaysAgo, utcToday } from './format';
 
@@ -16,6 +17,7 @@ interface ScanbarState {
   endDate: string;
   plan: ScanPlan | null;
   planning: boolean;
+  live: boolean;
   error?: string;
 }
 
@@ -25,14 +27,25 @@ const PRESETS: { label: string; days: number }[] = [
   { label: '30d', days: 29 },
 ];
 
+// One live updater per scanbar instance; re-rendering the scanbar (e.g. on
+// profile change) must stop the previous one.
+let activeLive: LiveUpdater | null = null;
+
 export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
+  activeLive?.stop();
   const state: ScanbarState = {
     channels: new Map(),
     startDate: utcToday(),
     endDate: utcToday(),
     plan: null,
     planning: false,
+    live: false,
   };
+
+  const live = new LiveUpdater(bucket, () =>
+    [...state.channels.entries()].filter(([, on]) => on).map(([ch]) => ch),
+  );
+  activeLive = live;
 
   bucket
     .listChannels()
@@ -137,6 +150,29 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
         }),
       );
     }
+    const liveChip = el('button', {
+      className: state.live ? 'chip live on' : 'chip live',
+      title: 'refresh today\'s _current snapshots every 60 s',
+      on: {
+        click: () => {
+          state.live = !state.live;
+          if (state.live) {
+            // live mode watches today: extend the range to include it
+            if (state.endDate < utcToday()) state.endDate = utcToday();
+            live.start();
+          } else {
+            live.stop();
+          }
+          render();
+        },
+      },
+    });
+    liveChip.append(
+      el('span', { className: 'dot' }),
+      el('span', { text: 'LIVE' }),
+    );
+    right.append(liveChip);
+
     const scanBtn = el('button', {
       className: 'btn btn-primary',
       text: 'Scan',

@@ -306,17 +306,31 @@ export function renderRecordsView(container: HTMLElement): () => void {
         renderDrawer();
         renderRows();
       },
-      selected?.traceId
-        ? [
-            {
-              label: 'view trace →',
-              title: 'open the waterfall for this trace',
-              onClick: () => {
-                location.hash = `#/trace/${selected!.traceId}`;
+      [
+        ...(selected?.userId
+          ? [
+              {
+                label: '±5 min context',
+                title: "show this user's surrounding events",
+                onClick: () => {
+                  viewState.userContext = { userId: selected!.userId!, ts: selected!.ts };
+                  location.hash = '#/events';
+                },
               },
-            },
-          ]
-        : [],
+            ]
+          : []),
+        ...(selected?.traceId
+          ? [
+              {
+                label: 'view trace →',
+                title: 'open the waterfall for this trace',
+                onClick: () => {
+                  location.hash = `#/trace/${selected!.traceId}`;
+                },
+              },
+            ]
+          : []),
+      ],
     );
   }
 

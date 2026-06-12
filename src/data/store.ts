@@ -43,6 +43,33 @@ export class Store extends EventTarget {
     this.dispatchEvent(new Event('data'));
   }
 
+  /**
+   * Replace every record from one source file (live mode: a re-fetched
+   * `_current` snapshot supersedes its previous contents; an empty batch
+   * purges a `_current` that was finalized away).
+   */
+  replaceFile(sourceKey: string, batch: Rec[]): void {
+    this.records = this.records.filter((r) => r.sourceKey !== sourceKey);
+    this.records.push(...batch);
+    this.records.sort((a, b) => a.ts - b.ts);
+    this.rebuildIndexes();
+    this.generation++;
+    this.dispatchEvent(new Event('data'));
+  }
+
+  private rebuildIndexes(): void {
+    this.kindCounts.clear();
+    this.channelCounts.clear();
+    this.levelCounts.clear();
+    this.hosts.clear();
+    for (const rec of this.records) {
+      bump(this.kindCounts, rec.kind);
+      bump(this.channelCounts, rec.channel);
+      if (rec.level) bump(this.levelCounts, rec.level);
+      this.hosts.add(rec.host);
+    }
+  }
+
   clear(): void {
     this.records = [];
     this.kindCounts.clear();

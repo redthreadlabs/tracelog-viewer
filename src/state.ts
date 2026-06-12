@@ -8,9 +8,15 @@ export const viewState = {
   timeWindow: null as [number, number] | null,
   /** consumed once by the records view on next render */
   pendingRecordsSearch: null as string | null,
+  /**
+   * "Show this user's surrounding events" (SPEC §6.4): consumed by the
+   * events view, which filters to the user in a ±5 min window around ts.
+   */
+  userContext: null as { userId: string; ts: number } | null,
 };
 
 export function resetViewState(): void {
   viewState.timeWindow = null;
   viewState.pendingRecordsSearch = null;
+  viewState.userContext = null;
 }

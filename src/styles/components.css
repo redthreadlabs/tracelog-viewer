@@ -858,3 +858,78 @@ th.sortable.on {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- live mode ---------- */
+
+.chip.live .dot {
+  background: var(--ink-faint);
+}
+
+.chip.live.on {
+  background: var(--thread);
+  border-color: var(--thread);
+  color: #fff;
+}
+
+.chip.live.on .dot {
+  background: #fff;
+  animation: live-pulse 2s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+/* ---------- metrics view ---------- */
+
+.metrics-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 1100px) {
+  .metrics-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.metrics-cell .label {
+  margin-bottom: 4px;
+}
+
+.metrics-chart {
+  padding: 4px 2px 0;
+}
+
+/* ---------- error inspector block ---------- */
+
+.error-block {
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--level-error);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  background: color-mix(in srgb, var(--thread-wash) 40%, transparent);
+}
+
+.error-headline {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.error-message {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.error-stack {
+  margin-top: 8px;
+  max-height: 220px;
+  overflow: auto;
+  color: var(--ink-soft);
+}

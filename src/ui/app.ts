@@ -11,12 +11,16 @@ import { LogBucket } from '../s3/client';
 import { renderConfig } from './config';
 import { renderScanbar } from './scanbar';
 import { renderRecordsView } from './views/records';
+import { renderEventsView } from './views/events';
+import { renderMetricsView } from './views/metrics';
 import { renderOverview } from './views/overview';
 import { renderTraceView } from './views/trace';
 import { renderTransactionView } from './views/transaction';
 
 const NAV: { hash: string; label: string }[] = [
   { hash: '#/overview', label: 'Overview' },
+  { hash: '#/events', label: 'Events' },
+  { hash: '#/metrics', label: 'Metrics' },
   { hash: '#/records', label: 'Records' },
 ];
 
@@ -131,6 +135,14 @@ export function startApp(root: HTMLElement): void {
     }
     if (hash === '#/records') {
       teardown = renderRecordsView(main);
+      return;
+    }
+    if (hash === '#/events') {
+      teardown = renderEventsView(main);
+      return;
+    }
+    if (hash === '#/metrics') {
+      teardown = renderMetricsView(main);
       return;
     }
     if (hash.startsWith('#/trace/')) {
