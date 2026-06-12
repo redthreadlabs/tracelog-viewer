@@ -32,10 +32,56 @@ interface FileRow {
   byKind: Map<RecordKind, number>;
 }
 
+/** Chrome's non-standard per-tab JS heap numbers (absent elsewhere). */
+interface PerformanceMemory {
+  usedJSHeapSize: number;
+  totalJSHeapSize: number;
+  jsHeapSizeLimit: number;
+}
+
+function readHeap(): PerformanceMemory | null {
+  const mem = (performance as unknown as { memory?: PerformanceMemory }).memory;
+  return mem && typeof mem.usedJSHeapSize === 'number' ? mem : null;
+}
+
 export function renderStoreView(container: HTMLElement): () => void {
   const body = el('div', { className: 'txn-detail-body' });
   const tip = el('div', { className: 'chart-tooltip fixed' });
   container.append(body, tip);
+
+  // tab memory readout, refreshed while the page is open
+  const memSection = el('div');
+  function renderMemory(): void {
+    clear(memSection);
+    const heap = readHeap();
+    memSection.append(
+      el('div', { className: 'section-head' }, [
+        el('span', { className: 'label', text: 'Tab memory' }),
+        el('span', {
+          className: 'budget faint',
+          text: heap
+            ? 'JS heap of this tab (records, strings, DOM, charts) — Chromium’s performance.memory, refreshed every 2 s'
+            : 'performance.memory is unavailable in this browser (Chromium only)',
+        }),
+      ]),
+    );
+    if (heap) {
+      const cards = el('div', { className: 'stat-cards' });
+      const card = (label: string, value: string) =>
+        cards.append(
+          el('div', { className: 'stat-card' }, [
+            el('div', { className: 'label', text: label }),
+            el('div', { className: 'stat-value num', text: value }),
+          ]),
+        );
+      card('heap used', fmtBytes(heap.usedJSHeapSize));
+      card('heap allocated', fmtBytes(heap.totalJSHeapSize));
+      card('heap limit', fmtBytes(heap.jsHeapSizeLimit));
+      card('used of limit', `${Math.round((heap.usedJSHeapSize / heap.jsHeapSizeLimit) * 100)}%`);
+      memSection.append(el('div', { className: 'stat-row' }, [cards]));
+    }
+  }
+  const memTimer = setInterval(renderMemory, 2000);
 
   function buildRows(): FileRow[] {
     const rows = new Map<string, FileRow>();
@@ -80,6 +126,8 @@ export function renderStoreView(container: HTMLElement): () => void {
 
   function render(): void {
     clear(body);
+    renderMemory();
+    body.append(memSection);
     const rows = buildRows();
 
     if (rows.length === 0) {
@@ -227,6 +275,7 @@ export function renderStoreView(container: HTMLElement): () => void {
   render();
 
   return () => {
+    clearInterval(memTimer);
     store.removeEventListener('data', onData);
   };
 }
