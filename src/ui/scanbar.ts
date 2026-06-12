@@ -15,13 +15,10 @@
  * on demand.
  */
 import { el, clear } from './dom';
-import { LogBucket } from '../s3/client';
-import { planScan, type ScanPlan } from '../s3/scanner';
-import { executeScan } from '../data/scan';
-import { LiveUpdater } from '../data/live';
-import { store } from '../data/store';
+import type { ScanPlan } from '../s3/scanner';
+import { storeClient } from '../data/storeclient';
 import { heapNow } from '../data/perf';
-import { viewState } from '../state';
+import { viewState, resetViewState } from '../state';
 import { fmtBytes, fmtCount } from './format';
 import { getParam, setParams, setView, parseWindowParam, windowParam, readHash } from './hashstate';
 import { renderBucketPicker } from './bucketpicker';
@@ -98,17 +95,16 @@ function toLocalInput(ms: number): string {
 /** views whose charts bucket records by time — the bars picker applies */
 const BUCKETED_VIEWS = new Set(['/overview', '/metrics']);
 
-// One live updater per scanbar instance; re-rendering the scanbar (e.g. on
-// profile change) must stop the previous one — same for the hashchange
-// listener that shows/hides the bars picker per view.
-let activeLive: LiveUpdater | null = null;
+// Re-rendering the scanbar (e.g. on profile change) must drop the previous
+// instance's listeners and timers.
 let activeHashHandler: (() => void) | null = null;
 let activeHeapTimer: ReturnType<typeof setInterval> | null = null;
+let activeClientListeners: (() => void) | null = null;
 
-export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
-  activeLive?.stop();
+export function renderScanbar(container: HTMLElement): void {
   if (activeHashHandler) window.removeEventListener('hashchange', activeHashHandler);
   if (activeHeapTimer) clearInterval(activeHeapTimer);
+  activeClientListeners?.();
 
   // initial range: a shared URL's precise window wins; else its day params;
   // else today.
@@ -137,10 +133,8 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
         live: false,
       };
 
-  const live = new LiveUpdater(bucket, () =>
-    [...state.channels.entries()].filter(([, on]) => on).map(([ch]) => ch),
-  );
-  activeLive = live;
+  const selectedChannels = () =>
+    [...state.channels.entries()].filter(([, on]) => on).map(([ch]) => ch);
 
   // identity of the currently loaded plan, so range fiddling that resolves
   // to the same data doesn't reload, and new data auto-loads at most once
@@ -150,8 +144,8 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     return plan.files.map((f) => `${f.key}@${f.etag ?? ''}`).join('|');
   }
 
-  bucket
-    .listChannels()
+  storeClient
+    .request<string[]>('listChannels')
     .then((channels) => {
       // a shared URL's ch=a,b narrows the default all-on selection; an
       // absent param means all-on, and ch= (empty → []) means none
@@ -178,7 +172,7 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
       // while an absent param means "all channels" — so a refresh stays
       // empty.
       if (state.channels.size > 0) {
-        store.clear();
+        void storeClient.request('clearStore');
         loadedSignature = null;
         setParams({ ch: '' });
       }
@@ -193,7 +187,11 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     });
     render();
     try {
-      state.plan = await planScan(bucket, selected, state.startMs, state.endMs);
+      state.plan = await storeClient.request<ScanPlan>('planScan', {
+        channels: selected,
+        startMs: state.startMs,
+        endMs: state.endMs,
+      });
     } catch (err) {
       state.error = err instanceof Error ? err.message : String(err);
     }
@@ -208,13 +206,14 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
       // A range that matches no files means "show nothing" — same contract
       // as deselecting every channel. Without this, switching to an empty
       // range (e.g. Today before any logs land) silently kept the old data.
-      if (store.records.length > 0 || store.files.size > 0) {
-        store.clear();
+      const snap = storeClient.snapshot;
+      if (snap.recordCount > 0 || snap.files.length > 0) {
+        void storeClient.request('clearStore');
         loadedSignature = null;
       }
       return;
     }
-    if (store.progress.running) return;
+    if (storeClient.snapshot.progress.running) return;
     if (planSignature(state.plan) === loadedSignature) {
       // same data, possibly a different slice of it: apply the window and
       // re-render the views without refetching anything
@@ -247,7 +246,8 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
   function runScan(): void {
     if (!state.plan || state.plan.files.length === 0) return;
     loadedSignature = planSignature(state.plan);
-    void executeScan(bucket, state.plan); // resets viewState synchronously first
+    resetViewState(); // a new scan invalidates any brushed window / deep link
+    void storeClient.request('executeScan', { plan: state.plan });
     applyWindow();
   }
 
@@ -425,13 +425,9 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
       on: {
         click: () => {
           state.live = !state.live;
-          if (state.live) {
-            // live mode watches today: extend the range to include now
-            if (state.endMs < Date.now()) state.endMs = Date.now();
-            live.start();
-          } else {
-            live.stop();
-          }
+          // live mode watches today: extend the range to include now
+          if (state.live && state.endMs < Date.now()) state.endMs = Date.now();
+          void storeClient.request('setLive', { on: state.live, channels: selectedChannels() });
           render();
         },
       },
@@ -453,7 +449,7 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
         },
       },
     });
-    refreshChip.disabled = state.planning || store.progress.running;
+    refreshChip.disabled = state.planning || storeClient.snapshot.progress.running;
 
     right.append(refreshChip, liveChip);
     if (state.error) {
@@ -483,7 +479,7 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
   }
 
   function updateFill(fill: HTMLElement): void {
-    const { filesTotal, filesDone, running } = store.progress;
+    const { filesTotal, filesDone, running } = storeClient.snapshot.progress;
     const pct = filesTotal > 0 ? (filesDone / filesTotal) * 100 : 0;
     fill.style.insetInlineEnd = `${100 - (running || pct > 0 ? pct : 0)}%`;
     if (!running && pct >= 100) {
@@ -493,15 +489,22 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     }
   }
 
-  store.addEventListener('progress', () => {
+  const onProgress = (): void => {
     const fill = container.querySelector<HTMLElement>('.progress-thread .fill');
     if (fill) updateFill(fill);
     const btn = container.querySelector<HTMLButtonElement>('.btn-primary');
-    if (btn) btn.disabled = store.progress.running || !state.plan || state.plan.files.length === 0;
+    if (btn) {
+      btn.disabled =
+        storeClient.snapshot.progress.running || !state.plan || state.plan.files.length === 0;
+    }
     updateLoadedText();
-  });
-
-  store.addEventListener('data', updateLoadedText);
+  };
+  storeClient.addEventListener('progress', onProgress);
+  storeClient.addEventListener('data', updateLoadedText);
+  activeClientListeners = () => {
+    storeClient.removeEventListener('progress', onProgress);
+    storeClient.removeEventListener('data', updateLoadedText);
+  };
 
   /** the MEM/loading readout is one pill — same chrome in both states */
   function storePill(text: string, title: string): HTMLAnchorElement {
@@ -519,7 +522,7 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
 
   function updateLoadedText(): void {
     if (state.planning || state.error) return; // those states own the text
-    const { running, filesTotal, bytesDone } = store.progress;
+    const { running, filesTotal, bytesDone } = storeClient.snapshot.progress;
     const budget = container.querySelector<HTMLElement>('.budget');
     if (!budget || filesTotal === 0) return;
     if (running) {
@@ -533,16 +536,17 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
       );
       return;
     }
-    if (store.records.length === 0 && store.files.size === 0) return;
+    const snap = storeClient.snapshot;
+    if (snap.recordCount === 0 && snap.files.length === 0) return;
     clearEl(budget);
     // the tab's real heap (Chromium); elsewhere, fall back to parsed bytes
     const heap = heapNow();
-    const inMemory = [...store.files.values()].reduce((s, f) => s + f.sizeUncompressed, 0);
+    const inMemory = snap.files.reduce((s, f) => s + f.sizeUncompressed, 0);
     budget.append(
       storePill(
         heap !== undefined
           ? `HEAP: ${fmtBytes(heap)}`
-          : `MEM: ${fmtCount(store.records.length)} records · ${fmtBytes(inMemory)}`,
+          : `MEM: ${fmtCount(snap.recordCount)} records · ${fmtBytes(inMemory)}`,
         'inspect the in-memory store (files, sizes, eviction)',
       ),
     );

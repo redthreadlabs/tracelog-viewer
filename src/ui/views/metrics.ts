@@ -4,12 +4,11 @@
  * changes, and span self-time breakdown as stacked bars.
  */
 import { el, clear } from '../dom';
-import { store } from '../../data/store';
+import { storeClient } from '../../data/storeclient';
 import {
-  runtimeSeries,
-  deploymentMarkers,
-  breakdownSelfTime,
   type SeriesPoint,
+  type BreakdownResult,
+  type DeploymentMarker,
 } from '../../data/metrics';
 import { renderLine } from '../../viz/line';
 import { renderStackbars } from '../../viz/stackbars';
@@ -39,18 +38,25 @@ export function renderMetricsView(container: HTMLElement): () => void {
   const body = el('div', { className: 'txn-detail-body' });
   container.append(body);
 
-  function render(): void {
+  let token = 0;
+  async function render(): Promise<void> {
+    const t = ++token;
+    const data = await storeClient.request<{
+      series: Map<string, Map<string, SeriesPoint[]>>;
+      breakdown: BreakdownResult;
+      markers: DeploymentMarker[];
+    }>('metricsData', {
+      window: viewState.timeWindow,
+      bucketMs: chosenBucketMs(),
+      sampleNames: SERIES.map((spec) => spec.key),
+    });
+    if (t !== token || !container.isConnected) return;
     clear(body);
 
-    const window = viewState.timeWindow;
-    const markers = deploymentMarkers(store.records);
-
-    // collect all hosts that have any runtime series
-    const allSeries = new Map<string, Map<string, SeriesPoint[]>>();
+    const markers = data.markers;
+    const allSeries = data.series;
     const hosts = new Set<string>();
-    for (const spec of SERIES) {
-      const byHost = runtimeSeries(store.kindRecords('metricset'), spec.key, window);
-      allSeries.set(spec.key, byHost);
+    for (const byHost of allSeries.values()) {
       for (const host of byHost.keys()) hosts.add(host);
     }
 
@@ -77,7 +83,7 @@ export function renderMetricsView(container: HTMLElement): () => void {
         t1 = Math.max(t1, series[series.length - 1].t);
       }
     }
-    const domain: [number, number] = window ?? [t0, t1 === t0 ? t0 + 60_000 : t1];
+    const domain: [number, number] = viewState.timeWindow ?? [t0, t1 === t0 ? t0 + 60_000 : t1];
 
     if (markers.length > 0) {
       body.append(
@@ -115,9 +121,9 @@ export function renderMetricsView(container: HTMLElement): () => void {
     }
 
     // breakdown self-time
-    const breakdown = breakdownSelfTime(store.kindRecords('metricset'), window, chosenBucketMs());
+    const breakdown = data.breakdown;
     if (breakdown.buckets.length > 0) {
-      const legendItems = breakdown.types.slice(0, 8).map((key) =>
+      const legendItems = breakdown.types.slice(0, 8).map((key: string) =>
         el('span', { className: 'chip', attrs: { style: 'cursor:default' } }, [
           el('span', {
             className: 'dot',
@@ -146,14 +152,15 @@ export function renderMetricsView(container: HTMLElement): () => void {
     }
   }
 
-  const onData = () => render();
-  store.addEventListener('data', onData);
-  const onResize = () => render();
+  const onData = () => void render();
+  storeClient.addEventListener('data', onData);
+  const onResize = () => void render();
   window.addEventListener('resize', onResize);
-  render();
+  void render();
 
   return () => {
-    store.removeEventListener('data', onData);
+    token++;
+    storeClient.removeEventListener('data', onData);
     window.removeEventListener('resize', onResize);
   };
 }

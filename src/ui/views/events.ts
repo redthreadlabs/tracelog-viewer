@@ -6,7 +6,7 @@
  * ±5 minutes", arriving via viewState.userContext from any view.
  */
 import { el, clear } from '../dom';
-import { store, mergeByTime, windowSlice } from '../../data/store';
+import { storeClient } from '../../data/storeclient';
 import type { Rec } from '../../data/types';
 import { viewState } from '../../state';
 import { renderRecDrawer, type DrawerAction } from '../recdrawer';
@@ -55,7 +55,12 @@ export function renderEventsView(container: HTMLElement): () => void {
     viewState.userContext = null;
   }
 
-  let filtered: Rec[] = [];
+  let rows: Rec[] = [];
+  let total = 0;
+  let typeCounts = new Map<string, number>();
+  let levelCounts = new Map<string, number>();
+  let poolTotal = 0;
+  let token = 0;
   let page = 0;
   let selected: Rec | null = null;
   let lastGeneration = -1;
@@ -73,33 +78,39 @@ export function renderEventsView(container: HTMLElement): () => void {
   table.append(thead, tbody);
   wrap.append(table);
 
-  function pool(): Rec[] {
-    return mergeByTime(store.kindRecords('event'), store.kindRecords('error'));
-  }
-
-  function applyFilters(): void {
-    const q = filters.search.toLowerCase();
-    const user = filters.user.trim();
-    const w = filters.contextWindow ?? viewState.timeWindow;
-    filtered = windowSlice(pool(), w).filter((r) => {
-      if (r.level && !filters.levels.has(r.level)) return false;
-      if (filters.type && r.name !== filters.type) return false;
-      if (filters.channel && r.channel !== filters.channel) return false;
-      if (user && r.userId !== user) return false;
-      if (q) {
-        const hay = `${r.name} ${r.message ?? ''} ${r.userId ?? ''}`.toLowerCase();
-        if (!hay.includes(q) && (r.rawLine === null || !r.rawLine.toLowerCase().includes(q))) {
-          return false;
-        }
-      }
-      return true;
+  /** filtering, facet counting, and pagination all happen worker-side */
+  async function fetchPage(): Promise<boolean> {
+    const t = ++token;
+    const res = await storeClient.request<{
+      total: number;
+      rows: Rec[];
+      typeCounts: Map<string, number>;
+      levelCounts: Map<string, number>;
+      poolTotal: number;
+    }>('eventsPage', {
+      levels: [...filters.levels],
+      type: filters.type,
+      channel: filters.channel,
+      user: filters.user,
+      q: filters.search,
+      newestFirst: filters.newestFirst,
+      window: viewState.timeWindow,
+      contextWindow: filters.contextWindow,
+      offset: page * PAGE_SIZE,
+      limit: PAGE_SIZE,
     });
-    if (filters.newestFirst) filtered.reverse();
+    if (t !== token || !container.isConnected) return false;
+    total = res.total;
+    rows = res.rows;
+    typeCounts = res.typeCounts;
+    levelCounts = res.levelCounts;
+    poolTotal = res.poolTotal;
     page = Math.min(page, maxPage());
+    return true;
   }
 
   function maxPage(): number {
-    return Math.max(0, Math.ceil(filtered.length / PAGE_SIZE) - 1);
+    return Math.max(0, Math.ceil(total / PAGE_SIZE) - 1);
   }
 
   function renderFilterbar(): void {
@@ -107,7 +118,7 @@ export function renderEventsView(container: HTMLElement): () => void {
 
     for (const level of LEVELS) {
       const on = filters.levels.has(level);
-      const count = pool().filter((r) => r.level === level).length;
+      const count = levelCounts.get(level) ?? 0;
       const chip = el('button', { className: on ? 'chip on' : 'chip' }, [
         el('span', { className: 'dot', attrs: { style: `background: var(--level-${level})` } }),
         el('span', { text: level }),
@@ -122,10 +133,10 @@ export function renderEventsView(container: HTMLElement): () => void {
       filterbar.append(chip);
     }
 
-    if (store.channelCounts.size > 1) {
+    if (storeClient.snapshot.channelCounts.size > 1) {
       const select = el('select', { className: 'select' });
       select.append(el('option', { text: 'all channels', attrs: { value: '' } }));
-      for (const ch of store.channelCounts.keys()) {
+      for (const ch of storeClient.snapshot.channelCounts.keys()) {
         select.append(el('option', { text: ch, attrs: { value: ch } }));
       }
       select.value = filters.channel ?? '';
@@ -217,9 +228,7 @@ export function renderEventsView(container: HTMLElement): () => void {
 
   function renderFacets(): void {
     clear(facetbar);
-    const counts = new Map<string, number>();
-    for (const r of pool()) counts.set(r.name, (counts.get(r.name) ?? 0) + 1);
-    const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, TYPE_FACET_LIMIT);
+    const top = [...typeCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, TYPE_FACET_LIMIT);
 
     facetbar.append(el('span', { className: 'label', text: 'Type' }));
     for (const [type, count] of top) {
@@ -276,8 +285,7 @@ export function renderEventsView(container: HTMLElement): () => void {
 
   function renderRows(): void {
     clear(tbody);
-    const start = page * PAGE_SIZE;
-    for (const r of filtered.slice(start, start + PAGE_SIZE)) {
+    for (const r of rows) {
       const tr = el('tr', { className: selected?.id === r.id ? 'selected' : '' });
       tr.append(
         el('td', { className: 'num', text: fmtDateTime(r.ts) }),
@@ -353,7 +361,7 @@ export function renderEventsView(container: HTMLElement): () => void {
     pagerbar.append(
       el('span', {
         className: 'budget',
-        text: `${fmtCount(filtered.length)} of ${fmtCount(pool().length)} events & errors`,
+        text: `${fmtCount(total)} of ${fmtCount(poolTotal)} events & errors`,
       }),
       el('span', { className: 'masthead-spacer' }),
       pagerBtn('⇤', () => goto(0), page === 0),
@@ -375,8 +383,11 @@ export function renderEventsView(container: HTMLElement): () => void {
 
   function goto(p: number): void {
     page = Math.max(0, Math.min(p, maxPage()));
-    renderRows();
-    renderPager();
+    void fetchPage().then((fresh) => {
+      if (!fresh) return;
+      renderRows();
+      renderPager();
+    });
   }
 
   function renderEmpty(): void {
@@ -395,29 +406,32 @@ export function renderEventsView(container: HTMLElement): () => void {
   }
 
   function refresh(filtersChanged = false): void {
-    if (store.generation !== lastGeneration || filtersChanged) {
-      lastGeneration = store.generation;
-      applyFilters();
-    }
-    const existingEmpty = wrap.querySelector('.empty');
-    if (existingEmpty) existingEmpty.remove();
-    if (pool().length === 0) {
-      renderEmpty();
-      return;
-    }
-    renderFilterbar();
-    renderFacets();
-    renderHead();
-    renderRows();
-    renderPager();
+    void (async () => {
+      if (storeClient.snapshot.generation !== lastGeneration || filtersChanged) {
+        lastGeneration = storeClient.snapshot.generation;
+        if (!(await fetchPage())) return;
+      }
+      const existingEmpty = wrap.querySelector('.empty');
+      if (existingEmpty) existingEmpty.remove();
+      if (poolTotal === 0) {
+        renderEmpty();
+        return;
+      }
+      renderFilterbar();
+      renderFacets();
+      renderHead();
+      renderRows();
+      renderPager();
+    })();
   }
 
   const onData = () => refresh();
-  store.addEventListener('data', onData);
+  storeClient.addEventListener('data', onData);
   refresh();
 
   return () => {
-    store.removeEventListener('data', onData);
+    token++;
+    storeClient.removeEventListener('data', onData);
   };
 }
 

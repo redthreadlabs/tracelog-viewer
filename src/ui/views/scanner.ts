@@ -4,8 +4,8 @@
  * source IPs. Mostly entertainment.
  */
 import { el, clear } from '../dom';
-import { store } from '../../data/store';
-import { scannerStats, type RankedCount } from '../../data/scanner-traffic';
+import { storeClient } from '../../data/storeclient';
+import { type ScannerStats, type RankedCount } from '../../data/scanner-traffic';
 import { viewState } from '../../state';
 import { fmtCount } from '../format';
 
@@ -13,9 +13,14 @@ export function renderScannerView(container: HTMLElement): () => void {
   const body = el('div', { className: 'txn-detail-body' });
   container.append(body);
 
-  function render(): void {
+  let token = 0;
+  async function render(): Promise<void> {
+    const t = ++token;
+    const stats = await storeClient.request<ScannerStats>('scannerData', {
+      window: viewState.timeWindow,
+    });
+    if (t !== token || !container.isConnected) return;
     clear(body);
-    const stats = scannerStats(store.kindRecords('transaction'), viewState.timeWindow);
 
     if (stats.total === 0) {
       body.append(
@@ -95,11 +100,12 @@ export function renderScannerView(container: HTMLElement): () => void {
     return section;
   }
 
-  const onData = () => render();
-  store.addEventListener('data', onData);
-  render();
+  const onData = () => void render();
+  storeClient.addEventListener('data', onData);
+  void render();
 
   return () => {
-    store.removeEventListener('data', onData);
+    token++;
+    storeClient.removeEventListener('data', onData);
   };
 }

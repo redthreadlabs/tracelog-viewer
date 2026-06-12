@@ -5,8 +5,9 @@
  * linking into its trace waterfall.
  */
 import { el, clear } from '../dom';
-import { store } from '../../data/store';
-import { transactionStats, logHistogram, type TxnStats } from '../../data/aggregate';
+import { storeClient } from '../../data/storeclient';
+import type { HistBucket } from '../../data/aggregate';
+import type { SampleNote } from '../../worker/backend';
 import { renderHistogram } from '../../viz/histogram';
 import { renderScatter, resultFamily } from '../../viz/scatter';
 import { viewState } from '../../state';
@@ -16,19 +17,40 @@ import { fmtCount, fmtDateTime, fmtDuration } from '../format';
 
 const SLOWEST_N = 20;
 
+/** what the worker returns for one transaction name (boundary-sampled) */
+interface TxnDetail {
+  name: string;
+  count: number;
+  p50?: number;
+  p95?: number;
+  p99?: number;
+  max?: number;
+  rpm?: number;
+  resultCounts: Map<string, number>;
+  histogram: HistBucket[];
+  instances: Rec[];
+  sample?: SampleNote;
+  slowest: Rec[];
+}
+
 export function renderTransactionView(container: HTMLElement, name: string): () => void {
   const head = el('div', { className: 'trace-head' });
   const body = el('div', { className: 'txn-detail-body' });
   container.append(head, body);
+  let token = 0;
 
-  function render(): void {
-    // the name index narrows 1M records to this transaction's instances
-    const stats = transactionStats(store.transactionsNamed(name), name, viewState.timeWindow);
+  async function render(): Promise<void> {
+    const t = ++token;
+    const stats = await storeClient.request<TxnDetail>('txnDetail', {
+      name,
+      window: viewState.timeWindow,
+    });
+    if (t !== token || !container.isConnected) return;
     renderHead(stats);
     renderBody(stats);
   }
 
-  function renderHead(stats: TxnStats): void {
+  function renderHead(stats: TxnDetail): void {
     clear(head);
     head.append(
       el('button', {
@@ -58,7 +80,7 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
             click: () => {
               viewState.timeWindow = null;
               setParams({ w: null });
-              render();
+              void render();
             },
           },
         }),
@@ -67,7 +89,7 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
     void stats;
   }
 
-  function renderBody(stats: TxnStats): void {
+  function renderBody(stats: TxnDetail): void {
     clear(body);
 
     if (stats.count === 0) {
@@ -121,10 +143,6 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
     body.append(el('div', { className: 'stat-row' }, [cards, mix]));
 
     // --- charts ---
-    const durations = stats.instances
-      .map((r) => r.duration)
-      .filter((d): d is number => d !== undefined);
-
     const chartsGrid = el('div', { className: 'charts-grid' });
     const histSection = el('div', {}, [
       el('div', { className: 'section-head' }, [
@@ -149,14 +167,11 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
     chartsGrid.append(histSection, scatterSection);
     body.append(chartsGrid);
 
-    renderHistogram(histHost, logHistogram(durations));
-    renderScatter(scatterHost, stats.instances, openTrace, sampleHost);
+    renderHistogram(histHost, stats.histogram);
+    renderScatter(scatterHost, stats.instances, openTrace, sampleHost, stats.sample ?? null);
 
-    // --- slowest instances ---
-    const slowest = [...stats.instances]
-      .filter((r) => r.duration !== undefined)
-      .sort((a, b) => b.duration! - a.duration!)
-      .slice(0, SLOWEST_N);
+    // --- slowest instances --- (already capped at the worker boundary)
+    const slowest = stats.slowest;
 
     body.append(
       el('div', { className: 'section-head' }, [
@@ -205,14 +220,15 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
     if (rec.traceId) setView(`/trace/${rec.traceId}`);
   }
 
-  const onData = () => render();
-  store.addEventListener('data', onData);
-  const onResize = () => render();
+  const onData = () => void render();
+  storeClient.addEventListener('data', onData);
+  const onResize = () => void render();
   window.addEventListener('resize', onResize);
-  render();
+  void render();
 
   return () => {
-    store.removeEventListener('data', onData);
+    token++;
+    storeClient.removeEventListener('data', onData);
     window.removeEventListener('resize', onResize);
   };
 }

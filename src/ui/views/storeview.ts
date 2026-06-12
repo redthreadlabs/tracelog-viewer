@@ -8,11 +8,8 @@
  * parse.ts). Plus a live tab-heap readout.
  */
 import { el, clear } from '../dom';
-import { store } from '../../data/store';
-import { loadOneFile } from '../../data/scan';
-import { cacheKeys } from '../../data/cache';
-import type { LogBucket } from '../../s3/client';
-import { parseKey, dedupeCurrents, type ParsedKey } from '../../s3/keys';
+import { storeClient } from '../../data/storeclient';
+import { parseKey, type ParsedKey } from '../../s3/keys';
 import { RECORD_KINDS, type RecordKind } from '../../data/types';
 import { internalsTabs } from './internals';
 import { fmtBytes, fmtCount, fmtDateTime, fmtHumane, zoneLabel } from '../format';
@@ -50,7 +47,7 @@ function readHeap(): PerformanceMemory | null {
   return mem && typeof mem.usedJSHeapSize === 'number' ? mem : null;
 }
 
-export function renderStoreView(container: HTMLElement, bucket: LogBucket): () => void {
+export function renderStoreView(container: HTMLElement): () => void {
   const body = el('div', { className: 'txn-detail-body' });
   const tip = el('div', { className: 'chart-tooltip fixed' });
   container.append(body, tip);
@@ -63,24 +60,12 @@ export function renderStoreView(container: HTMLElement, bucket: LogBucket): () =
 
   async function loadAvailability(): Promise<void> {
     try {
-      const [channels, cached] = await Promise.all([bucket.listChannels(), cacheKeys(bucket.bucket)]);
+      const [files, cached] = await Promise.all([
+        storeClient.request<ParsedKey[]>('listAllFiles'),
+        storeClient.request<Set<string>>('cacheKeys'),
+      ]);
       cachedSet = cached;
-      const listings = await Promise.all(
-        channels.map((ch) => bucket.listChannelRange(ch, '0000-01-01', '9999-12-31')),
-      );
-      const all: ParsedKey[] = [];
-      for (const listing of listings) {
-        for (const obj of listing) {
-          const parsed = parseKey(obj.key, obj.size, obj.lastModified, obj.etag);
-          if (parsed) all.push(parsed);
-        }
-      }
-      // newest first: interval desc, then key for stability
-      available = dedupeCurrents(all).sort((a, b) =>
-        a.interval === b.interval
-          ? a.key.localeCompare(b.key)
-          : b.interval.localeCompare(a.interval),
-      );
+      available = files; // already deduped, newest first (worker-side)
     } catch (err) {
       listError = err instanceof Error ? err.message : String(err);
     }
@@ -88,7 +73,7 @@ export function renderStoreView(container: HTMLElement, bucket: LogBucket): () =
   }
 
   async function refreshCached(): Promise<void> {
-    cachedSet = await cacheKeys(bucket.bucket);
+    cachedSet = await storeClient.request<Set<string>>('cacheKeys');
   }
 
   // the heap column refreshes in place while the page is open
@@ -120,16 +105,21 @@ export function renderStoreView(container: HTMLElement, bucket: LogBucket): () =
   }
   const memTimer = setInterval(renderMemory, 2000);
 
+  // per-file kind counts arrive from the worker with each data event
+  let kindCountsByFile = new Map<string, Map<RecordKind, number>>();
+  async function refreshKindCounts(): Promise<void> {
+    kindCountsByFile = await storeClient.request<Map<string, Map<RecordKind, number>>>(
+      'fileKindCounts',
+    );
+    render();
+  }
+
   function buildRows(): FileRow[] {
     const counts = new Map<string, { total: number; byKind: Map<RecordKind, number> }>();
-    for (const rec of store.records) {
-      let c = counts.get(rec.sourceKey);
-      if (!c) {
-        c = { total: 0, byKind: new Map() };
-        counts.set(rec.sourceKey, c);
-      }
-      c.total++;
-      c.byKind.set(rec.kind, (c.byKind.get(rec.kind) ?? 0) + 1);
+    for (const [key, byKind] of kindCountsByFile) {
+      let total = 0;
+      for (const n of byKind.values()) total += n;
+      counts.set(key, { total, byKind });
     }
 
     const rows: FileRow[] = [];
@@ -137,7 +127,7 @@ export function renderStoreView(container: HTMLElement, bucket: LogBucket): () =
     for (const parsed of available ?? []) {
       seen.add(parsed.key);
       const c = counts.get(parsed.key);
-      const info = store.files.get(parsed.key);
+      const info = storeFiles().get(parsed.key);
       rows.push({
         parsed,
         total: c?.total ?? 0,
@@ -149,7 +139,7 @@ export function renderStoreView(container: HTMLElement, bucket: LogBucket): () =
       });
     }
     // loaded files the listing missed (e.g. listing failed) still appear
-    for (const info of store.files.values()) {
+    for (const info of storeFiles().values()) {
       if (seen.has(info.key)) continue;
       const parsed = parseKey(info.key, info.sizeCompressed);
       if (!parsed) continue;
@@ -165,6 +155,10 @@ export function renderStoreView(container: HTMLElement, bucket: LogBucket): () =
       });
     }
     return rows;
+  }
+
+  function storeFiles(): Map<string, import('../../data/store').FileInfo> {
+    return new Map(storeClient.snapshot.files.map((f) => [f.key, f]));
   }
 
   function maxPage(rows: FileRow[]): number {
@@ -188,7 +182,7 @@ export function renderStoreView(container: HTMLElement, bucket: LogBucket): () =
         ]),
       );
     const loadedRows = rows.filter((r) => r.total > 0);
-    srow('records', fmtCount(store.records.length));
+    srow('records', fmtCount(storeClient.snapshot.recordCount));
     srow('files', `${fmtCount(loadedRows.length)} of ${fmtCount(rows.length)}`);
     srow(
       'compressed → parsed',
@@ -301,11 +295,12 @@ export function renderStoreView(container: HTMLElement, bucket: LogBucket): () =
           ev.stopPropagation();
           if (row.loading) return;
           if (loaded) {
-            store.dropFile(row.parsed.key);
+            void storeClient.request('dropFile', { key: row.parsed.key });
           } else {
             inFlight.add(row.parsed.key);
             render();
-            void loadOneFile(bucket, row.parsed)
+            void storeClient
+              .request('loadOneFile', { file: row.parsed })
               .then(refreshCached)
               .finally(() => {
                 inFlight.delete(row.parsed.key);
@@ -358,9 +353,9 @@ export function renderStoreView(container: HTMLElement, bucket: LogBucket): () =
   function totalKindStats(): HTMLElement {
     const col = el('div', { className: 'sgrid' });
     col.append(el('div', { className: 'label scol-title', text: 'Kinds' }));
-    const total = store.records.length;
+    const total = storeClient.snapshot.recordCount;
     for (const kind of RECORD_KINDS) {
-      const count = store.kindCounts.get(kind) ?? 0;
+      const count = storeClient.snapshot.kindCounts.get(kind) ?? 0;
       if (count === 0) continue;
       const pct = Math.round((count / total) * 100);
       col.append(
@@ -409,14 +404,15 @@ export function renderStoreView(container: HTMLElement, bucket: LogBucket): () =
     return bar;
   }
 
-  const onData = () => render();
-  store.addEventListener('data', onData);
+  const onData = () => void refreshKindCounts();
+  storeClient.addEventListener('data', onData);
   render();
+  void refreshKindCounts();
   void loadAvailability();
 
   return () => {
     clearInterval(memTimer);
-    store.removeEventListener('data', onData);
+    storeClient.removeEventListener('data', onData);
   };
 }
 

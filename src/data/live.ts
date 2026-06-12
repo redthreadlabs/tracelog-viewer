@@ -18,7 +18,7 @@ import type { LogBucket } from '../s3/client';
 import { parseKey } from '../s3/keys';
 import { parseFile } from './parse';
 import type { FileMeta } from './types';
-import { store } from './store';
+import type { Store } from './store';
 import { perf } from './perf';
 import { utcToday } from '../ui/format';
 
@@ -59,6 +59,7 @@ export function takeTail(bytes: Uint8Array): Uint8Array {
 }
 
 export class LiveUpdater {
+  private store: Store;
   private bucket: LogBucket;
   private channels: () => string[];
   private states = new Map<string, FileState>();
@@ -66,7 +67,8 @@ export class LiveUpdater {
   private ticking = false;
   lastTick = 0;
 
-  constructor(bucket: LogBucket, channels: () => string[]) {
+  constructor(store: Store, bucket: LogBucket, channels: () => string[]) {
+    this.store = store;
     this.bucket = bucket;
     this.channels = channels;
   }
@@ -120,7 +122,7 @@ export class LiveUpdater {
             )
           ) {
             if (this.states.has(parsed.key)) {
-              store.dropFile(parsed.key);
+              this.store.dropFile(parsed.key);
               this.states.delete(parsed.key);
             }
             continue;
@@ -137,8 +139,8 @@ export class LiveUpdater {
             // verified append: parse + append only the new lines
             const result = parseFile(tailBytes, parsed, prev!.lastMeta);
             liveRecords += result.records.length;
-            store.registerFile(parsed, result.byteLength, true);
-            store.appendSorted(result.records);
+            this.store.registerFile(parsed, result.byteLength, true);
+            this.store.appendSorted(result.records);
             this.states.set(parsed.key, {
               etag,
               byteLen: bytes.length,
@@ -148,8 +150,8 @@ export class LiveUpdater {
           } else {
             const result = parseFile(bytes, parsed);
             liveRecords += result.records.length;
-            store.registerFile(parsed, result.byteLength);
-            store.replaceFile(parsed.key, result.records);
+            this.store.registerFile(parsed, result.byteLength);
+            this.store.replaceFile(parsed.key, result.records);
             this.states.set(parsed.key, {
               etag,
               byteLen: bytes.length,

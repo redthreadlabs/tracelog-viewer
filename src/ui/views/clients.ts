@@ -4,13 +4,13 @@
  * events, and event types by volume. Rows link into the events view.
  */
 import { el, clear } from '../dom';
-import { store, mergeByTime } from '../../data/store';
+import { storeClient } from '../../data/storeclient';
+import type { Rec } from '../../data/types';
 import {
-  clientProfiles,
-  appVersions,
-  slowClientEvents,
-  clientEventTypes,
   SLOW_EVENT_MS,
+  type ClientProfile,
+  type AppVersionStat,
+  type EventTypeStat,
 } from '../../data/clients';
 import { viewState } from '../../state';
 import { setView } from '../hashstate';
@@ -22,12 +22,18 @@ export function renderClientsView(container: HTMLElement): () => void {
   const body = el('div', { className: 'txn-detail-body' });
   container.append(body);
 
-  function render(): void {
+  let token = 0;
+  async function render(): Promise<void> {
+    const t = ++token;
+    const data = await storeClient.request<{
+      profiles: ClientProfile[];
+      versions: AppVersionStat[];
+      slow: Rec[];
+      types: EventTypeStat[];
+    }>('clientsData', { window: viewState.timeWindow });
+    if (t !== token || !container.isConnected) return;
     clear(body);
-    const window = viewState.timeWindow;
-    // client analytics only ever looks at events ∪ errors (~15% of records)
-    const pool = mergeByTime(store.kindRecords('event'), store.kindRecords('error'));
-    const profiles = clientProfiles(pool, window);
+    const profiles = data.profiles;
 
     if (profiles.length === 0) {
       body.append(
@@ -40,9 +46,9 @@ export function renderClientsView(container: HTMLElement): () => void {
       return;
     }
 
-    const versions = appVersions(pool, window);
-    const slow = slowClientEvents(pool, window);
-    const types = clientEventTypes(pool, window);
+    const versions = data.versions;
+    const slow = data.slow;
+    const types = data.types;
 
     // --- stat cards ---
     const cards = el('div', { className: 'stat-cards' });
@@ -200,12 +206,13 @@ export function renderClientsView(container: HTMLElement): () => void {
     body.append(el('div', { className: 'txn-wrap', attrs: { style: 'flex:none' } }, [typesTable]));
   }
 
-  const onData = () => render();
-  store.addEventListener('data', onData);
-  render();
+  const onData = () => void render();
+  storeClient.addEventListener('data', onData);
+  void render();
 
   return () => {
-    store.removeEventListener('data', onData);
+    token++;
+    storeClient.removeEventListener('data', onData);
   };
 }
 

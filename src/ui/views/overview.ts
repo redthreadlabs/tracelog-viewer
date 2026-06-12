@@ -5,13 +5,8 @@
  * drill-down view.
  */
 import { el, clear } from '../dom';
-import { store, windowBounds } from '../../data/store';
-import {
-  bucketByTime,
-  groupTransactions,
-  sortTxnGroups,
-  type TxnSortKey,
-} from '../../data/aggregate';
+import { storeClient } from '../../data/storeclient';
+import { sortTxnGroups, type TxnGroup, type TxnSortKey, type BucketResult } from '../../data/aggregate';
 import { renderTimebars } from '../../viz/timebars';
 import { viewState } from '../../state';
 import { setParams, setView, windowParam } from '../hashstate';
@@ -22,6 +17,8 @@ export function renderOverview(container: HTMLElement): () => void {
   let sortKey: TxnSortKey = 'totalDuration';
   let sortDesc = true;
   let lastGeneration = -1;
+  let token = 0;
+  let groups: TxnGroup[] = []; // last fetch — re-sorts don't re-query
 
   const chartSection = el('section', { className: 'chart-section' });
   const chartHead = el('div', { className: 'section-head' });
@@ -31,18 +28,28 @@ export function renderOverview(container: HTMLElement): () => void {
   const tableSection = el('section', { className: 'txn-section' });
   container.append(chartSection, tableSection);
 
-  function render(): void {
-    lastGeneration = store.generation;
+  async function render(): Promise<void> {
+    lastGeneration = storeClient.snapshot.generation;
 
-    if (store.records.length === 0) {
+    if (storeClient.snapshot.recordCount === 0) {
       renderEmpty();
       return;
     }
 
+    const t = ++token;
+    const window = viewState.timeWindow;
+    const res = await storeClient.request<{
+      bucketed: BucketResult;
+      groups: TxnGroup[];
+      inWindow: number;
+      markers: unknown;
+    }>('overviewData', { window, bucketMs: chosenBucketMs() });
+    if (t !== token || !container.isConnected) return;
+    groups = res.groups;
+
     // --- chart head: window label + reset ---
     clear(chartHead);
     chartHead.append(el('span', { className: 'label', text: 'Volume' }));
-    const window = viewState.timeWindow;
     if (window) {
       chartHead.append(
         el('span', {
@@ -56,7 +63,7 @@ export function renderOverview(container: HTMLElement): () => void {
             click: () => {
               viewState.timeWindow = null;
               setParams({ w: null });
-              render();
+              void render();
             },
           },
         }),
@@ -71,7 +78,7 @@ export function renderOverview(container: HTMLElement): () => void {
     }
     chartHead.append(el('span', { className: 'masthead-spacer' }));
 
-    const data = bucketByTime(store.records, window, chosenBucketMs());
+    const data = res.bucketed;
     chartHead.append(
       el('span', {
         className: 'budget faint',
@@ -79,7 +86,7 @@ export function renderOverview(container: HTMLElement): () => void {
       }),
       el('span', {
         className: 'budget',
-        text: `${fmtCount(countInWindow())} records`,
+        text: `${fmtCount(res.inWindow)} records`,
       }),
     );
 
@@ -88,37 +95,28 @@ export function renderOverview(container: HTMLElement): () => void {
       onWindow: (w) => {
         viewState.timeWindow = w;
         setParams({ w: windowParam(w) });
-        render();
+        void render();
       },
     });
 
     renderTable();
   }
 
-  function countInWindow(): number {
-    const [lo, hi] = windowBounds(store.records, viewState.timeWindow);
-    return hi - lo;
-  }
-
   function renderTable(): void {
     clear(tableSection);
 
-    const groups = sortTxnGroups(
-      groupTransactions(store.kindRecords('transaction'), viewState.timeWindow),
-      sortKey,
-      sortDesc,
-    );
+    const sorted = sortTxnGroups(groups, sortKey, sortDesc);
 
     const head = el('div', { className: 'section-head' }, [
       el('span', { className: 'label', text: 'Transactions' }),
       el('span', {
         className: 'budget faint',
-        text: `${fmtCount(groups.length)} distinct names`,
+        text: `${fmtCount(sorted.length)} distinct names`,
       }),
     ]);
     tableSection.append(head);
 
-    if (groups.length === 0) {
+    if (sorted.length === 0) {
       tableSection.append(
         el('p', {
           className: 'muted',
@@ -129,7 +127,7 @@ export function renderOverview(container: HTMLElement): () => void {
       return;
     }
 
-    const maxDuration = Math.max(...groups.map((g) => g.totalDuration), 1);
+    const maxDuration = Math.max(...sorted.map((g) => g.totalDuration), 1);
 
     const table = el('table', { className: 'records txn-table' });
     const thead = el('thead');
@@ -145,7 +143,7 @@ export function renderOverview(container: HTMLElement): () => void {
       ]),
     );
     const tbody = el('tbody');
-    for (const group of groups) {
+    for (const group of sorted) {
       const tr = el('tr', {}, [
         el('td', { className: 'grow', text: group.name, title: group.name }),
         el('td', {
@@ -218,7 +216,7 @@ export function renderOverview(container: HTMLElement): () => void {
     clear(chartHead);
     clear(chartHost);
     clear(tableSection);
-    const { running, bytesDone, error } = store.progress;
+    const { running, bytesDone, error } = storeClient.snapshot.progress;
     chartHost.append(
       el('div', { className: 'empty' }, [
         el('div', { className: 'fleuron', text: '❧' }),
@@ -239,22 +237,23 @@ export function renderOverview(container: HTMLElement): () => void {
   }
 
   const onData = () => {
-    if (store.generation !== lastGeneration) render();
+    if (storeClient.snapshot.generation !== lastGeneration) void render();
   };
   const onProgress = () => {
-    if (store.records.length === 0) render();
+    if (storeClient.snapshot.recordCount === 0) renderEmpty();
   };
-  store.addEventListener('data', onData);
-  store.addEventListener('progress', onProgress);
+  storeClient.addEventListener('data', onData);
+  storeClient.addEventListener('progress', onProgress);
 
-  const onResize = () => render();
+  const onResize = () => void render();
   window.addEventListener('resize', onResize);
 
-  render();
+  void render();
 
   return () => {
-    store.removeEventListener('data', onData);
-    store.removeEventListener('progress', onProgress);
+    token++;
+    storeClient.removeEventListener('data', onData);
+    storeClient.removeEventListener('progress', onProgress);
     window.removeEventListener('resize', onResize);
   };
 }

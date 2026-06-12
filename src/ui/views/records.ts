@@ -4,7 +4,7 @@
  * detail drawer with the raw record JSON. Paginated.
  */
 import { el, clear } from '../dom';
-import { store, windowSlice } from '../../data/store';
+import { storeClient } from '../../data/storeclient';
 import { RECORD_KINDS, type Rec, type RecordKind } from '../../data/types';
 import { viewState } from '../../state';
 import { renderRecDrawer } from '../recdrawer';
@@ -34,8 +34,10 @@ export function renderRecordsView(container: HTMLElement): () => void {
   };
   viewState.pendingRecordsSearch = null;
 
-  let filtered: Rec[] = [];
+  let rows: Rec[] = [];
+  let total = 0;
   let page = 0;
+  let token = 0;
   let selected: Rec | null = null;
   let lastGeneration = -1;
 
@@ -51,38 +53,36 @@ export function renderRecordsView(container: HTMLElement): () => void {
   table.append(thead, tbody);
   wrap.append(table);
 
-  function applyFilters(): void {
-    const q = filters.search.toLowerCase();
-    const w = viewState.timeWindow;
-    // binary-searched run of the sorted store; the predicate below no
-    // longer needs a per-record time check
-    filtered = windowSlice(store.records, w).filter((r) => {
-      if (!filters.kinds.has(r.kind)) return false;
-      if (r.kind === 'event' && r.level && !filters.levels.has(r.level)) return false;
-      if (filters.channel && r.channel !== filters.channel) return false;
-      if (filters.host && r.host !== filters.host) return false;
-      if (q) {
-        const hay =
-          `${r.name} ${r.message ?? ''} ${r.userId ?? ''} ${r.traceId ?? ''}`.toLowerCase();
-        if (!hay.includes(q)) {
-          if (r.rawLine === null || !r.rawLine.toLowerCase().includes(q)) return false;
-        }
-      }
-      return true;
+  /** filtering, windowing, and pagination all happen worker-side */
+  async function fetchPage(): Promise<boolean> {
+    const t = ++token;
+    const res = await storeClient.request<{ total: number; rows: Rec[] }>('recordsPage', {
+      kinds: [...filters.kinds],
+      levels: [...filters.levels],
+      channel: filters.channel,
+      host: filters.host,
+      q: filters.search,
+      newestFirst: filters.newestFirst,
+      window: viewState.timeWindow,
+      offset: page * PAGE_SIZE,
+      limit: PAGE_SIZE,
     });
-    if (filters.newestFirst) filtered.reverse();
+    if (t !== token || !container.isConnected) return false;
+    total = res.total;
+    rows = res.rows;
     page = Math.min(page, maxPage());
+    return true;
   }
 
   function maxPage(): number {
-    return Math.max(0, Math.ceil(filtered.length / PAGE_SIZE) - 1);
+    return Math.max(0, Math.ceil(total / PAGE_SIZE) - 1);
   }
 
   function renderFilterbar(): void {
     clear(filterbar);
 
     for (const kind of RECORD_KINDS) {
-      const count = store.kindCounts.get(kind) ?? 0;
+      const count = storeClient.snapshot.kindCounts.get(kind) ?? 0;
       const on = filters.kinds.has(kind);
       const chip = el('button', { className: on ? 'chip on' : 'chip' }, [
         el('span', { className: 'dot', attrs: { style: `background: var(--kind-${kind})` } }),
@@ -115,18 +115,18 @@ export function renderRecordsView(container: HTMLElement): () => void {
       filterbar.append(chip);
     }
 
-    if (store.channelCounts.size > 1) {
+    if (storeClient.snapshot.channelCounts.size > 1) {
       filterbar.append(
-        selectFilter('all channels', [...store.channelCounts.keys()], filters.channel, (v) => {
+        selectFilter('all channels', [...storeClient.snapshot.channelCounts.keys()], filters.channel, (v) => {
           filters.channel = v;
           page = 0;
           refresh(true);
         }),
       );
     }
-    if (store.hosts.size > 1) {
+    if (storeClient.snapshot.hosts.length > 1) {
       filterbar.append(
-        selectFilter('all hosts', [...store.hosts].sort(), filters.host, (v) => {
+        selectFilter('all hosts', [...storeClient.snapshot.hosts].sort(), filters.host, (v) => {
           filters.host = v;
           page = 0;
           refresh(true);
@@ -202,10 +202,7 @@ export function renderRecordsView(container: HTMLElement): () => void {
 
   function renderRows(): void {
     clear(tbody);
-    const start = page * PAGE_SIZE;
-    for (const r of filtered.slice(start, start + PAGE_SIZE)) {
-      tbody.append(row(r));
-    }
+    for (const r of rows) tbody.append(row(r));
     wrap.scrollTop = 0;
   }
 
@@ -215,7 +212,7 @@ export function renderRecordsView(container: HTMLElement): () => void {
     pagerbar.append(
       el('span', {
         className: 'budget',
-        text: `${fmtCount(filtered.length)} of ${fmtCount(store.records.length)} records`,
+        text: `${fmtCount(total)} of ${fmtCount(storeClient.snapshot.recordCount)} records`,
       }),
       el('span', { className: 'masthead-spacer' }),
       el('button', {
@@ -259,8 +256,11 @@ export function renderRecordsView(container: HTMLElement): () => void {
 
   function goto(p: number): void {
     page = Math.max(0, Math.min(p, maxPage()));
-    renderRows();
-    renderPager();
+    void fetchPage().then((fresh) => {
+      if (!fresh) return;
+      renderRows();
+      renderPager();
+    });
   }
 
   function row(r: Rec): HTMLTableRowElement {
@@ -342,7 +342,7 @@ export function renderRecordsView(container: HTMLElement): () => void {
     clear(tbody);
     clear(thead);
     clear(pagerbar);
-    const { running, bytesDone, error } = store.progress;
+    const { running, bytesDone, error } = storeClient.snapshot.progress;
     wrap.append(
       el('div', { className: 'empty' }, [
         el('div', { className: 'fleuron', text: '❧' }),
@@ -363,33 +363,36 @@ export function renderRecordsView(container: HTMLElement): () => void {
   }
 
   function refresh(filtersChanged = false): void {
-    if (store.generation !== lastGeneration || filtersChanged) {
-      lastGeneration = store.generation;
-      applyFilters();
-    }
-    const existingEmpty = wrap.querySelector('.empty');
-    if (existingEmpty) existingEmpty.remove();
-    if (store.records.length === 0) {
-      renderEmpty();
-      return;
-    }
-    renderFilterbar();
-    renderHead();
-    renderRows();
-    renderPager();
+    void (async () => {
+      if (storeClient.snapshot.generation !== lastGeneration || filtersChanged) {
+        lastGeneration = storeClient.snapshot.generation;
+        if (!(await fetchPage())) return;
+      }
+      const existingEmpty = wrap.querySelector('.empty');
+      if (existingEmpty) existingEmpty.remove();
+      if (storeClient.snapshot.recordCount === 0) {
+        renderEmpty();
+        return;
+      }
+      renderFilterbar();
+      renderHead();
+      renderRows();
+      renderPager();
+    })();
   }
 
   const onData = () => refresh();
   const onProgress = () => {
-    if (store.records.length === 0) refresh();
+    if (storeClient.snapshot.recordCount === 0) refresh();
   };
-  store.addEventListener('data', onData);
-  store.addEventListener('progress', onProgress);
+  storeClient.addEventListener('data', onData);
+  storeClient.addEventListener('progress', onProgress);
   refresh();
 
   return () => {
-    store.removeEventListener('data', onData);
-    store.removeEventListener('progress', onProgress);
+    token++;
+    storeClient.removeEventListener('data', onData);
+    storeClient.removeEventListener('progress', onProgress);
   };
 }
 

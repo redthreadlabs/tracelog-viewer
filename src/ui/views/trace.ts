@@ -6,8 +6,8 @@
  * server traces and client perf-timer traces alike.
  */
 import { el, clear } from '../dom';
-import { store } from '../../data/store';
-import { assembleTrace, spanTypeToken, type TraceModel } from '../../data/trace';
+import { storeClient } from '../../data/storeclient';
+import { spanTypeToken, type TraceModel } from '../../data/trace';
 import type { Rec } from '../../data/types';
 import { renderRecDrawer } from '../recdrawer';
 import { fmtCount, fmtDateTime, fmtDuration, zoneLabel } from '../format';
@@ -23,8 +23,11 @@ export function renderTraceView(container: HTMLElement, traceId: string): () => 
   const drawer = el('div', { className: 'drawer' });
   container.append(head, body, drawer);
 
-  function render(): void {
-    const model = assembleTrace(store.traceRecords(traceId), traceId);
+  let token = 0;
+  async function render(): Promise<void> {
+    const t = ++token;
+    const model = await storeClient.request<TraceModel>('traceData', { traceId });
+    if (t !== token || !container.isConnected) return;
     renderHead(model);
     renderWaterfall(model);
   }
@@ -187,10 +190,11 @@ export function renderTraceView(container: HTMLElement, traceId: string): () => 
   }
 
   const onData = () => render();
-  store.addEventListener('data', onData);
+  storeClient.addEventListener('data', onData);
   render();
 
   return () => {
-    store.removeEventListener('data', onData);
+    token++;
+    storeClient.removeEventListener('data', onData);
   };
 }

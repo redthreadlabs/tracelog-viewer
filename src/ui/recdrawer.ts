@@ -6,7 +6,7 @@
 import { el, clear } from './dom';
 import type { Rec } from '../data/types';
 import { parseRaw } from '../data/parse';
-import { loadRawBody } from '../data/rawsource';
+import { storeClient } from '../data/storeclient';
 import { fmtDateTime, zoneLabel } from './format';
 
 export interface DrawerAction {
@@ -35,7 +35,11 @@ export function renderRecDrawer(
   // Lazy: the parsed tree exists only while the drawer is open. Retained
   // lines resolve in a microtask; shed lines re-read from the cache/bucket.
   const rawPromise: Promise<Record<string, unknown>> =
-    rec.rawLine !== null ? Promise.resolve(parseRaw(rec)) : loadRawBody(rec);
+    rec.rawLine !== null
+      ? Promise.resolve(parseRaw(rec))
+      : storeClient.request('rawBody', {
+          rec: { rawLine: rec.rawLine, sourceKey: rec.sourceKey, line: rec.line, kind: rec.kind },
+        });
   for (const action of actions) {
     head.append(
       el('button', {

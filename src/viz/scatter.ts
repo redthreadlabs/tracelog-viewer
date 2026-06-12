@@ -20,6 +20,7 @@ import { el, clear } from '../ui/dom';
 import type { Rec } from '../data/types';
 import { fmtDateTime, fmtDuration, isUtcMode } from '../ui/format';
 import { logTicks, timeTickFormat, contentWidth } from './ticks';
+import type { SampleNote } from '../worker/backend';
 
 const HEIGHT = 190;
 const MARGIN = { top: 8, right: 10, bottom: 24, left: 56 };
@@ -72,8 +73,10 @@ export function renderScatter(
   container: HTMLElement,
   instances: Rec[],
   onPick: (rec: Rec) => void,
-  /** where the "(sampled)" pill renders — right-aligned above the chart */
+  /** where the "sampled" pill renders — right-aligned above the chart */
   sampleHost?: HTMLElement,
+  /** sampling already applied upstream (the worker boundary) */
+  note?: SampleNote | null,
 ): void {
   clear(container);
   if (sampleHost) clear(sampleHost);
@@ -190,14 +193,17 @@ export function renderScatter(
       drawn++;
     }
   }
-  if (drawn < n && sampleHost) {
+  const disclosure: SampleNote | null =
+    note ?? (drawn < n ? { drawn, total: n, okStep } : null);
+  if (disclosure && sampleHost) {
     sampleHost.style.position = 'relative';
     const pop = el('div', {
       className: 'chart-tooltip',
       text:
-        `Drawing ${drawn.toLocaleString('en-US')} of ${n.toLocaleString('en-US')} points: ` +
-        `every ${ordinal(okStep)} successful instance, and every problem instance. ` +
-        `Hover and click still consider all points.`,
+        `Drawing ${disclosure.drawn.toLocaleString('en-US')} of ` +
+        `${disclosure.total.toLocaleString('en-US')} points: every ` +
+        `${ordinal(disclosure.okStep)} successful instance, and every problem ` +
+        `instance. Hover and click consider every drawn point.`,
       attrs: {
         // a drop-up: above the pill row, clear of the chart it describes
         style:

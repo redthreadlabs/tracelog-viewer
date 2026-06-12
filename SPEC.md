@@ -450,7 +450,8 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
   stays deep where it's used (a plain slice would pin the whole decoded
   file text via its SlicedString parent); `_current` records keep slices
   of the small live tail. Next on the ladder if the M5 measurements call
-  for it: columnar typed arrays per kind, and Worker-side parsing.
+  for it: columnar typed arrays per kind (Worker-side parsing shipped
+  with the SharedWorker store, above).
   Interaction latency is index-served, never full-store-scanned (M5
   finding, 2026-06-12: the drill-down page froze ~25 s at 18k instances —
   one SVG node per scatter point, plus full-store scans per interaction;
@@ -461,6 +462,20 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
   stores cost what they select, not what they skip.
 - Loading is automatic and as-needed: the range selection is the consent,
   at any size; progress (bytes, from the listing) is the acknowledgment.
+  The store lives in a SharedWorker (2026-06-12): scan, parse, cache I/O,
+  live mode, and the record store run off the main thread, in ONE worker
+  shared by every tab on the origin — sessions are keyed by profile
+  signature, so two tabs on the same bucket share a single working set
+  and fetch pipeline (and a tab reload reattaches to a warm store).
+  Tabs are thin clients (data/storeclient.ts → worker/backend.ts):
+  request/response ops, store events relayed as broadcasts, worker perf
+  entries streamed into each tab's perf log. Results are SAMPLED OR
+  CAPPED AT THE CLONE BOUNDARY — no structured clone carries an
+  unbounded array, and sampled results disclose it (the scatter pill's
+  contract). Browsers without SharedWorker get a dedicated worker —
+  same protocol, still off-thread, per-tab. Workspace subdomains
+  (§10 hosting) compose for free: workers are origin-scoped, so each
+  workspace gets its own worker, sessions, and cache with no code.
   Stream-render always: views populate as data arrives, not after the
   full scan; the plan fetches newest intervals first and works backward,
   so the freshest data appears immediately — but data events are

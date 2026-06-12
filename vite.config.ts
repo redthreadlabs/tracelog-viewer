@@ -5,6 +5,8 @@ export default defineConfig({
   // or any static host without configuration (SPEC §1: "deployable from a
   // file:// URL, GitHub Pages, or an S3 static site").
   base: './',
+  // the store worker code-splits (SDK dynamic imports), which iife can't do
+  worker: { format: 'es' },
   build: {
     target: 'es2022',
     sourcemap: true,

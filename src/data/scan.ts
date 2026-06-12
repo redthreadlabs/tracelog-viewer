@@ -7,9 +7,8 @@ import type { ScanPlan } from '../s3/scanner';
 import type { ParsedKey } from '../s3/keys';
 import { parseFile } from './parse';
 import { cacheGet, cachePut } from './cache';
-import { store } from './store';
+import type { Store } from './store';
 import { perf } from './perf';
-import { resetViewState } from '../state';
 
 const CONCURRENCY = 4;
 
@@ -35,9 +34,8 @@ async function fetchAndParse(
   return { result, fromCache };
 }
 
-export async function executeScan(bucket: LogBucket, plan: ScanPlan): Promise<void> {
+export async function executeScan(store: Store, bucket: LogBucket, plan: ScanPlan): Promise<void> {
   store.clear();
-  resetViewState(); // a new scan invalidates any brushed window / deep link
   store.setProgress({
     filesTotal: plan.files.length,
     filesDone: 0,
@@ -90,7 +88,7 @@ export async function executeScan(bucket: LogBucket, plan: ScanPlan): Promise<vo
 }
 
 /** Load one file into the store (inspector "load" action) — cache-aware. */
-export async function loadOneFile(bucket: LogBucket, file: ParsedKey): Promise<void> {
+export async function loadOneFile(store: Store, bucket: LogBucket, file: ParsedKey): Promise<void> {
   const { result } = await fetchAndParse(bucket, file);
   store.registerFile(file, result.byteLength);
   store.replaceFile(file.key, result.records);

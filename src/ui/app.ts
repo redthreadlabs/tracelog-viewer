@@ -7,14 +7,12 @@ import { el, clear } from './dom';
 import { initTheme, toggleTheme, currentTheme } from './theme';
 import { setUtcMode, isUtcMode } from './format';
 import { profiles } from './profiles';
-import { LogBucket } from '../s3/client';
 import { renderConfig } from './config';
 import { renderScanbar } from './scanbar';
 import { readHash, setView, setParams, parseWindowParam, getParam } from './hashstate';
 import { viewState, resetViewState } from '../state';
-import { store } from '../data/store';
+import { storeClient } from '../data/storeclient';
 import { perf } from '../data/perf';
-import { registerRawSource } from '../data/rawsource';
 import type { Profile } from './profiles';
 import { renderPerfView } from './views/perfview';
 import { renderRecordsView } from './views/records';
@@ -37,7 +35,6 @@ const NAV: { view: string; label: string }[] = [
 ];
 
 let teardown: (() => void) | null = null;
-let bucket: LogBucket | null = null;
 
 /** What makes one connection a different world than another. */
 function profileSignature(p: Profile | null): string | null {
@@ -121,7 +118,7 @@ export function startApp(root: HTMLElement): void {
 
   function renderScanbarIfConnected(): void {
     clear(scanbarHost);
-    if (bucket) renderScanbar(scanbarHost, bucket);
+    if (profiles.active()) renderScanbar(scanbarHost);
   }
 
   // Seeded at boot so the initial connect() of a remembered profile does NOT
@@ -132,20 +129,19 @@ export function startApp(root: HTMLElement): void {
     const active = profiles.active();
     const signature = profileSignature(active);
     if (signature !== connectedSignature) {
-      // A different bucket/key is a different world: records loaded from the
-      // old one must not linger in views, counts, or the MEM pill — and a
-      // scan of the new bucket may legitimately match zero files, so the
-      // reset cannot wait for the next executeScan. The IndexedDB cache is
-      // deliberately untouched: finalized files are immutable and ETag-keyed,
-      // so coming back to this profile later stays warm.
+      // A different bucket/key is a different world: the worker keeps a
+      // separate session (store) per profile, so switching is joining the
+      // other session — tab-side view state and stale params still reset.
       connectedSignature = signature;
-      store.clear();
       resetViewState();
       setParams({ ch: null, w: null });
     }
-    bucket = active ? new LogBucket(active) : null;
-    const b = bucket;
-    registerRawSource(b ? { bucket: b.bucket, fetch: (key) => b.getObjectBytes(key) } : null);
+    if (active) {
+      void storeClient.attach(active).then(() => {
+        renderHeader();
+        renderScanbarIfConnected();
+      });
+    }
     renderHeader();
     renderScanbarIfConnected();
   }
@@ -169,7 +165,7 @@ export function startApp(root: HTMLElement): void {
     // perf page itself excluded, or logging its render would re-render it.
     const doneRender = view === '/internals/perf' ? null : perf.begin('render', view);
     teardown = renderView(view);
-    doneRender?.({ records: store.records.length });
+    doneRender?.({ records: storeClient.snapshot.recordCount });
   }
 
   function renderView(view: string): (() => void) | null {
@@ -179,7 +175,7 @@ export function startApp(root: HTMLElement): void {
     if (view === '/clients') return renderClientsView(main);
     if (view === '/scanner') return renderScannerView(main);
     // viewer-internals family (#/internals/…): about the app, not the logs
-    if (view === '/internals/store') return renderStoreView(main, bucket!); // route guard ensures a profile
+    if (view === '/internals/store') return renderStoreView(main);
     if (view === '/internals/perf') return renderPerfView(main);
     if (view.startsWith('/trace/')) {
       return renderTraceView(main, view.slice('/trace/'.length));
