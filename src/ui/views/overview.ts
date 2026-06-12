@@ -5,7 +5,7 @@
  * drill-down view.
  */
 import { el, clear } from '../dom';
-import { store } from '../../data/store';
+import { store, windowBounds } from '../../data/store';
 import {
   bucketByTime,
   groupTransactions,
@@ -96,11 +96,8 @@ export function renderOverview(container: HTMLElement): () => void {
   }
 
   function countInWindow(): number {
-    const w = viewState.timeWindow;
-    if (!w) return store.records.length;
-    let n = 0;
-    for (const r of store.records) if (r.ts >= w[0] && r.ts <= w[1]) n++;
-    return n;
+    const [lo, hi] = windowBounds(store.records, viewState.timeWindow);
+    return hi - lo;
   }
 
   function renderTable(): void {

@@ -455,6 +455,10 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
   finding, 2026-06-12: the drill-down page froze ~25 s at 18k instances —
   one SVG node per scatter point, plus full-store scans per interaction;
   fixed by canvas-drawn scatter points and the file-rooted indexes).
+- Time windows are binary-searched slices: every store-served array is
+  ts-sorted, so a window (brush, sub-day range, ±5 min user context) is a
+  contiguous [lo, hi) run found in O(log n) — narrow windows on huge
+  stores cost what they select, not what they skip.
 - Loading is automatic and as-needed: the range selection is the consent,
   at any size; progress (bytes, from the listing) is the acknowledgment.
   Stream-render always: views populate as data arrives, not after the

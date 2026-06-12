@@ -6,7 +6,7 @@
  * ±5 minutes", arriving via viewState.userContext from any view.
  */
 import { el, clear } from '../dom';
-import { store, mergeByTime } from '../../data/store';
+import { store, mergeByTime, windowSlice } from '../../data/store';
 import type { Rec } from '../../data/types';
 import { viewState } from '../../state';
 import { renderRecDrawer, type DrawerAction } from '../recdrawer';
@@ -80,17 +80,12 @@ export function renderEventsView(container: HTMLElement): () => void {
   function applyFilters(): void {
     const q = filters.search.toLowerCase();
     const user = filters.user.trim();
-    const w = viewState.timeWindow;
-    filtered = pool().filter((r) => {
+    const w = filters.contextWindow ?? viewState.timeWindow;
+    filtered = windowSlice(pool(), w).filter((r) => {
       if (r.level && !filters.levels.has(r.level)) return false;
       if (filters.type && r.name !== filters.type) return false;
       if (filters.channel && r.channel !== filters.channel) return false;
       if (user && r.userId !== user) return false;
-      if (filters.contextWindow) {
-        if (r.ts < filters.contextWindow[0] || r.ts > filters.contextWindow[1]) return false;
-      } else if (w && (r.ts < w[0] || r.ts > w[1])) {
-        return false;
-      }
       if (q) {
         const hay = `${r.name} ${r.message ?? ''} ${r.userId ?? ''}`.toLowerCase();
         if (!hay.includes(q) && (r.rawLine === null || !r.rawLine.toLowerCase().includes(q))) {

@@ -8,6 +8,7 @@
  * Pure logic.
  */
 import type { Rec } from './types';
+import { windowSlice } from './store';
 
 /** A gap longer than this splits a user's events into separate sessions. */
 export const SESSION_GAP_MS = 15 * 60_000;
@@ -39,12 +40,7 @@ export function isClientRec(r: Rec): boolean {
 }
 
 function clientEvents(records: Rec[], window?: [number, number] | null): Rec[] {
-  return records.filter(
-    (r) =>
-      isClientRec(r) &&
-      r.ts > 0 &&
-      (!window || (r.ts >= window[0] && r.ts <= window[1])),
-  );
+  return windowSlice(records, window).filter((r) => isClientRec(r) && r.ts > 0);
 }
 
 export function clientProfiles(

@@ -279,6 +279,48 @@ export class Store extends EventTarget {
   }
 }
 
+/**
+ * [lo, hi) bounds of a time window in a **ts-sorted** record array, found
+ * by binary search: a narrow window over a huge store costs O(log n), not
+ * a full scan. Every store-served array (records, kindRecords, merges,
+ * transactionsNamed) is ts-sorted, so windows are contiguous runs.
+ */
+export function windowBounds(
+  records: Rec[],
+  window: [number, number] | null | undefined,
+): [number, number] {
+  if (!window) return [0, records.length];
+  // lower bound: first index with ts >= window[0]
+  let lo = 0;
+  let hi = records.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (records[mid].ts < window[0]) lo = mid + 1;
+    else hi = mid;
+  }
+  const start = lo;
+  // upper bound: first index with ts > window[1]
+  hi = records.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (records[mid].ts <= window[1]) lo = mid + 1;
+    else hi = mid;
+  }
+  return [start, lo];
+}
+
+/**
+ * The windowed run of a ts-sorted array. Returns the original array when
+ * the window is absent or covers everything — no copy on the common path.
+ */
+export function windowSlice(
+  records: Rec[],
+  window: [number, number] | null | undefined,
+): Rec[] {
+  const [lo, hi] = windowBounds(records, window);
+  return lo === 0 && hi === records.length ? records : records.slice(lo, hi);
+}
+
 /** Merge two ts-sorted record arrays into one (events ∪ errors, etc.). */
 export function mergeByTime(a: Rec[], b: Rec[]): Rec[] {
   if (a.length === 0) return b;

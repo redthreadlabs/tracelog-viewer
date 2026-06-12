@@ -3,6 +3,7 @@
  * per-transaction-name rollups. No DOM, no D3 — unit-testable.
  */
 import type { Rec, RecordKind } from './types';
+import { windowSlice } from './store';
 
 export interface TimeBucket {
   /** bucket start, epoch-ms */
@@ -62,6 +63,7 @@ export function bucketByTime(
   window?: [number, number] | null,
   chosenBucketMs: number | null = null,
 ): BucketResult {
+  records = windowSlice(records, window); // O(log n) on the sorted store
   let min = Infinity;
   let max = -Infinity;
   for (const r of records) {
@@ -134,9 +136,8 @@ export function groupTransactions(
   window?: [number, number] | null,
 ): TxnGroup[] {
   const groups = new Map<string, TxnGroup & { durations: number[] }>();
-  for (const r of records) {
+  for (const r of windowSlice(records, window)) {
     if (r.kind !== 'transaction') continue;
-    if (window && (r.ts < window[0] || r.ts > window[1])) continue;
     let group = groups.get(r.name);
     if (!group) {
       group = { name: r.name, count: 0, totalDuration: 0, errors: 0, durations: [] };
@@ -187,13 +188,8 @@ export function transactionStats(
   name: string,
   window?: [number, number] | null,
 ): TxnStats {
-  const instances = records
-    .filter(
-      (r) =>
-        r.kind === 'transaction' &&
-        r.name === name &&
-        (!window || (r.ts >= window[0] && r.ts <= window[1])),
-    )
+  const instances = windowSlice(records, window)
+    .filter((r) => r.kind === 'transaction' && r.name === name)
     .sort((a, b) => a.ts - b.ts);
 
   const durations = instances

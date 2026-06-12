@@ -4,7 +4,7 @@
  * detail drawer with the raw record JSON. Paginated.
  */
 import { el, clear } from '../dom';
-import { store } from '../../data/store';
+import { store, windowSlice } from '../../data/store';
 import { RECORD_KINDS, type Rec, type RecordKind } from '../../data/types';
 import { viewState } from '../../state';
 import { renderRecDrawer } from '../recdrawer';
@@ -54,12 +54,13 @@ export function renderRecordsView(container: HTMLElement): () => void {
   function applyFilters(): void {
     const q = filters.search.toLowerCase();
     const w = viewState.timeWindow;
-    filtered = store.records.filter((r) => {
+    // binary-searched run of the sorted store; the predicate below no
+    // longer needs a per-record time check
+    filtered = windowSlice(store.records, w).filter((r) => {
       if (!filters.kinds.has(r.kind)) return false;
       if (r.kind === 'event' && r.level && !filters.levels.has(r.level)) return false;
       if (filters.channel && r.channel !== filters.channel) return false;
       if (filters.host && r.host !== filters.host) return false;
-      if (w && (r.ts < w[0] || r.ts > w[1])) return false;
       if (q) {
         const hay =
           `${r.name} ${r.message ?? ''} ${r.userId ?? ''} ${r.traceId ?? ''}`.toLowerCase();
