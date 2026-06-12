@@ -391,6 +391,48 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
 - IndexedDB cache (§5) makes every revisit to finalized days free; `ETag`
   equality is the immutability check.
 
+### 8.1 Synthetic fleet — finding the graduation point
+
+Tracelog's pitch is "observability essentially for free, until scale makes
+it impossible." That claim must ship with numbers, not vibes: a user should
+be able to read in the docs roughly where the browser stops being a viable
+query engine — and how to recognize when *they* are approaching it.
+
+**The script** (`scripts/synth-fleet.ts` in this repo — it benchmarks the
+viewer, and the JSONL contract it writes against is tracelog's SCHEMA.md):
+
+- Synthesizes a fleet of services at configurable load tiers, writing
+  gzipped JSONL in the exact §3.1 key layout to a local directory (sync to
+  a scratch bucket with `aws s3 sync` to exercise the full network path).
+- Realism matters, because parse and memory costs depend on record shape:
+  - hosts: 1–32 (an ASG worth of writers per day, including `_seq`
+    overflow files at the high end);
+  - traffic: log-normal duration distributions per route, a diurnal volume
+    curve, configurable RPM tiers, transaction-name cardinality;
+  - spans: realistic fanout per transaction (db/cache/external mixes);
+  - events: app-style custom events with params, plus a client channel
+    with user/device identity;
+  - errors: a low base rate plus occasional bursts;
+  - metricsets: runtime metrics per host at 60s cadence + breakdowns;
+  - deployments: `service.version` bumps mid-range for marker rendering.
+- Deterministic given a seed, so tiers are reproducible.
+
+**The measurements**, per tier (e.g. 10k / 100k / 1M / 5M records):
+
+- scan plan size (files, compressed/uncompressed bytes);
+- cold fetch+parse wall time, warm (IndexedDB) load time once M4 lands;
+- heap after load (`performance.memory` in Chromium) and whether the tab
+  survives;
+- interaction latency on the standard moves: overview render, brush,
+  filter/search in records, drill-down render, waterfall open.
+
+**The deliverable**: a `LIMITS.md` table of tier → load time → memory →
+UX verdict, summarized in the README ("comfortable to N records / ~X MB
+per month; degraded to Y; graduate beyond that"), re-run when the store
+changes (e.g. if §8's columnar contingency is ever built). The same
+numbers double as guidance for when a user should narrow scans by channel
+or date rather than abandon tracelog entirely.
+
 ## 9. Milestones
 
 1. **M1 — plumbing**: config panel, channel discovery, date-range scan,
@@ -400,6 +442,9 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
    metrics view, live mode.
 4. **M4 — polish**: client analytics, scanner view, IndexedDB cache,
    shareable hash-URLs encoding scan + view state.
+5. **M5 — scale validation**: the synthetic fleet script and LIMITS.md
+   (§8.1) — publish the measured graduation point alongside the
+   open-source release.
 
 ## 10. Decisions (resolved 2026-06-11)
 
