@@ -160,6 +160,7 @@ export function renderStoreView(container: HTMLElement): () => void {
         storeCol,
         el('div', { className: 'sdivider' }),
         heapCol,
+        el('div', { className: 'sdivider' }),
         totalKindStats(),
       ]),
     );
@@ -238,21 +239,24 @@ export function renderStoreView(container: HTMLElement): () => void {
   }
 
   function totalKindStats(): HTMLElement {
-    const wrap = el('div', { className: 'kind-stats' });
+    const col = el('div', { className: 'sgrid' });
+    col.append(el('div', { className: 'label scol-title', text: 'Kinds' }));
     const total = store.records.length;
     for (const kind of RECORD_KINDS) {
       const count = store.kindCounts.get(kind) ?? 0;
       if (count === 0) continue;
       const pct = Math.round((count / total) * 100);
-      wrap.append(
-        el('span', { className: 'kind-stat', title: KIND_DESCRIPTIONS[kind] }, [
-          el('span', { className: 'dot', attrs: { style: `background: var(--kind-${kind})` } }),
-          el('span', { text: kind }),
+      col.append(
+        el('div', { className: 'srow', title: KIND_DESCRIPTIONS[kind] }, [
+          el('span', { className: 'kind-stat' }, [
+            el('span', { className: 'dot', attrs: { style: `background: var(--kind-${kind})` } }),
+            el('span', { text: kind }),
+          ]),
           el('span', { className: 'num', text: `${fmtCount(count)} (${pct < 1 ? '<1' : pct}%)` }),
         ]),
       );
     }
-    return wrap;
+    return col;
   }
 
   function kindBar(row: FileRow): HTMLElement {

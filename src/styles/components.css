@@ -1058,7 +1058,7 @@ th.sortable.on {
 
 .store-summary {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) 1px minmax(220px, 1fr);
+  grid-template-columns: minmax(240px, 1fr) 1px minmax(200px, 1fr) 1px minmax(220px, 1fr);
   gap: 6px 26px;
   align-items: start;
   background: var(--surface);
@@ -1094,16 +1094,6 @@ th.sortable.on {
 .sdivider {
   background: var(--line);
   align-self: stretch;
-}
-
-.kind-stats {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 22px;
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--line);
 }
 
 .kind-stat {
