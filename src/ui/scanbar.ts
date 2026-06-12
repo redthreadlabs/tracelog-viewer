@@ -150,8 +150,8 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
   bucket
     .listChannels()
     .then((channels) => {
-      // a shared URL's ch=a,b narrows the default all-on selection;
-      // ch=- (the explicit none) matches no channel, so all start off
+      // a shared URL's ch=a,b narrows the default all-on selection; an
+      // absent param means all-on, and ch= (empty → []) means none
       const fromUrl = getParam('ch')?.split(',').filter(Boolean);
       for (const ch of channels) {
         state.channels.set(ch, !fromUrl || fromUrl.includes(ch));
@@ -171,12 +171,13 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
       // Zero channels selected means "show nothing": empty the store so the
       // views empty too (deselecting *some* channels already does this via
       // the re-scan), and forget the loaded plan so re-selecting reloads.
-      // The URL must say so too — `ch=-` is the explicit "none" (an absent
-      // param means "all channels"), so a refresh stays empty.
+      // The URL must say so too — `ch=` (empty) is the explicit "none",
+      // while an absent param means "all channels" — so a refresh stays
+      // empty.
       if (state.channels.size > 0) {
         store.clear();
         loadedSignature = null;
-        setParams({ ch: '-' });
+        setParams({ ch: '' });
       }
       render();
       return;

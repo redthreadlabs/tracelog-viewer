@@ -34,11 +34,16 @@ export function setView(view: string): void {
   }
 }
 
-/** Merge param updates into the URL silently (null/'' deletes a key). */
+/**
+ * Merge param updates into the URL silently. null/undefined deletes a key;
+ * an empty string is a real value (`ch=` means "no channels", while an
+ * absent `ch` means "all channels") — callers that mean "remove" normalize
+ * to null (`filters.search || null`).
+ */
 export function setParams(updates: Record<string, string | null | undefined>): void {
   const { view, params } = readHash();
   for (const [key, value] of Object.entries(updates)) {
-    if (value === null || value === undefined || value === '') params.delete(key);
+    if (value === null || value === undefined) params.delete(key);
     else params.set(key, value);
   }
   const qs = params.toString();
