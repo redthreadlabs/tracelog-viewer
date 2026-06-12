@@ -167,6 +167,13 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     state.plan = null;
     state.error = undefined;
     if (selected.length === 0) {
+      // Zero channels selected means "show nothing": empty the store so the
+      // views empty too (deselecting *some* channels already does this via
+      // the re-scan), and forget the loaded plan so re-selecting reloads.
+      if (state.channels.size > 0) {
+        store.clear();
+        loadedSignature = null;
+      }
       render();
       return;
     }
