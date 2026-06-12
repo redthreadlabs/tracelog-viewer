@@ -425,8 +425,12 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
 
     const refreshChip = el('button', {
       className: 'chip refresh-chip',
-      text: '⟳',
       title: 'reload this range',
+      html:
+        '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" ' +
+        'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' +
+        '<polyline points="23 4 23 10 17 10"></polyline>' +
+        '<path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>',
       on: {
         click: () => {
           loadedSignature = null;
