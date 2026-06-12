@@ -15,6 +15,7 @@ import {
 import { renderTimebars } from '../../viz/timebars';
 import { viewState } from '../../state';
 import { setParams, setView, windowParam } from '../hashstate';
+import { renderBucketPicker, chosenBucketMs, bucketLabel } from '../bucketpicker';
 import { fmtBytes, fmtCount, fmtDateTime, fmtDuration, zoneLabel } from '../format';
 
 export function renderOverview(container: HTMLElement): () => void {
@@ -69,7 +70,14 @@ export function renderOverview(container: HTMLElement): () => void {
       );
     }
     chartHead.append(el('span', { className: 'masthead-spacer' }));
+
+    const data = bucketByTime(store.records, window, chosenBucketMs());
     chartHead.append(
+      el('span', {
+        className: 'budget faint',
+        text: chosenBucketMs() === null ? `auto = ${bucketLabel(data.bucketMs)}` : '',
+      }),
+      renderBucketPicker(render),
       el('span', {
         className: 'budget',
         text: `${fmtCount(countInWindow())} records`,
@@ -77,7 +85,7 @@ export function renderOverview(container: HTMLElement): () => void {
     );
 
     // --- chart ---
-    renderTimebars(chartHost, bucketByTime(store.records, window), {
+    renderTimebars(chartHost, data, {
       onWindow: (w) => {
         viewState.timeWindow = w;
         setParams({ w: windowParam(w) });

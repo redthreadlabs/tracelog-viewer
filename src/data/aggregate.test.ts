@@ -146,3 +146,18 @@ describe('logHistogram', () => {
     expect(buckets[0].count).toBe(2);
   });
 });
+
+describe('resolveBucketMs / bucketByTime override', () => {
+  it('honors an explicit choice', () => {
+    const records = [rec({ ts: 1000 }), rec({ ts: 3_600_000 })];
+    expect(bucketByTime(records, null, 3_600_000).bucketMs).toBe(3_600_000);
+  });
+
+  it('escalates an absurd choice instead of drawing thousands of bars', () => {
+    // 1-minute bars over 30 days would be 43,200 buckets
+    const records = [rec({ ts: 1000 }), rec({ ts: 1000 + 30 * 86_400_000 })];
+    const { bucketMs } = bucketByTime(records, null, 60_000);
+    expect(bucketMs).toBeGreaterThan(60_000);
+    expect((30 * 86_400_000) / bucketMs).toBeLessThanOrEqual(1500);
+  });
+});

@@ -14,6 +14,7 @@ import {
 import { renderLine } from '../../viz/line';
 import { renderStackbars } from '../../viz/stackbars';
 import { spanTypeColorToken } from '../../data/trace';
+import { renderBucketPicker, chosenBucketMs, bucketLabel } from '../bucketpicker';
 import { viewState } from '../../state';
 import { fmtBytes, fmtDuration } from '../format';
 
@@ -114,7 +115,7 @@ export function renderMetricsView(container: HTMLElement): () => void {
     }
 
     // breakdown self-time
-    const breakdown = breakdownSelfTime(store.records, window);
+    const breakdown = breakdownSelfTime(store.records, window, chosenBucketMs());
     if (breakdown.buckets.length > 0) {
       const legendItems = breakdown.types.slice(0, 8).map((key) =>
         el('span', { className: 'chip', attrs: { style: 'cursor:default' } }, [
@@ -129,6 +130,12 @@ export function renderMetricsView(container: HTMLElement): () => void {
         el('div', { className: 'section-head', attrs: { style: 'margin-top:14px' } }, [
           el('span', { className: 'label', text: 'Span self-time by type' }),
           ...legendItems,
+          el('span', { className: 'masthead-spacer' }),
+          el('span', {
+            className: 'budget faint',
+            text: chosenBucketMs() === null ? `auto = ${bucketLabel(breakdown.bucketMs)}` : '',
+          }),
+          renderBucketPicker(render),
         ]),
       );
       const chart = el('div', { className: 'chart-host' });

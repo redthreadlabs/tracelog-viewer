@@ -19,7 +19,7 @@ export interface BucketResult {
 }
 
 /** Candidate bucket widths, smallest first. */
-const BUCKET_STEPS_MS = [
+export const BUCKET_STEPS_MS = [
   60_000, // 1m
   300_000, // 5m
   900_000, // 15m
@@ -31,6 +31,9 @@ const BUCKET_STEPS_MS = [
 
 const TARGET_MAX_BUCKETS = 120;
 
+/** A user-chosen width may not produce more bars than this. */
+const HARD_MAX_BUCKETS = 1500;
+
 export function chooseBucketMs(spanMs: number): number {
   for (const step of BUCKET_STEPS_MS) {
     if (spanMs / step <= TARGET_MAX_BUCKETS) return step;
@@ -38,7 +41,27 @@ export function chooseBucketMs(spanMs: number): number {
   return BUCKET_STEPS_MS[BUCKET_STEPS_MS.length - 1];
 }
 
-export function bucketByTime(records: Rec[], window?: [number, number] | null): BucketResult {
+/**
+ * Resolve the effective bucket width: an explicit choice is honored unless
+ * it would produce an absurd number of bars for the span (1m bars over a
+ * month), in which case it escalates to the smallest sane step.
+ */
+export function resolveBucketMs(spanMs: number, chosenMs: number | null): number {
+  if (chosenMs === null) return chooseBucketMs(spanMs);
+  let ms = chosenMs;
+  for (const step of BUCKET_STEPS_MS) {
+    if (step < ms) continue;
+    ms = step;
+    if (spanMs / ms <= HARD_MAX_BUCKETS) return ms;
+  }
+  return BUCKET_STEPS_MS[BUCKET_STEPS_MS.length - 1];
+}
+
+export function bucketByTime(
+  records: Rec[],
+  window?: [number, number] | null,
+  chosenBucketMs: number | null = null,
+): BucketResult {
   let min = Infinity;
   let max = -Infinity;
   for (const r of records) {
@@ -54,7 +77,7 @@ export function bucketByTime(records: Rec[], window?: [number, number] | null): 
     return { buckets: [], bucketMs: 60_000, domain: [0, 0] };
   }
 
-  const bucketMs = chooseBucketMs(Math.max(max - min, 1));
+  const bucketMs = resolveBucketMs(Math.max(max - min, 1), chosenBucketMs);
   const start = Math.floor(min / bucketMs) * bucketMs;
   const end = Math.floor(max / bucketMs) * bucketMs + bucketMs;
   const n = Math.round((end - start) / bucketMs);

@@ -4,7 +4,7 @@
  * service.version changes, and breakdown self-time aggregation.
  */
 import type { Rec } from './types';
-import { chooseBucketMs } from './aggregate';
+import { resolveBucketMs } from './aggregate';
 
 export interface SeriesPoint {
   t: number;
@@ -73,6 +73,7 @@ export interface BreakdownResult {
 export function breakdownSelfTime(
   records: Rec[],
   window?: [number, number] | null,
+  chosenBucketMs: number | null = null,
 ): BreakdownResult {
   interface Sample {
     t: number;
@@ -97,7 +98,7 @@ export function breakdownSelfTime(
     if (s.t < min) min = s.t;
     if (s.t > max) max = s.t;
   }
-  const bucketMs = chooseBucketMs(Math.max(max - min, 1));
+  const bucketMs = resolveBucketMs(Math.max(max - min, 1), chosenBucketMs);
   const start = Math.floor(min / bucketMs) * bucketMs;
   const n = Math.floor((max - start) / bucketMs) + 1;
   const buckets: BreakdownBucket[] = Array.from({ length: n }, (_, i) => ({
