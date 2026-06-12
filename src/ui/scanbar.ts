@@ -437,6 +437,11 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     progress.append(fill);
     container.append(progress);
     updateFill(fill);
+
+    // the loaded pill is part of the render, not just a store-event side
+    // effect — otherwise any re-render (route change, range fiddling)
+    // leaves the budget span empty until the next data event
+    updateLoadedText();
   }
 
   function updateFill(fill: HTMLElement): void {
@@ -461,6 +466,7 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
   store.addEventListener('data', updateLoadedText);
 
   function updateLoadedText(): void {
+    if (state.planning || state.error) return; // those states own the text
     const { running, filesTotal, bytesDone } = store.progress;
     const budget = container.querySelector<HTMLElement>('.budget');
     if (!budget || filesTotal === 0) return;
