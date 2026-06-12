@@ -49,37 +49,32 @@ export function renderStoreView(container: HTMLElement): () => void {
   const tip = el('div', { className: 'chart-tooltip fixed' });
   container.append(body, tip);
 
-  // tab memory readout, refreshed while the page is open
-  const memSection = el('div');
+  // the heap column refreshes in place while the page is open
+  const heapCol = el('div', { className: 'sgrid' });
   function renderMemory(): void {
-    clear(memSection);
+    clear(heapCol);
     const heap = readHeap();
-    memSection.append(
-      el('div', { className: 'section-head' }, [
-        el('span', { className: 'label', text: 'Tab memory' }),
-        el('span', {
-          className: 'budget faint',
-          text: heap
-            ? 'JS heap of this tab (records, strings, DOM, charts) — Chromium’s performance.memory, refreshed every 2 s'
-            : 'performance.memory is unavailable in this browser (Chromium only)',
+    heapCol.append(el('div', { className: 'label scol-title', text: 'Tab heap' }));
+    if (!heap) {
+      heapCol.append(
+        el('div', {
+          className: 'faint',
+          text: 'unavailable in this browser (Chromium only)',
+          attrs: { style: 'font-size:12px' },
         }),
-      ]),
-    );
-    if (heap) {
-      const cards = el('div', { className: 'stat-cards' });
-      const card = (label: string, value: string) =>
-        cards.append(
-          el('div', { className: 'stat-card' }, [
-            el('div', { className: 'label', text: label }),
-            el('div', { className: 'stat-value num', text: value }),
-          ]),
-        );
-      card('heap used', fmtBytes(heap.usedJSHeapSize));
-      card('heap allocated', fmtBytes(heap.totalJSHeapSize));
-      card('heap limit', fmtBytes(heap.jsHeapSizeLimit));
-      card('used of limit', `${Math.round((heap.usedJSHeapSize / heap.jsHeapSizeLimit) * 100)}%`);
-      memSection.append(el('div', { className: 'stat-row' }, [cards]));
+      );
+      return;
     }
+    const srow = (label: string, value: string) =>
+      heapCol.append(
+        el('div', { className: 'srow' }, [
+          el('span', { className: 'label', text: label }),
+          el('span', { className: 'num', text: value }),
+        ]),
+      );
+    srow('used', fmtBytes(heap.usedJSHeapSize));
+    srow('allocated', fmtBytes(heap.totalJSHeapSize));
+    srow('of limit', `${Math.round((heap.usedJSHeapSize / heap.jsHeapSizeLimit) * 100)}%`);
   }
   const memTimer = setInterval(renderMemory, 2000);
 
@@ -126,12 +121,12 @@ export function renderStoreView(container: HTMLElement): () => void {
 
   function render(): void {
     clear(body);
-    renderMemory();
-    body.append(memSection);
     const rows = buildRows();
 
     if (rows.length === 0) {
+      renderMemory();
       body.append(
+        el('div', { className: 'store-summary' }, [heapCol]),
         el('div', { className: 'empty' }, [
           el('div', { className: 'fleuron', text: '❧' }),
           el('h3', { text: 'The store is empty' }),
@@ -141,33 +136,34 @@ export function renderStoreView(container: HTMLElement): () => void {
       return;
     }
 
-    // --- totals ---
-    const cards = el('div', { className: 'stat-cards' });
-    const card = (label: string, value: string) =>
-      cards.append(
-        el('div', { className: 'stat-card' }, [
-          el('div', { className: 'label', text: label }),
-          el('div', { className: 'stat-value num', text: value }),
+    // --- one summary panel: store ledger | heap ledger, kind bar below ---
+    const storeCol = el('div', { className: 'sgrid' });
+    storeCol.append(el('div', { className: 'label scol-title', text: 'In memory' }));
+    const srow = (label: string, value: string) =>
+      storeCol.append(
+        el('div', { className: 'srow' }, [
+          el('span', { className: 'label', text: label }),
+          el('span', { className: 'num', text: value }),
         ]),
       );
-    card('records', fmtCount(store.records.length));
-    card('files', fmtCount(rows.length));
-    card('compressed', fmtBytes(rows.reduce((s, r) => s + r.sizeCompressed, 0)));
-    card('uncompressed', fmtBytes(rows.reduce((s, r) => s + r.sizeUncompressed, 0)));
+    srow('records', fmtCount(store.records.length));
+    srow('files', fmtCount(rows.length));
+    srow(
+      'compressed → parsed',
+      `${fmtBytes(rows.reduce((s, r) => s + r.sizeCompressed, 0))} → ${fmtBytes(rows.reduce((s, r) => s + r.sizeUncompressed, 0))}`,
+    );
 
-    const kindMix = el('div', { className: 'result-mix' });
-    for (const kind of RECORD_KINDS) {
-      const count = store.kindCounts.get(kind) ?? 0;
-      if (count === 0) continue;
-      kindMix.append(
-        el('span', { className: 'chip', attrs: { style: 'cursor:default' } }, [
-          el('span', { className: 'dot', attrs: { style: `background: var(--kind-${kind})` } }),
-          el('span', { text: kind }),
-          el('span', { className: 'count', text: fmtCount(count) }),
-        ]),
-      );
-    }
-    body.append(el('div', { className: 'stat-row' }, [cards, kindMix]));
+    renderMemory();
+
+    const overall = totalKindBar();
+    body.append(
+      el('div', { className: 'store-summary' }, [
+        storeCol,
+        el('div', { className: 'sdivider' }),
+        heapCol,
+        overall,
+      ]),
+    );
 
     // --- per-file table ---
     body.append(
@@ -242,11 +238,26 @@ export function renderStoreView(container: HTMLElement): () => void {
     body.append(el('div', { className: 'txn-wrap', attrs: { style: 'flex:none' } }, [table]));
   }
 
-  function kindBar(row: FileRow): HTMLElement {
-    const bar = el('div', { className: 'kind-bar' });
-    if (row.total === 0) return bar;
+  function totalKindBar(): HTMLElement {
+    const byKind = new Map<RecordKind, number>();
     for (const kind of RECORD_KINDS) {
-      const count = row.byKind.get(kind) ?? 0;
+      const count = store.kindCounts.get(kind) ?? 0;
+      if (count > 0) byKind.set(kind, count);
+    }
+    const bar = segments(byKind, store.records.length);
+    bar.classList.add('store-kindbar');
+    return bar;
+  }
+
+  function kindBar(row: FileRow): HTMLElement {
+    return segments(row.byKind, row.total);
+  }
+
+  function segments(byKind: Map<RecordKind, number>, total: number): HTMLElement {
+    const bar = el('div', { className: 'kind-bar' });
+    if (total === 0) return bar;
+    for (const kind of RECORD_KINDS) {
+      const count = byKind.get(kind) ?? 0;
       if (count === 0) continue;
       const seg = el('span', {
         attrs: { style: `background: var(--kind-${kind}); flex: ${count}` },
@@ -255,7 +266,7 @@ export function renderStoreView(container: HTMLElement): () => void {
             tip.innerHTML =
               `<div class="t"><span class="dot" style="background: var(--kind-${kind})"></span>` +
               `${kind} — ${KIND_DESCRIPTIONS[kind]}</div>` +
-              `<span class="row">records<span class="v">${fmtCount(count)} of ${fmtCount(row.total)}</span></span>`;
+              `<span class="row">records<span class="v">${fmtCount(count)} of ${fmtCount(total)}</span></span>`;
             tip.style.display = 'block';
             tip.style.left = `${Math.min(ev.clientX + 14, window.innerWidth - 300)}px`;
             tip.style.top = `${ev.clientY - 10}px`;

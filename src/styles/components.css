@@ -1053,3 +1053,51 @@ th.sortable.on {
 .store-link:hover {
   color: var(--thread);
 }
+
+/* ---------- store summary panel ---------- */
+
+.store-summary {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 1px minmax(220px, 1fr);
+  gap: 6px 26px;
+  align-items: start;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 14px 20px 16px;
+  margin: 12px 0 6px;
+}
+
+.sgrid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.scol-title {
+  margin-bottom: 4px;
+}
+
+.srow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid var(--line);
+  padding: 2px 0;
+}
+
+.srow .num {
+  font-size: 13px;
+}
+
+.sdivider {
+  background: var(--line);
+  align-self: stretch;
+}
+
+.store-kindbar {
+  grid-column: 1 / -1;
+  height: 12px;
+  margin-top: 8px;
+}
