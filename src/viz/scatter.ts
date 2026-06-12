@@ -199,14 +199,16 @@ export function renderScatter(
         `every ${ordinal(okStep)} successful instance, and every problem instance. ` +
         `Hover and click still consider all points.`,
       attrs: {
+        // a drop-up: above the pill row, clear of the chart it describes
         style:
-          'right:0;top:calc(100% + 6px);max-width:280px;pointer-events:auto;' +
-          'white-space:normal;line-height:1.45',
+          'right:0;bottom:calc(100% + 8px);width:420px;max-width:420px;' +
+          'pointer-events:auto;white-space:normal;line-height:1.5;' +
+          'font-size:11px;text-align:justify',
       },
     });
     const pill = el('button', {
       className: 'chip',
-      text: '(sampled)',
+      text: 'sampled',
       attrs: { style: 'font-size:11px', title: 'this chart draws a sample — click for details' },
       on: {
         click: () => {
