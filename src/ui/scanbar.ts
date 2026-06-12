@@ -379,17 +379,8 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
       );
     }
 
-    // status + live
+    // right group, left to right: refresh · LIVE · status/MEM
     const right = el('div', { className: 'group', attrs: { style: 'margin-left:auto' } });
-    if (state.error) {
-      right.append(el('span', { className: 'budget', text: `⚠ ${state.error}` }));
-    } else if (state.planning) {
-      right.append(el('span', { className: 'budget faint', text: 'looking…' }));
-    } else if (state.plan && state.plan.files.length === 0) {
-      right.append(el('span', { className: 'budget faint', text: 'no data in this range' }));
-    } else {
-      right.append(el('span', { className: 'budget' })); // filled by updateLoadedText
-    }
     const liveChip = el('button', {
       className: state.live ? 'chip live on' : 'chip live',
       title: "refresh today's _current snapshots every 60 s",
@@ -408,7 +399,6 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
       },
     });
     liveChip.append(el('span', { className: 'dot' }), el('span', { text: 'LIVE' }));
-    right.append(liveChip);
 
     const refreshChip = el('button', {
       className: 'chip refresh-chip',
@@ -426,7 +416,17 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
       },
     });
     refreshChip.disabled = state.planning || store.progress.running;
-    right.append(refreshChip);
+
+    right.append(refreshChip, liveChip);
+    if (state.error) {
+      right.append(el('span', { className: 'budget', text: `⚠ ${state.error}` }));
+    } else if (state.planning) {
+      right.append(el('span', { className: 'budget faint', text: 'looking…' }));
+    } else if (state.plan && state.plan.files.length === 0) {
+      right.append(el('span', { className: 'budget faint', text: 'no data in this range' }));
+    } else {
+      right.append(el('span', { className: 'budget' })); // filled by updateLoadedText
+    }
     bar.append(right);
 
     container.append(bar);
