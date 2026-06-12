@@ -266,7 +266,7 @@ export class Store extends EventTarget {
       perf.push({
         ts: Date.now(),
         cat: 'render',
-        name: 'view update',
+        name: 'store broadcast',
         ms: this.lastEmitCost,
         records: this.records.length,
       });

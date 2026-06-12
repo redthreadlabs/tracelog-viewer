@@ -6,6 +6,7 @@
  */
 import { el, clear } from '../dom';
 import { storeClient } from '../../data/storeclient';
+import { perf } from '../../data/perf';
 import type { HistBucket } from '../../data/aggregate';
 import type { SampleNote } from '../../worker/backend';
 import { renderHistogram } from '../../viz/histogram';
@@ -41,6 +42,7 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
 
   async function render(): Promise<void> {
     const t = ++token;
+    const doneRender = perf.begin('render', `/txn/${name}`);
     const stats = await storeClient.request<TxnDetail>('txnDetail', {
       name,
       window: viewState.timeWindow,
@@ -48,6 +50,7 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
     if (t !== token || !container.isConnected) return;
     renderHead(stats);
     renderBody(stats);
+    doneRender({ records: stats.count });
   }
 
   function renderHead(stats: TxnDetail): void {

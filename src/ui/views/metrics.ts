@@ -5,6 +5,7 @@
  */
 import { el, clear } from '../dom';
 import { storeClient } from '../../data/storeclient';
+import { perf } from '../../data/perf';
 import {
   type SeriesPoint,
   type BreakdownResult,
@@ -41,6 +42,7 @@ export function renderMetricsView(container: HTMLElement): () => void {
   let token = 0;
   async function render(): Promise<void> {
     const t = ++token;
+    const doneRender = perf.begin('render', '/metrics');
     const data = await storeClient.request<{
       series: Map<string, Map<string, SeriesPoint[]>>;
       breakdown: BreakdownResult;
@@ -150,6 +152,7 @@ export function renderMetricsView(container: HTMLElement): () => void {
       body.append(chart);
       requestAnimationFrame(() => renderStackbars(chart, breakdown));
     }
+    doneRender();
   }
 
   const onData = () => void render();

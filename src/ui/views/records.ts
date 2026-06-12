@@ -5,6 +5,7 @@
  */
 import { el, clear } from '../dom';
 import { storeClient } from '../../data/storeclient';
+import { perf } from '../../data/perf';
 import { RECORD_KINDS, type Rec, type RecordKind } from '../../data/types';
 import { viewState } from '../../state';
 import { renderRecDrawer } from '../recdrawer';
@@ -364,6 +365,7 @@ export function renderRecordsView(container: HTMLElement): () => void {
 
   function refresh(filtersChanged = false): void {
     void (async () => {
+      const doneRender = perf.begin('render', '/records');
       if (storeClient.snapshot.generation !== lastGeneration || filtersChanged) {
         lastGeneration = storeClient.snapshot.generation;
         if (!(await fetchPage())) return;
@@ -378,6 +380,7 @@ export function renderRecordsView(container: HTMLElement): () => void {
       renderHead();
       renderRows();
       renderPager();
+      doneRender({ records: total });
     })();
   }
 

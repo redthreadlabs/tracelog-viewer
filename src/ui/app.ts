@@ -12,7 +12,6 @@ import { renderScanbar } from './scanbar';
 import { readHash, setView, setParams, parseWindowParam, getParam } from './hashstate';
 import { viewState, resetViewState } from '../state';
 import { storeClient } from '../data/storeclient';
-import { perf } from '../data/perf';
 import type { Profile } from './profiles';
 import { renderPerfView } from './views/perfview';
 import { renderRecordsView } from './views/records';
@@ -161,11 +160,9 @@ export function startApp(root: HTMLElement): void {
       });
       return;
     }
-    // Time every view render against the store size at that moment — the
-    // perf page itself excluded, or logging its render would re-render it.
-    const doneRender = view === '/internals/perf' ? null : perf.begin('render', view);
+    // views self-time their async renders (op + clone + DOM) — timing the
+    // synchronous scaffolding here would claim 0 ms for everything
     teardown = renderView(view);
-    doneRender?.({ records: storeClient.snapshot.recordCount });
   }
 
   function renderView(view: string): (() => void) | null {

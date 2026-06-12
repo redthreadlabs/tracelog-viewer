@@ -7,6 +7,7 @@
  */
 import { el, clear } from '../dom';
 import { storeClient } from '../../data/storeclient';
+import { perf } from '../../data/perf';
 import { spanTypeToken, type TraceModel } from '../../data/trace';
 import type { Rec } from '../../data/types';
 import { renderRecDrawer } from '../recdrawer';
@@ -26,10 +27,12 @@ export function renderTraceView(container: HTMLElement, traceId: string): () => 
   let token = 0;
   async function render(): Promise<void> {
     const t = ++token;
+    const doneRender = perf.begin('render', '/trace');
     const model = await storeClient.request<TraceModel>('traceData', { traceId });
     if (t !== token || !container.isConnected) return;
     renderHead(model);
     renderWaterfall(model);
+    doneRender();
   }
 
   function renderHead(model: TraceModel): void {

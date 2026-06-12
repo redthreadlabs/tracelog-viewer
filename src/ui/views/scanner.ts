@@ -5,6 +5,7 @@
  */
 import { el, clear } from '../dom';
 import { storeClient } from '../../data/storeclient';
+import { perf } from '../../data/perf';
 import { type ScannerStats, type RankedCount } from '../../data/scanner-traffic';
 import { viewState } from '../../state';
 import { fmtCount } from '../format';
@@ -16,6 +17,7 @@ export function renderScannerView(container: HTMLElement): () => void {
   let token = 0;
   async function render(): Promise<void> {
     const t = ++token;
+    const doneRender = perf.begin('render', '/scanner');
     const stats = await storeClient.request<ScannerStats>('scannerData', {
       window: viewState.timeWindow,
     });
@@ -77,6 +79,7 @@ export function renderScannerView(container: HTMLElement): () => void {
       rankedList('Top source IPs', stats.topIps),
     );
     body.append(grid);
+    doneRender();
   }
 
   function rankedList(title: string, items: RankedCount[]): HTMLElement {

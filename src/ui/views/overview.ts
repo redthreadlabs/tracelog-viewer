@@ -6,6 +6,7 @@
  */
 import { el, clear } from '../dom';
 import { storeClient } from '../../data/storeclient';
+import { perf } from '../../data/perf';
 import { sortTxnGroups, type TxnGroup, type TxnSortKey, type BucketResult } from '../../data/aggregate';
 import { renderTimebars } from '../../viz/timebars';
 import { viewState } from '../../state';
@@ -37,6 +38,7 @@ export function renderOverview(container: HTMLElement): () => void {
     }
 
     const t = ++token;
+    const doneRender = perf.begin('render', '/overview');
     const window = viewState.timeWindow;
     const res = await storeClient.request<{
       bucketed: BucketResult;
@@ -100,6 +102,7 @@ export function renderOverview(container: HTMLElement): () => void {
     });
 
     renderTable();
+    doneRender({ records: storeClient.snapshot.recordCount });
   }
 
   function renderTable(): void {

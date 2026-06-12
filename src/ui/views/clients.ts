@@ -5,6 +5,7 @@
  */
 import { el, clear } from '../dom';
 import { storeClient } from '../../data/storeclient';
+import { perf } from '../../data/perf';
 import type { Rec } from '../../data/types';
 import {
   SLOW_EVENT_MS,
@@ -25,6 +26,7 @@ export function renderClientsView(container: HTMLElement): () => void {
   let token = 0;
   async function render(): Promise<void> {
     const t = ++token;
+    const doneRender = perf.begin('render', '/clients');
     const data = await storeClient.request<{
       profiles: ClientProfile[];
       versions: AppVersionStat[];
@@ -204,6 +206,7 @@ export function renderClientsView(container: HTMLElement): () => void {
     }
     typesTable.append(ttbody);
     body.append(el('div', { className: 'txn-wrap', attrs: { style: 'flex:none' } }, [typesTable]));
+    doneRender();
   }
 
   const onData = () => void render();

@@ -7,6 +7,7 @@
  */
 import { el, clear } from '../dom';
 import { storeClient } from '../../data/storeclient';
+import { perf } from '../../data/perf';
 import type { Rec } from '../../data/types';
 import { viewState } from '../../state';
 import { renderRecDrawer, type DrawerAction } from '../recdrawer';
@@ -407,6 +408,7 @@ export function renderEventsView(container: HTMLElement): () => void {
 
   function refresh(filtersChanged = false): void {
     void (async () => {
+      const doneRender = perf.begin('render', '/events');
       if (storeClient.snapshot.generation !== lastGeneration || filtersChanged) {
         lastGeneration = storeClient.snapshot.generation;
         if (!(await fetchPage())) return;
@@ -422,6 +424,7 @@ export function renderEventsView(container: HTMLElement): () => void {
       renderHead();
       renderRows();
       renderPager();
+      doneRender({ records: total });
     })();
   }
 
