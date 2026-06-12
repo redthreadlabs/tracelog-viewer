@@ -4,7 +4,7 @@
  */
 import type { LogBucket } from '../s3/client';
 import type { ScanPlan } from '../s3/scanner';
-import { parseFile } from './parse';
+import { parseFile, clearInternPool } from './parse';
 import { cacheGet, cachePut } from './cache';
 import { store } from './store';
 import { resetViewState } from '../state';
@@ -13,6 +13,7 @@ const CONCURRENCY = 4;
 
 export async function executeScan(bucket: LogBucket, plan: ScanPlan): Promise<void> {
   store.clear();
+  clearInternPool(); // fresh pool per scan — it must not outlive its corpus
   resetViewState(); // a new scan invalidates any brushed window / deep link
   store.setProgress({
     filesTotal: plan.files.length,

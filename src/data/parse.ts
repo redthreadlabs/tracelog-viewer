@@ -20,6 +20,33 @@ export interface ParseResult {
 
 let nextId = 1;
 
+/**
+ * Manual string intern pool. V8 internalizes JSON property *keys* but never
+ * values, so a million events with level "info" would otherwise hold a
+ * million separate heap strings. High-multiplicity fields (names, levels,
+ * results, outcomes, user ids) pass through here at normalize time; unique
+ * ids (trace_id etc.) deliberately do not — interning them would grow the
+ * pool without creating sharing. Cleared at the start of each scan.
+ */
+const internPool = new Map<string, string>();
+
+export function clearInternPool(): void {
+  internPool.clear();
+}
+
+function intern(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const hit = internPool.get(value);
+  if (hit !== undefined) return hit;
+  internPool.set(value, value);
+  return value;
+}
+
+/** intern(str(v)) — the canonical instance of a parsed string field */
+function istr(value: unknown): string | undefined {
+  return intern(str(value));
+}
+
 export function parseFile(bytes: Uint8Array, file: ParsedKey): ParseResult {
   const text = new TextDecoder().decode(bytes);
   const records: Rec[] = [];
@@ -107,20 +134,20 @@ function normalize(
 
   switch (kind) {
     case 'transaction': {
-      rec.name = str(body.name) ?? '(unnamed)';
-      rec.outcome = str(body.outcome);
-      rec.result = str(body.result);
+      rec.name = istr(body.name) ?? '(unnamed)';
+      rec.outcome = istr(body.outcome);
+      rec.result = istr(body.result);
       rec.duration = num(body.duration);
       rec.traceId = str(body.trace_id);
-      rec.userId = str(ctxUser.id);
+      rec.userId = istr(ctxUser.id);
       break;
     }
     case 'span': {
-      rec.name = str(body.name) ?? '(unnamed)';
+      rec.name = istr(body.name) ?? '(unnamed)';
       const type = str(body.type);
       const subtype = str(body.subtype);
-      rec.result = subtype ? `${type}/${subtype}` : type;
-      rec.outcome = str(body.outcome);
+      rec.result = intern(subtype ? `${type}/${subtype}` : type);
+      rec.outcome = istr(body.outcome);
       rec.duration = num(body.duration);
       rec.traceId = str(body.trace_id);
       rec.transactionId = str(body.transaction_id);
@@ -128,14 +155,14 @@ function normalize(
       break;
     }
     case 'event': {
-      rec.name = str(body.type) ?? 'event';
-      rec.level = str(body.level) ?? 'info';
+      rec.name = istr(body.type) ?? 'event';
+      rec.level = istr(body.level) ?? 'info';
       rec.message = str(body.message);
       rec.duration = num(body.duration);
       rec.traceId = str(body.trace_id);
       rec.transactionId = str(body.transaction_id);
       const user = (body.user ?? {}) as Record<string, unknown>;
-      rec.userId = str(user.id);
+      rec.userId = istr(user.id);
       const error = body.error as Record<string, unknown> | undefined;
       if (error && !rec.message) rec.message = str(error.message);
       break;
@@ -143,12 +170,12 @@ function normalize(
     case 'error': {
       const exception = (body.exception ?? {}) as Record<string, unknown>;
       const log = (body.log ?? {}) as Record<string, unknown>;
-      rec.name = str(exception.type) ?? 'error';
+      rec.name = istr(exception.type) ?? 'error';
       rec.message = str(exception.message) ?? str(log.message);
       rec.level = 'error';
       rec.traceId = str(body.trace_id);
       rec.transactionId = str(body.transaction_id);
-      rec.userId = str(ctxUser.id);
+      rec.userId = istr(ctxUser.id);
       break;
     }
     case 'metricset': {
