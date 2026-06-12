@@ -110,7 +110,12 @@ The viewer composes exactly three S3 access patterns:
 
 A date-range scan is **one paginated listing per channel** — never one
 request per day. Cross-channel queries fan out over the (few) discovered
-channels.
+channels. Listings are bracketed by UTC *day* labels (correct for daily,
+hourly, and even mixed layouts, since hourly keys sort inside their day),
+but **fetches are filtered by interval overlap** with the precise
+requested range: on an hourly bucket, a "last 15 minutes" range fetches
+only the covering hour file(s); on a daily bucket it fetches the covering
+day, as before.
 
 ### 3.3 File format
 

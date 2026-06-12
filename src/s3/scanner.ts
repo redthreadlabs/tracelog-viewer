@@ -4,7 +4,7 @@
  * a single object byte is fetched.
  */
 import type { LogBucket } from './client';
-import { parseKey, dedupeCurrents, type ParsedKey } from './keys';
+import { parseKey, dedupeCurrents, overlapsRange, type ParsedKey } from './keys';
 
 export interface ScanPlan {
   files: ParsedKey[];
@@ -16,19 +16,23 @@ export interface ScanPlan {
 export async function planScan(
   bucket: LogBucket,
   channels: string[],
-  startDate: string,
-  endDate: string,
+  startMs: number,
+  endMs: number,
 ): Promise<ScanPlan> {
+  const startDate = new Date(startMs).toISOString().slice(0, 10);
+  const endDate = new Date(endMs).toISOString().slice(0, 10);
   const all: ParsedKey[] = [];
   // Channels are few (SPEC: cross-channel queries fan out over the
   // discovered channels) — fan out the per-channel listings concurrently.
+  // Listings stay day-bracketed (correct for daily, hourly, and mixed
+  // layouts); the overlap filter below keeps fetches hour-granular.
   const listings = await Promise.all(
     channels.map((ch) => bucket.listChannelRange(ch, startDate, endDate)),
   );
   for (const listing of listings) {
     for (const obj of listing) {
       const parsed = parseKey(obj.key, obj.size, obj.lastModified, obj.etag);
-      if (parsed) all.push(parsed);
+      if (parsed && overlapsRange(parsed, startMs, endMs)) all.push(parsed);
     }
   }
 

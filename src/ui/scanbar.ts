@@ -178,7 +178,7 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     });
     render();
     try {
-      state.plan = await planScan(bucket, selected, utcDayOf(state.startMs), utcDayOf(state.endMs));
+      state.plan = await planScan(bucket, selected, state.startMs, state.endMs);
     } catch (err) {
       state.error = err instanceof Error ? err.message : String(err);
     }

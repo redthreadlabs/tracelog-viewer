@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseKey, dedupeCurrents } from './keys';
+import { parseKey, dedupeCurrents, intervalSpan, overlapsRange } from './keys';
 
 describe('parseKey (SPEC §3.1 grammar)', () => {
   it('parses a finalized daily file', () => {
@@ -70,5 +70,47 @@ describe('dedupeCurrents (SPEC §3.5)', () => {
       parseKey('server/2026-06-11/h_1_current.jsonl.gz')!,
     ];
     expect(dedupeCurrents(files)).toHaveLength(2);
+  });
+});
+
+describe('intervalSpan / overlapsRange (hour-granular fetch filtering)', () => {
+  it('spans daily and hourly intervals', () => {
+    expect(intervalSpan('2026-06-12')).toEqual([
+      Date.UTC(2026, 5, 12),
+      Date.UTC(2026, 5, 13),
+    ]);
+    expect(intervalSpan('2026-06-12T14')).toEqual([
+      Date.UTC(2026, 5, 12, 14),
+      Date.UTC(2026, 5, 12, 15),
+    ]);
+    expect(intervalSpan('weird')).toBeNull();
+  });
+
+  it('fetches only the covering hours of an hourly bucket', () => {
+    const h13 = parseKey('server/2026-06-12T13/h.jsonl.gz')!;
+    const h14 = parseKey('server/2026-06-12T14/h.jsonl.gz')!;
+    const h15 = parseKey('server/2026-06-12T15/h.jsonl.gz')!;
+    const from = Date.UTC(2026, 5, 12, 14, 10);
+    const to = Date.UTC(2026, 5, 12, 14, 40);
+    expect(overlapsRange(h13, from, to)).toBe(false);
+    expect(overlapsRange(h14, from, to)).toBe(true);
+    expect(overlapsRange(h15, from, to)).toBe(false);
+  });
+
+  it('keeps a daily file for any sub-range of its day, and unknown layouts', () => {
+    const daily = parseKey('server/2026-06-12/h.jsonl.gz')!;
+    const from = Date.UTC(2026, 5, 12, 14, 10);
+    const to = Date.UTC(2026, 5, 12, 14, 40);
+    expect(overlapsRange(daily, from, to)).toBe(true);
+    expect(overlapsRange({ ...daily, interval: 'v2-custom' }, from, to)).toBe(true);
+  });
+
+  it('handles ranges spanning an hour boundary', () => {
+    const h14 = parseKey('server/2026-06-12T14/h.jsonl.gz')!;
+    const h15 = parseKey('server/2026-06-12T15/h.jsonl.gz')!;
+    const from = Date.UTC(2026, 5, 12, 14, 50);
+    const to = Date.UTC(2026, 5, 12, 15, 10);
+    expect(overlapsRange(h14, from, to)).toBe(true);
+    expect(overlapsRange(h15, from, to)).toBe(true);
   });
 });

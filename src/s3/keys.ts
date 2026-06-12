@@ -72,3 +72,35 @@ export function dedupeCurrents(files: ParsedKey[]): ParsedKey[] {
     (f) => !f.current || !finalized.has(`${f.channel}/${f.interval}/${f.host}/${f.seq}`),
   );
 }
+
+
+/**
+ * The UTC time span an interval label covers: daily `YYYY-MM-DD` → 24 h,
+ * hourly `YYYY-MM-DDTHH` → 1 h. Unknown grammar → null (callers should be
+ * conservative and keep the file).
+ */
+export function intervalSpan(interval: string): [number, number] | null {
+  let m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(interval);
+  if (m) {
+    const t0 = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+    return [t0, t0 + 86_400_000];
+  }
+  m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})$/.exec(interval);
+  if (m) {
+    const t0 = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4]);
+    return [t0, t0 + 3_600_000];
+  }
+  return null;
+}
+
+/**
+ * Whether a file's interval overlaps [startMs, endMs]. This is the fetch
+ * filter that makes sub-day ranges cheap on hourly buckets: listings stay
+ * day-bracketed (correct for daily, hourly, or mixed layouts), but only
+ * files whose hours actually cover the range get fetched.
+ */
+export function overlapsRange(file: ParsedKey, startMs: number, endMs: number): boolean {
+  const span = intervalSpan(file.interval);
+  if (!span) return true; // unknown layout: keep it
+  return span[0] <= endMs && span[1] > startMs;
+}
