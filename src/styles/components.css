@@ -1169,3 +1169,11 @@ th.sortable.on {
   align-items: center;
   gap: 8px;
 }
+
+
+/* pill-shaped select, matching the chips beside it */
+.select-pill {
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: 12.5px;
+}
