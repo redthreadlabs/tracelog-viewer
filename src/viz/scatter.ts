@@ -46,6 +46,13 @@ const FAMILY_ALPHA: Record<ResultFamily, number> = {
   other: 0.9,
 };
 
+/** 3 → "3rd", 21 → "21st" — sampling disclosures read like English. */
+function ordinal(n: number): string {
+  const v = n % 100;
+  const suffix = v >= 11 && v <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th';
+  return `${n}${suffix}`;
+}
+
 /** A pre-rendered dot: stamping sprites avoids giant paths entirely. */
 function makeSprite(color: string, alpha: number, dpr: number): HTMLCanvasElement {
   const sprite = document.createElement('canvas');
@@ -65,8 +72,11 @@ export function renderScatter(
   container: HTMLElement,
   instances: Rec[],
   onPick: (rec: Rec) => void,
+  /** where the "(sampled)" pill renders — right-aligned above the chart */
+  sampleHost?: HTMLElement,
 ): void {
   clear(container);
+  if (sampleHost) clear(sampleHost);
   const points = instances.filter((r) => r.duration !== undefined && r.ts > 0);
   if (points.length === 0) return;
 
@@ -176,16 +186,40 @@ export function renderScatter(
       drawn++;
     }
   }
-  if (drawn < n) {
-    container.append(
-      el('div', {
-        className: 'faint',
-        text: `drawing ${drawn.toLocaleString('en-US')} of ${n.toLocaleString('en-US')} points (every ${okStep}th ok; all problems)`,
-        attrs: {
-          style: `position:absolute;top:2px;right:${MARGIN.right + 4}px;font-size:10.5px`,
+  if (drawn < n && sampleHost) {
+    sampleHost.style.position = 'relative';
+    const pop = el('div', {
+      className: 'chart-tooltip',
+      text:
+        `Drawing ${drawn.toLocaleString('en-US')} of ${n.toLocaleString('en-US')} points: ` +
+        `every ${ordinal(okStep)} successful instance, and every problem instance. ` +
+        `Hover and click still consider all points.`,
+      attrs: {
+        style:
+          'right:0;top:calc(100% + 6px);max-width:280px;pointer-events:auto;' +
+          'white-space:normal;line-height:1.45',
+      },
+    });
+    const pill = el('button', {
+      className: 'chip',
+      text: '(sampled)',
+      attrs: { style: 'font-size:11px', title: 'this chart draws a sample — click for details' },
+      on: {
+        click: () => {
+          const open = pop.style.display === 'block';
+          pop.style.display = open ? 'none' : 'block';
         },
-      }),
-    );
+      },
+    });
+    document.addEventListener('mousedown', function onDown(ev) {
+      if (!pill.isConnected) {
+        document.removeEventListener('mousedown', onDown);
+        return;
+      }
+      const target = ev.target as Node;
+      if (!pill.contains(target) && !pop.contains(target)) pop.style.display = 'none';
+    });
+    sampleHost.append(pill, pop);
   }
 
   // --- hover/click: nearest point within HIT_RADIUS ---

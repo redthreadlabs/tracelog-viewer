@@ -134,10 +134,13 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
     const histHost = el('div', { className: 'chart-host' });
     histSection.append(histHost);
 
+    const sampleHost = el('span');
     const scatterSection = el('div', {}, [
       el('div', { className: 'section-head' }, [
         el('span', { className: 'label', text: 'Duration over time' }),
         el('span', { className: 'budget faint', text: 'click a point to open its trace' }),
+        el('span', { className: 'masthead-spacer' }),
+        sampleHost,
       ]),
     ]);
     const scatterHost = el('div', { className: 'chart-host' });
@@ -147,7 +150,7 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
     body.append(chartsGrid);
 
     renderHistogram(histHost, logHistogram(durations));
-    renderScatter(scatterHost, stats.instances, openTrace);
+    renderScatter(scatterHost, stats.instances, openTrace, sampleHost);
 
     // --- slowest instances ---
     const slowest = [...stats.instances]

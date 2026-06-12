@@ -200,7 +200,17 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
   }
 
   function maybeAutoLoad(): void {
-    if (!state.plan || state.plan.files.length === 0) return;
+    if (!state.plan) return;
+    if (state.plan.files.length === 0) {
+      // A range that matches no files means "show nothing" — same contract
+      // as deselecting every channel. Without this, switching to an empty
+      // range (e.g. Today before any logs land) silently kept the old data.
+      if (store.records.length > 0 || store.files.size > 0) {
+        store.clear();
+        loadedSignature = null;
+      }
+      return;
+    }
     if (store.progress.running) return;
     if (planSignature(state.plan) === loadedSignature) {
       // same data, possibly a different slice of it: apply the window and
