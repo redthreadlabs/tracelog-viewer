@@ -139,8 +139,10 @@ export class Store extends EventTarget {
     this.levelCounts.clear();
     this.hosts.clear();
     this.files.clear();
+    this.progress = { filesTotal: 0, filesDone: 0, bytesDone: 0, filesFromCache: 0, running: false };
     this.generation++;
     this.dispatchEvent(new Event('data'));
+    this.dispatchEvent(new Event('progress'));
   }
 
   setProgress(progress: Partial<ScanProgress>): void {

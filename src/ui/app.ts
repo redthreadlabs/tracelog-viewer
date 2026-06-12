@@ -10,8 +10,10 @@ import { profiles } from './profiles';
 import { LogBucket } from '../s3/client';
 import { renderConfig } from './config';
 import { renderScanbar } from './scanbar';
-import { readHash, setView, parseWindowParam, getParam } from './hashstate';
-import { viewState } from '../state';
+import { readHash, setView, setParams, parseWindowParam, getParam } from './hashstate';
+import { viewState, resetViewState } from '../state';
+import { store } from '../data/store';
+import type { Profile } from './profiles';
 import { renderRecordsView } from './views/records';
 import { renderEventsView } from './views/events';
 import { renderMetricsView } from './views/metrics';
@@ -33,6 +35,11 @@ const NAV: { view: string; label: string }[] = [
 
 let teardown: (() => void) | null = null;
 let bucket: LogBucket | null = null;
+
+/** What makes one connection a different world than another. */
+function profileSignature(p: Profile | null): string | null {
+  return p ? `${p.bucket}|${p.region}|${p.accessKeyId}` : null;
+}
 
 export function startApp(root: HTMLElement): void {
   initTheme();
@@ -114,8 +121,25 @@ export function startApp(root: HTMLElement): void {
     if (bucket) renderScanbar(scanbarHost, bucket);
   }
 
+  // Seeded at boot so the initial connect() of a remembered profile does NOT
+  // count as a switch (a shared URL's w=/ch= params must survive page load).
+  let connectedSignature = profileSignature(profiles.active());
+
   function connect(): void {
     const active = profiles.active();
+    const signature = profileSignature(active);
+    if (signature !== connectedSignature) {
+      // A different bucket/key is a different world: records loaded from the
+      // old one must not linger in views, counts, or the MEM pill — and a
+      // scan of the new bucket may legitimately match zero files, so the
+      // reset cannot wait for the next executeScan. The IndexedDB cache is
+      // deliberately untouched: finalized files are immutable and ETag-keyed,
+      // so coming back to this profile later stays warm.
+      connectedSignature = signature;
+      store.clear();
+      resetViewState();
+      setParams({ ch: null, w: null });
+    }
     bucket = active ? new LogBucket(active) : null;
     renderHeader();
     renderScanbarIfConnected();
