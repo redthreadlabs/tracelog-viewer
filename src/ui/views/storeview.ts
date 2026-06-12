@@ -215,7 +215,7 @@ export function renderStoreView(container: HTMLElement, bucket: LogBucket): () =
             listError ??
             (available === null
               ? 'listing the bucket…'
-              : 'newest first — load and evict freely; ⌂ = cached locally, so loading is free'),
+              : 'newest first — ⌂ = cached locally (free to load); live snapshots are never cached'),
         }),
       ]),
     );
@@ -338,12 +338,14 @@ export function renderStoreView(container: HTMLElement, bucket: LogBucket): () =
         attrs: { style: 'text-align:right' },
       }),
       el('td', {
-        className: 'num',
-        text: row.cached ? '⌂' : '',
+        className: row.cached ? 'num' : 'num faint',
+        text: row.cached ? '⌂' : row.parsed.current ? 'live' : '',
         title: row.cached
           ? 'cached locally in IndexedDB — loading this file is free'
-          : undefined,
-        attrs: { style: 'text-align:center;opacity:1' },
+          : row.parsed.current
+            ? 'live snapshot — changes every upload, so it is never cached'
+            : 'will be cached after its first load once finalized',
+        attrs: { style: 'text-align:center' },
       }),
       el('td', { attrs: { style: 'text-align:right' } }, [action]),
     ]);
