@@ -420,8 +420,9 @@ it impossible." That claim must ship with numbers, not vibes: a user should
 be able to read in the docs roughly where the browser stops being a viable
 query engine — and how to recognize when *they* are approaching it.
 
-**The script** (`scripts/synth-fleet.ts` in this repo — it benchmarks the
-viewer, and the JSONL contract it writes against is tracelog's SCHEMA.md):
+**The script** (`scripts/synth-fleet.mjs` in this repo — plain zero-dependency
+Node so it runs without a TS toolchain; it benchmarks the viewer, and the
+JSONL contract it writes against is tracelog's SCHEMA.md):
 
 - Synthesizes a fleet of services at configurable load tiers, writing
   gzipped JSONL in the exact §3.1 key layout to a local directory (sync to
