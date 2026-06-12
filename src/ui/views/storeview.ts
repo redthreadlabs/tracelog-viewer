@@ -209,6 +209,7 @@ export function renderStoreView(container: HTMLElement, bucket: LogBucket): () =
     body.append(
       el('div', { className: 'section-head' }, [
         el('span', { className: 'label', text: 'Files in S3' }),
+        el('span', { className: 'masthead-spacer' }),
         el('span', {
           className: 'budget faint',
           text:
