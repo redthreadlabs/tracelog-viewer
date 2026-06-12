@@ -83,42 +83,47 @@ const makeTools = (rng) => ({
 
 // Route pool: weight, median ms, log-normal sigma, span profile, error rate.
 const ROUTES = [
-  { name: 'GET /healthz',            w: 18, med: 2,   sig: 0.3, spans: [],                          err: 0.0001, user: 0 },
-  { name: 'GET /api/decks',          w: 10, med: 28,  sig: 0.6, spans: ['mongo', 'redis'],          err: 0.002, user: 0.9 },
-  { name: 'GET /api/decks/:id',      w: 12, med: 35,  sig: 0.7, spans: ['mongo', 'mongo', 'redis'], err: 0.002, user: 0.9 },
-  { name: 'GET /api/cards/:id',      w: 14, med: 22,  sig: 0.6, spans: ['mongo', 'redis'],          err: 0.001, user: 0.9 },
-  { name: 'POST /api/study-session', w: 8,  med: 90,  sig: 0.8, spans: ['mongo', 'mongo', 'redis'], err: 0.004, user: 1 },
-  { name: 'POST /api/reviews',       w: 9,  med: 60,  sig: 0.7, spans: ['mongo', 'mongo'],          err: 0.003, user: 1 },
-  { name: 'GET /api/search',         w: 6,  med: 140, sig: 0.9, spans: ['mongo', 'mongo', 'redis'], err: 0.005, user: 0.8 },
-  { name: 'GET /api/audio/:id',      w: 7,  med: 75,  sig: 0.8, spans: ['redis', 's3'],             err: 0.003, user: 0.7 },
-  { name: 'POST /api/tts',           w: 4,  med: 420, sig: 0.9, spans: ['redis', 'http', 's3'],     err: 0.008, user: 1 },
-  { name: 'POST /api/sync',          w: 6,  med: 180, sig: 0.9, spans: ['mongo', 'mongo', 'mongo'], err: 0.004, user: 1 },
-  { name: 'POST /logs',              w: 8,  med: 12,  sig: 0.5, spans: [],                          err: 0.0005, user: 0.6 },
-  { name: 'GET /api/profile',        w: 5,  med: 30,  sig: 0.6, spans: ['mongo'],                   err: 0.001, user: 1 },
-  { name: 'POST /api/auth/login',    w: 3,  med: 110, sig: 0.7, spans: ['mongo', 'http'],           err: 0.01, user: 0.5 },
-  { name: 'GET /api/stats',          w: 4,  med: 200, sig: 0.8, spans: ['mongo', 'mongo'],          err: 0.002, user: 1 },
+  { name: 'GET /healthz',              w: 18, med: 2,   sig: 0.3, spans: [],                       err: 0.0001, user: 0 },
+  { name: 'GET /api/users/:id',        w: 10, med: 24,  sig: 0.6, spans: ['pg', 'redis'],          err: 0.001, user: 0.9 },
+  { name: 'GET /api/orders',           w: 9,  med: 45,  sig: 0.7, spans: ['pg', 'pg', 'redis'],    err: 0.002, user: 1 },
+  { name: 'POST /api/orders',          w: 6,  med: 160, sig: 0.8, spans: ['pg', 'pg', 'http'],     err: 0.006, user: 1 },
+  { name: 'GET /api/products',         w: 12, med: 30,  sig: 0.6, spans: ['pg', 'redis'],          err: 0.001, user: 0.5 },
+  { name: 'GET /api/products/:id',     w: 13, med: 22,  sig: 0.6, spans: ['pg', 'redis'],          err: 0.001, user: 0.5 },
+  { name: 'GET /api/search',           w: 7,  med: 120, sig: 0.9, spans: ['es', 'es', 'redis'],    err: 0.004, user: 0.6 },
+  { name: 'GET /api/feed',             w: 8,  med: 65,  sig: 0.8, spans: ['redis', 'pg', 'pg'],    err: 0.002, user: 0.9 },
+  { name: 'POST /api/uploads',         w: 4,  med: 380, sig: 0.9, spans: ['s3', 'pg'],             err: 0.007, user: 1 },
+  { name: 'POST /api/jobs/export',     w: 3,  med: 900, sig: 1.0, spans: ['pg', 's3', 'http'],     err: 0.01, user: 1 },
+  { name: 'POST /api/webhooks/stripe', w: 4,  med: 55,  sig: 0.7, spans: ['pg', 'pg'],             err: 0.003, user: 0 },
+  { name: 'POST /logs',                w: 8,  med: 12,  sig: 0.5, spans: [],                       err: 0.0005, user: 0.6 },
+  { name: 'GET /api/notifications',    w: 6,  med: 35,  sig: 0.7, spans: ['redis', 'pg'],          err: 0.002, user: 1 },
+  { name: 'POST /api/auth/login',      w: 4,  med: 110, sig: 0.7, spans: ['pg', 'http'],           err: 0.01, user: 0.5 },
+  { name: 'GET /api/admin/reports',    w: 2,  med: 450, sig: 0.9, spans: ['pg', 'pg', 'es'],       err: 0.004, user: 1 },
 ];
 const ROUTE_W = ROUTES.reduce((s, r) => s + r.w, 0);
 
 const SPAN_KINDS = {
-  mongo: { type: 'db', subtype: 'mongodb', action: 'query',
-    names: ['cards.find', 'decks.findOne', 'reviews.insertOne', 'sessions.updateOne', 'users.findOne', 'stats.aggregate'],
-    dest: { address: 'cluster0.mongodb.net', port: 27017 } },
+  pg: { type: 'db', subtype: 'postgresql', action: 'query',
+    names: ['SELECT FROM users', 'SELECT FROM orders', 'INSERT INTO orders', 'SELECT FROM products', 'UPDATE sessions', 'SELECT FROM notifications'],
+    dest: { address: 'db.internal', port: 5432 } },
   redis: { type: 'db', subtype: 'redis', action: 'exec',
     names: ['GET', 'SET', 'EXPIRE', 'MGET'],
     dest: { address: 'cache.internal', port: 6379 } },
+  es: { type: 'db', subtype: 'elasticsearch', action: 'search',
+    names: ['products.search', 'orders.query', 'suggest.completion'],
+    dest: { address: 'search.internal', port: 9200 } },
   http: { type: 'external', subtype: 'http', action: undefined,
-    names: ['POST api.openai.com', 'GET api.exchangerate.host', 'POST hooks.slack.com'],
-    dest: { address: 'api.openai.com', port: 443 } },
+    names: ['POST api.stripe.com', 'POST api.sendgrid.com', 'GET api.github.com', 'POST hooks.slack.com'],
+    dest: { address: 'api.stripe.com', port: 443 } },
   s3: { type: 'storage', subtype: 's3', action: undefined,
-    names: ['S3 GetObject fleet-prod-speech', 'S3 PutObject fleet-prod-speech'],
+    names: ['S3 GetObject fleet-prod-assets', 'S3 PutObject fleet-prod-exports'],
     dest: { address: 's3.amazonaws.com', port: 443 } },
 };
 
 const EVENT_TYPES = [
-  { type: 'page_view', w: 8 }, { type: 'lesson_complete', w: 3 },
-  { type: 'audio_play', w: 6 }, { type: 'app_open', w: 3 },
-  { type: 'sync_complete', w: 2 }, { type: 'log', w: 5 },
+  { type: 'page_view', w: 8 }, { type: 'purchase', w: 2 },
+  { type: 'feature_used', w: 6 }, { type: 'signup', w: 1 },
+  { type: 'email_sent', w: 3 }, { type: 'export_complete', w: 2 },
+  { type: 'log', w: 5 },
 ];
 const EVENT_W = EVENT_TYPES.reduce((s, e) => s + e.w, 0);
 const DEVICES = [
@@ -129,16 +134,16 @@ const DEVICES = [
   { model: 'iPad Air', brand: 'Apple', os: 'iOS', osv: '18.5' },
 ];
 const ERROR_SHAPES = [
-  { type: 'MongoServerSelectionError', msg: 'connection timed out after 30000 ms', code: undefined },
-  { type: 'TypeError', msg: "Cannot read properties of undefined (reading 'deckId')", code: undefined },
+  { type: 'ConnectionError', msg: 'connection timed out after 30000 ms', code: undefined },
+  { type: 'TypeError', msg: "Cannot read properties of undefined (reading 'orderId')", code: undefined },
   { type: 'Error', msg: 'socket hang up', code: 'ECONNRESET' },
   { type: 'RangeError', msg: 'Maximum call stack size exceeded', code: undefined },
   { type: 'Error', msg: 'connect ETIMEDOUT 34.117.59.81:443', code: 'ETIMEDOUT' },
 ];
 const FRAME_FILES = [
-  ['lib/routes/decks.js', 'getDeck'], ['lib/routes/reviews.js', 'postReview'],
-  ['lib/db/mongo.js', 'withCollection'], ['lib/services/tts.js', 'synthesize'],
-  ['node_modules/mongodb/lib/sdam/topology.js', 'selectServer'],
+  ['lib/routes/orders.js', 'getOrder'], ['lib/routes/users.js', 'getUser'],
+  ['lib/db/pool.js', 'withClient'], ['lib/services/export.js', 'runExport'],
+  ['node_modules/pg/lib/client.js', 'query'],
   ['node_modules/express/lib/router/index.js', 'handle'],
 ];
 
@@ -255,10 +260,10 @@ function makeEvent(t, tsMs, version, users) {
   return { ts: tsUs, line: JSON.stringify({ event: {
     type: ev.type, timestamp: tsUs, level,
     ...(ev.type === 'log'
-      ? { message: t.pick(['cache warmed', 'queue drained', 'retrying mongo connect', 'slow request observed', 'config reloaded']) }
+      ? { message: t.pick(['cache warmed', 'queue drained', 'retrying db connect', 'slow request observed', 'config reloaded']) }
       : {}),
     ...(t.rng() < 0.05 && level !== 'info'
-      ? { error: { message: 'sync conflict: deck modified on two devices', type: 'SyncConflict' } }
+      ? { error: { message: 'export job retried after upstream timeout', type: 'RetryableError' } }
       : {}),
     ...(ev.type !== 'log' && { duration: Math.round(t.rng() * 4000) / 1000 }),
     user: { id: t.pick(users) },
@@ -268,8 +273,9 @@ function makeEvent(t, tsMs, version, users) {
       device: { model: dev.model, brand: dev.brand, type: dev.model.includes('iPad') ? 'tablet' : 'phone' },
       locale: t.pick(['en-US', 'zh-Hans-CN', 'es-MX', 'de-DE']),
     } }),
-    params: { screen: t.pick(['home', 'deck', 'review', 'stats', 'settings']),
-      ...(ev.type === 'lesson_complete' && { cards: t.int(5, 40), accuracy: Math.round(t.rng() * 40 + 60) / 100 }) },
+    params: { page: t.pick(['home', 'search', 'product', 'checkout', 'account', 'settings']),
+      ...(ev.type === 'purchase' && { items: t.int(1, 8), total: Math.round(t.rng() * 24000 + 500) / 100 }),
+      ...(ev.type === 'feature_used' && { feature: t.pick(['bulk-edit', 'saved-search', 'dark-mode', 'csv-export', 'api-token']) }) },
   } }) };
 }
 

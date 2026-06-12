@@ -3,7 +3,7 @@
  * from these custom properties. D3 code reads tokens via getComputedStyle
  * and never hard-codes a color.
  *
- * Two scopes (the DuiDuiDui-app scheme, 2026-06-13): the **canvas** — a
+ * Two scopes (decided 2026-06-13): the **canvas** — a
  * neutral grey page with light ink, holding the chrome (masthead, scanbar,
  * filter rows, section heads) — and **panels** — near-white rounded cards
  * holding all content (tables, charts, drawers, forms), where ink is dark

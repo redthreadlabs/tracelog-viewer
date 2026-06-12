@@ -11,10 +11,10 @@ function ndjson(lines: unknown[]): Uint8Array {
 const META = {
   metadata: {
     service: {
-      name: 'duiduidui-server',
+      name: 'fleet-api',
       version: '1.19.1',
       environment: 'prod',
-      node: { configured_name: 'ddd-prod-server' },
+      node: { configured_name: 'fleet-prod-server' },
       agent: { name: 'tracelog', version: '1.7.0' },
     },
     process: { pid: 1234 },
@@ -48,7 +48,7 @@ describe('parseFile', () => {
     expect(rec.ts).toBeCloseTo(1781230284718.007, 3); // ms
     expect(rec.duration).toBe(161.99); // durations are already ms
     expect(rec.meta.serviceVersion).toBe('1.19.1');
-    expect(rec.meta.nodeName).toBe('ddd-prod-server');
+    expect(rec.meta.nodeName).toBe('fleet-prod-server');
     expect(rec.outcome).toBe('success');
   });
 
@@ -125,7 +125,7 @@ describe('parseFile', () => {
       META,
       {
         span: {
-          name: 'FIND duiduidui.users',
+          name: 'FIND app.users',
           type: 'db',
           subtype: 'mongodb',
           id: 'a'.repeat(16),

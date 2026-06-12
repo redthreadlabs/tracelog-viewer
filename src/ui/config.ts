@@ -64,8 +64,8 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
   }
 
   // --- new profile form ---
-  const name = field('text', 'prod', existing.length === 0 ? 'duiduidui-prod' : '');
-  const bucket = field('text', 'duiduidui-prod-logs', existing.length === 0 ? 'duiduidui-prod-logs' : '');
+  const name = field('text', 'prod');
+  const bucket = field('text', 'my-service-logs');
   const region = field('text', 'us-east-1', 'us-east-1');
   const accessKey = field('text', 'AKIA…');
   const secretKey = field('password', '');

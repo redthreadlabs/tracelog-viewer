@@ -1,6 +1,6 @@
 /**
  * Client analytics (SPEC §6.6): the client channel cut by user and device.
- * DuiDuiDui-specific in its defaults, generic in mechanism. Pure logic.
+ * Opinionated only in its display defaults, generic in mechanism. Pure logic.
  */
 import type { Rec } from './types';
 

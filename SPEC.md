@@ -5,8 +5,8 @@ page — no server, no backend, no third party — that fetches gzipped JSONL lo
 files directly from S3 using user-supplied AWS credentials, decompresses them
 in the browser, and renders dedicated APM visualizations with D3.
 
-At DuiDuiDui's scale (tens of MB of compressed logs per month after the June
-2026 verbosity cleanup), the entire working set for any reasonable query fits
+At the scale tracelog targets — a young service writing tens of MB of
+compressed logs per month — the entire working set for any reasonable query fits
 comfortably in browser memory. This tool leans into that: download, parse,
 and visualize locally, with zero infrastructure.
 
@@ -39,7 +39,7 @@ and visualize locally, with zero infrastructure.
 
 ## 2. Prerequisites (bucket-side, one-time)
 
-Tracked as duiduidui-infra work; the viewer assumes both are in place:
+One-time bucket-side setup; the viewer assumes both are in place:
 
 1. **CORS configuration** on the logs bucket permitting the viewer's origin
    (and `http://localhost:*` for development):
@@ -61,7 +61,7 @@ Tracked as duiduidui-infra work; the viewer assumes both are in place:
 
 2. **A dedicated read-only IAM user** for the viewer, scoped to the logs
    bucket only (`s3:GetObject`, `s3:ListBucket` on
-   `arn:aws:s3:::duiduidui-prod-logs[/*]`). Never paste an admin key into a
+   `arn:aws:s3:::<your-logs-bucket>[/*]`). Never paste an admin key into a
    web page, even your own.
 
 ---
@@ -79,12 +79,13 @@ change together.
 {channel}/{interval}/{host}[_{seq}][_current].jsonl.gz
 ```
 
-- **channel** — top-level prefix. DuiDuiDui prod channels: `server`
-  (the default channel), `client` (mobile-app logs relayed via POST /logs),
-  `unknown-route` (internet-scanner noise diverted by transaction routing).
+- **channel** — top-level prefix. A typical deployment's channels: `server`
+  (the default channel), `client` (mobile/browser logs relayed via a
+  POST /logs endpoint), `unknown-route` (internet-scanner noise diverted by
+  transaction routing).
   New channels can appear at any time; the viewer must discover, not assume.
-- **interval** — `YYYY-MM-DD` for daily rotation (the only schedule DuiDuiDui
-  uses today); hourly rotation would produce `YYYY-MM-DDTHH`. Lexicographic
+- **interval** — `YYYY-MM-DD` for daily rotation (the most common
+  schedule); hourly rotation produces `YYYY-MM-DDTHH`. Lexicographic
   order == chronological order; the viewer's scan planner relies on this.
 - **host** — normalized hostname: EC2-internal names are collapsed to the
   dotted IP (`172.31.27.225`); anything else appears verbatim. Hostnames
@@ -178,7 +179,7 @@ time, in one place.
 
 ### 3.6 Field-verified notes (bucket inspection 2026-06-11, revised for 1.7.0)
 
-Verified against the live `duiduidui-prod-logs` bucket on day one of the
+Verified against a live production bucket on day one of the
 1.6.0 layout, then revised after the tracelog 1.7.0 schema-smoothing pass
 (which several of these findings prompted). The bucket is wiped of
 pre-1.7.0 objects once 1.7.0 deploys, so **the viewer targets the 1.7.0
@@ -220,8 +221,8 @@ defensive parsing never hurts):
   real messages/codes flow through now.
 - **Outcome/result conventions**: manual transactions ending with an
   explicit `success`/`failure`/`error` result now derive the matching
-  outcome (duiduidui-server passes explicit results as of the 1.7.0
-  integration), so outcome rollups are trustworthy across both conventions.
+  outcome (server integrations pass explicit results as of the 1.7.0
+  schema pass), so outcome rollups are trustworthy across both conventions.
 - **`event.level` is always present** (defaults to `info`); single-write
   server events carry `trace_id`/`transaction_id` when written inside a
   transaction — the events view can offer "events for this trace".
@@ -358,8 +359,8 @@ record JSON.
 The client channel cut by `user.id` / device: sessions (gaps > 15 min),
 app versions in the wild, slow-query perf events (everything ≥ the 100 ms
 client threshold), review-session funnels from lifecycle events. This view
-is DuiDuiDui-specific in its defaults but generic in mechanism (group by
-`event.type`).
+is opinionated only in its display defaults and generic in mechanism
+(group by `event.type`).
 
 ### 6.7 Scanner traffic (unknown-route)
 
@@ -501,7 +502,7 @@ or date rather than abandon tracelog entirely.
   with a wildcard cert (`*.tracelog.org`), every subdomain serving the
   identical bytes. Because origins partition browser storage, each
   subdomain is a free, fully client-side **workspace**: visiting
-  `duiduidui.tracelog.org` vs `shaxpir.tracelog.org` yields separate
+  `alpha.tracelog.org` vs `beta.tracelog.org` yields separate
   localStorage profiles and separate IndexedDB caches with zero
   server-side tenancy — the server knows nothing. Users' log buckets
   allow `https://*.tracelog.org` in CORS (S3 permits one wildcard per
@@ -513,7 +514,7 @@ or date rather than abandon tracelog entirely.
 - **Theme**: light **and** dark from day one, token-based (§7), defaulting
   to `prefers-color-scheme` with a manual toggle.
 - **Profiles for other services**: yes — config supports arbitrary
-  bucket/region/credentials profiles from day one; nothing DuiDuiDui-specific
+  bucket/region/credentials profiles from day one; nothing service-specific
   is hard-coded except display defaults (channel names, client-analytics
   event types).
 - **Timezone display**: render local time, with a UTC toggle in the header;
