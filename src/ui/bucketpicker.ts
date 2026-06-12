@@ -33,7 +33,7 @@ export function renderBucketPicker(onChange: () => void): HTMLElement {
   const select = el('select', { className: 'select', title: 'bar width' });
   const current = getParam('b') ?? 'auto';
   for (const choice of BUCKET_CHOICES) {
-    select.append(el('option', { text: `bars: ${choice.label}`, attrs: { value: choice.token } }));
+    select.append(el('option', { text: choice.label, attrs: { value: choice.token } }));
   }
   select.value = BUCKET_CHOICES.some((c) => c.token === current) ? current : 'auto';
   select.addEventListener('change', () => {

@@ -362,6 +362,7 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     if (BUCKETED_VIEWS.has(readHash().view)) {
       bar.append(
         el('div', { className: 'group' }, [
+          el('span', { className: 'label', text: 'Bars' }),
           renderBucketPicker(() => {
             // re-render the active view with the new width
             window.dispatchEvent(new HashChangeEvent('hashchange'));
