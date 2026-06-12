@@ -282,14 +282,26 @@ function makeEvent(t, tsMs, version, users) {
 function makeMetricsets(t, tsMs, topRoutes) {
   const tsUs = Math.round(tsMs * 1000);
   const heap = 180e6 + t.rng() * 120e6;
+  // process CPU tracks (but stays under) host CPU; user/system split it
+  const sysCpu = 0.05 + t.rng() * 0.4;
+  const procCpu = sysCpu * (0.55 + t.rng() * 0.35);
+  const procUser = procCpu * (0.65 + t.rng() * 0.2);
+  const pct = (v) => ({ value: Math.round(v * 1000) / 1000 });
   const out = [{ ts: tsUs, line: JSON.stringify({ metricset: {
     timestamp: tsUs,
     samples: {
-      'system.cpu.total.norm.pct': { value: Math.round((0.05 + t.rng() * 0.4) * 1000) / 1000 },
+      'system.cpu.total.norm.pct': pct(sysCpu),
       'system.memory.actual.free': { value: Math.round(2e9 + t.rng() * 1e9) },
       'system.memory.total': { value: 4143972352 },
+      'system.process.cpu.total.norm.pct': pct(procCpu),
+      'system.process.cpu.user.norm.pct': pct(procUser),
+      'system.process.cpu.system.norm.pct': pct(procCpu - procUser),
+      'system.process.memory.rss.bytes': { value: Math.round(heap * 1.35 + 70e6 + t.rng() * 30e6) },
+      'system.process.memory.size': { value: Math.round(1.15e9 + t.rng() * 2e8) },
       'nodejs.memory.heap.used.bytes': { value: Math.round(heap) },
       'nodejs.memory.heap.allocated.bytes': { value: Math.round(heap * 1.4) },
+      'nodejs.memory.external.bytes': { value: Math.round(25e6 + t.rng() * 2e7) },
+      'nodejs.memory.arrayBuffers.bytes': { value: Math.round(8e6 + t.rng() * 1e7) },
       'nodejs.eventloop.delay.avg.ms': { value: Math.round(t.rng() * 12 * 1000) / 1000 },
       'nodejs.handles.active': { value: t.int(8, 60) },
       'nodejs.requests.active': { value: t.int(0, 12) },
