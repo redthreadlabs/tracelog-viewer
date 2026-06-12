@@ -14,7 +14,7 @@ import {
 import { renderLine } from '../../viz/line';
 import { renderStackbars } from '../../viz/stackbars';
 import { spanTypeColorToken } from '../../data/trace';
-import { renderBucketPicker, chosenBucketMs, bucketLabel } from '../bucketpicker';
+import { chosenBucketMs, bucketLabel } from '../bucketpicker';
 import { viewState } from '../../state';
 import { fmtBytes, fmtDuration } from '../format';
 
@@ -133,9 +133,11 @@ export function renderMetricsView(container: HTMLElement): () => void {
           el('span', { className: 'masthead-spacer' }),
           el('span', {
             className: 'budget faint',
-            text: chosenBucketMs() === null ? `auto = ${bucketLabel(breakdown.bucketMs)}` : '',
+            text:
+              chosenBucketMs() === null
+                ? `bars: auto = ${bucketLabel(breakdown.bucketMs)}`
+                : `bars: ${bucketLabel(breakdown.bucketMs)}`,
           }),
-          renderBucketPicker(render),
         ]),
       );
       const chart = el('div', { className: 'chart-host' });

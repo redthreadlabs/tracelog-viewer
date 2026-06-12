@@ -21,7 +21,8 @@ import { LiveUpdater } from '../data/live';
 import { store } from '../data/store';
 import { viewState } from '../state';
 import { fmtBytes, fmtCount } from './format';
-import { getParam, setParams, setView, parseWindowParam, windowParam } from './hashstate';
+import { getParam, setParams, setView, parseWindowParam, windowParam, readHash } from './hashstate';
+import { renderBucketPicker } from './bucketpicker';
 
 interface ScanbarState {
   channels: Map<string, boolean>;
@@ -83,12 +84,18 @@ function toLocalInput(ms: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** views whose charts bucket records by time — the bars picker applies */
+const BUCKETED_VIEWS = new Set(['/overview', '/metrics']);
+
 // One live updater per scanbar instance; re-rendering the scanbar (e.g. on
-// profile change) must stop the previous one.
+// profile change) must stop the previous one — same for the hashchange
+// listener that shows/hides the bars picker per view.
 let activeLive: LiveUpdater | null = null;
+let activeHashHandler: (() => void) | null = null;
 
 export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
   activeLive?.stop();
+  if (activeHashHandler) window.removeEventListener('hashchange', activeHashHandler);
 
   // initial range: a shared URL's precise window wins; else its day params;
   // else today.
@@ -351,6 +358,18 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     }
     bar.append(dateGroup);
 
+    // bars picker — only on views with a time-bucketed chart
+    if (BUCKETED_VIEWS.has(readHash().view)) {
+      bar.append(
+        el('div', { className: 'group' }, [
+          renderBucketPicker(() => {
+            // re-render the active view with the new width
+            window.dispatchEvent(new HashChangeEvent('hashchange'));
+          }),
+        ]),
+      );
+    }
+
     // status / confirm + live
     const right = el('div', { className: 'group', attrs: { style: 'margin-left:auto' } });
     const needsConfirm =
@@ -482,6 +501,9 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
   function clearEl(node: HTMLElement): void {
     while (node.firstChild) node.removeChild(node.firstChild);
   }
+
+  activeHashHandler = () => render();
+  window.addEventListener('hashchange', activeHashHandler);
 
   render();
 }

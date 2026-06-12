@@ -15,7 +15,7 @@ import {
 import { renderTimebars } from '../../viz/timebars';
 import { viewState } from '../../state';
 import { setParams, setView, windowParam } from '../hashstate';
-import { renderBucketPicker, chosenBucketMs, bucketLabel } from '../bucketpicker';
+import { chosenBucketMs, bucketLabel } from '../bucketpicker';
 import { fmtBytes, fmtCount, fmtDateTime, fmtDuration, zoneLabel } from '../format';
 
 export function renderOverview(container: HTMLElement): () => void {
@@ -75,9 +75,8 @@ export function renderOverview(container: HTMLElement): () => void {
     chartHead.append(
       el('span', {
         className: 'budget faint',
-        text: chosenBucketMs() === null ? `auto = ${bucketLabel(data.bucketMs)}` : '',
+        text: chosenBucketMs() === null ? `bars: auto = ${bucketLabel(data.bucketMs)}` : `bars: ${bucketLabel(data.bucketMs)}`,
       }),
-      renderBucketPicker(render),
       el('span', {
         className: 'budget',
         text: `${fmtCount(countInWindow())} records`,
