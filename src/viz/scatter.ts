@@ -6,8 +6,12 @@
  * Points are drawn on a canvas layer (axes stay SVG): a busy transaction
  * has tens of thousands of instances, and one SVG node + listeners per
  * point froze the page for ~25 s at 18k points (perf finding 2026-06-12).
- * Canvas draws them in milliseconds; hover/click hit-test against the
- * x-sorted point array instead of DOM events.
+ * Each point is stamped from a pre-rendered per-family sprite — one giant
+ * arc path silently fails to rasterize past ~100k subpaths (observed at
+ * tier-10m). Past a point budget the ok-mass is stride-sampled for
+ * legibility (it's solid ink anyway) with a caption saying so; warn/error
+ * points are always all drawn, and hover/click hit-test the FULL x-sorted
+ * point set, not just what's drawn.
  */
 import { select } from 'd3-selection';
 import { scaleUtc, scaleTime, scaleLog } from 'd3-scale';
@@ -20,6 +24,9 @@ import { logTicks, timeTickFormat } from './ticks';
 const HEIGHT = 190;
 const MARGIN = { top: 8, right: 10, bottom: 24, left: 56 };
 const HIT_RADIUS = 8;
+/** at most this many points stamped (hit-testing still sees them all) */
+const MAX_DRAWN = 20_000;
+const SPRITE_SIZE = 8; // css px; the r=3 dot plus a pad for antialiasing
 
 import { resultFamily, type ResultFamily } from '../data/aggregate';
 
@@ -38,6 +45,21 @@ const FAMILY_ALPHA: Record<ResultFamily, number> = {
   bad: 0.9,
   other: 0.9,
 };
+
+/** A pre-rendered dot: stamping sprites avoids giant paths entirely. */
+function makeSprite(color: string, alpha: number, dpr: number): HTMLCanvasElement {
+  const sprite = document.createElement('canvas');
+  sprite.width = SPRITE_SIZE * dpr;
+  sprite.height = SPRITE_SIZE * dpr;
+  const sctx = sprite.getContext('2d')!;
+  sctx.scale(dpr, dpr);
+  sctx.globalAlpha = alpha;
+  sctx.fillStyle = color;
+  sctx.beginPath();
+  sctx.arc(SPRITE_SIZE / 2, SPRITE_SIZE / 2, 3, 0, 2 * Math.PI);
+  sctx.fill();
+  return sprite;
+}
 
 export function renderScatter(
   container: HTMLElement,
@@ -126,7 +148,6 @@ export function renderScatter(
     px[i] = x(new Date(points[i].ts));
     py[i] = y(Math.max(points[i].duration!, yMin));
   }
-  // one path per family: a fillStyle switch per point is the slow way
   const byFamily = new Map<ResultFamily, number[]>();
   for (let i = 0; i < n; i++) {
     const family = resultFamily(points[i]);
@@ -134,17 +155,38 @@ export function renderScatter(
     if (list) list.push(i);
     else byFamily.set(family, [i]);
   }
-  for (const [family, indices] of byFamily) {
-    ctx.beginPath();
-    ctx.fillStyle = colorOf(family);
-    ctx.globalAlpha = FAMILY_ALPHA[family];
-    for (const i of indices) {
-      ctx.moveTo(px[i] + 3, py[i]);
-      ctx.arc(px[i], py[i], 3, 0, 2 * Math.PI);
+
+  // ok first (the mass), problems stamped on top where they stay visible
+  const drawOrder: ResultFamily[] = ['ok', 'other', 'warn', 'bad'];
+  const okCount = byFamily.get('ok')?.length ?? 0;
+  const alwaysDrawn = n - okCount;
+  // sample only the ok-mass, and only past the budget
+  const okBudget = Math.max(2000, MAX_DRAWN - alwaysDrawn);
+  const okStep = okCount > okBudget ? Math.ceil(okCount / okBudget) : 1;
+  let drawn = 0;
+  const half = SPRITE_SIZE / 2;
+  for (const family of drawOrder) {
+    const indices = byFamily.get(family);
+    if (!indices) continue;
+    const sprite = makeSprite(colorOf(family), FAMILY_ALPHA[family], dpr);
+    const step = family === 'ok' ? okStep : 1;
+    for (let j = 0; j < indices.length; j += step) {
+      const i = indices[j];
+      ctx.drawImage(sprite, px[i] - half, py[i] - half, SPRITE_SIZE, SPRITE_SIZE);
+      drawn++;
     }
-    ctx.fill();
   }
-  ctx.globalAlpha = 1;
+  if (drawn < n) {
+    container.append(
+      el('div', {
+        className: 'faint',
+        text: `drawing ${drawn.toLocaleString('en-US')} of ${n.toLocaleString('en-US')} points (every ${okStep}th ok; all problems)`,
+        attrs: {
+          style: `position:absolute;top:2px;right:${MARGIN.right + 4}px;font-size:10.5px`,
+        },
+      }),
+    );
+  }
 
   // --- hover/click: nearest point within HIT_RADIUS ---
   const tooltip = el('div', { className: 'chart-tooltip' });
