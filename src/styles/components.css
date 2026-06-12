@@ -578,9 +578,24 @@ pre.json .b {
   font-variant-numeric: tabular-nums;
 }
 
+.chart-tooltip.fixed {
+  position: fixed;
+  max-width: 290px;
+}
+
 .chart-tooltip .t {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   color: var(--ink-faint);
   margin-bottom: 5px;
+}
+
+.chart-tooltip .t .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  flex: none;
 }
 
 .chart-tooltip .row {

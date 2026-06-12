@@ -34,7 +34,8 @@ interface FileRow {
 
 export function renderStoreView(container: HTMLElement): () => void {
   const body = el('div', { className: 'txn-detail-body' });
-  container.append(body);
+  const tip = el('div', { className: 'chart-tooltip fixed' });
+  container.append(body, tip);
 
   function buildRows(): FileRow[] {
     const rows = new Map<string, FileRow>();
@@ -200,8 +201,21 @@ export function renderStoreView(container: HTMLElement): () => void {
       const count = row.byKind.get(kind) ?? 0;
       if (count === 0) continue;
       const seg = el('span', {
-        title: `${kind} — ${KIND_DESCRIPTIONS[kind]}\n${fmtCount(count)} of ${fmtCount(row.total)} records`,
         attrs: { style: `background: var(--kind-${kind}); flex: ${count}` },
+        on: {
+          mousemove: (ev) => {
+            tip.innerHTML =
+              `<div class="t"><span class="dot" style="background: var(--kind-${kind})"></span>` +
+              `${kind} — ${KIND_DESCRIPTIONS[kind]}</div>` +
+              `<span class="row">records<span class="v">${fmtCount(count)} of ${fmtCount(row.total)}</span></span>`;
+            tip.style.display = 'block';
+            tip.style.left = `${Math.min(ev.clientX + 14, window.innerWidth - 300)}px`;
+            tip.style.top = `${ev.clientY - 10}px`;
+          },
+          mouseleave: () => {
+            tip.style.display = 'none';
+          },
+        },
       });
       bar.append(seg);
     }
