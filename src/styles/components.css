@@ -1158,13 +1158,26 @@ th.sortable.on {
   box-shadow: var(--shadow);
   padding: 12px 16px 14px;
   display: grid;
-  grid-template-columns: 130px 1px auto;
+  /* the custom column's natural height rules the row; the preset list
+     scrolls within it */
+  grid-template-columns: 150px 1px auto;
+  grid-template-rows: min-content;
   gap: 0 16px;
+}
+
+.range-pop > .range-presets {
+  height: 0;
+  min-height: 100%;
 }
 
 .range-presets {
   display: flex;
   flex-direction: column;
+  /* the right column defines the panel height; this list scrolls inside it */
+  max-height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 
 .range-preset {

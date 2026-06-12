@@ -42,17 +42,23 @@ interface ScanbarState {
 const DAY_MS = 86_400_000;
 
 const QUICK_PRESETS: { label: string; minutes: number }[] = [
-  { label: 'Last 15 min', minutes: 15 },
-  { label: 'Last 1 hr', minutes: 60 },
-  { label: 'Last 6 hr', minutes: 360 },
-  { label: 'Last 12 hr', minutes: 720 },
-  { label: 'Last 24 hr', minutes: 1440 },
+  { label: 'Last 15 minutes', minutes: 15 },
+  { label: 'Last 1 hour', minutes: 60 },
+  { label: 'Last 2 hours', minutes: 120 },
+  { label: 'Last 3 hours', minutes: 180 },
+  { label: 'Last 4 hours', minutes: 240 },
+  { label: 'Last 6 hours', minutes: 360 },
+  { label: 'Last 12 hours', minutes: 720 },
+  { label: 'Last 24 hours', minutes: 1440 },
 ];
 
-const DAY_PRESETS: { label: string; days: number }[] = [
-  { label: 'Today', days: 0 },
-  { label: 'Last 7 days', days: 6 },
-  { label: 'Last 30 days', days: 29 },
+const DAY_PRESETS: { label: string; start: () => number }[] = [
+  { label: 'Today', start: () => utcDayStart(0) },
+  { label: 'This week', start: () => utcWeekStart() },
+  { label: 'Last 7 days', start: () => utcDayStart(6) },
+  { label: 'Last 30 days', start: () => utcDayStart(29) },
+  { label: 'Last 60 days', start: () => utcDayStart(59) },
+  { label: 'Last 90 days', start: () => utcDayStart(89) },
 ];
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -73,6 +79,12 @@ function utcDayOf(ms: number): string {
 function utcDayStart(daysAgo: number): number {
   const today = new Date();
   return Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()) - daysAgo * DAY_MS;
+}
+
+/** start of the current UTC week (Monday) */
+function utcWeekStart(): number {
+  const daysSinceMonday = (new Date().getUTCDay() + 6) % 7;
+  return utcDayStart(daysSinceMonday);
 }
 
 /** epoch-ms → value for <input type="datetime-local"> (local clock) */
@@ -228,7 +240,7 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     for (const preset of DAY_PRESETS) {
       if (
         state.wholeDays &&
-        state.startMs === utcDayStart(preset.days) &&
+        state.startMs === preset.start() &&
         utcDayOf(state.endMs) === utcDayOf(now)
       ) {
         return preset.label;
@@ -262,7 +274,7 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
       );
     }
     for (const preset of DAY_PRESETS) {
-      item(preset.label, () => setRange(utcDayStart(preset.days), Date.now(), true));
+      item(preset.label, () => setRange(preset.start(), Date.now(), true));
     }
 
     // right: custom range, inputs stacked, Apply in the lower-right
