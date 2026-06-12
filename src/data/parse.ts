@@ -20,6 +20,8 @@ export interface ParseResult {
   metas: FileMeta[];
   /** the metadata context in effect at end-of-file (for incremental tails) */
   lastMeta: FileMeta;
+  /** decompressed size of what was parsed */
+  byteLength: number;
   skippedLines: number;
   unknownKinds: number;
 }
@@ -27,31 +29,30 @@ export interface ParseResult {
 let nextId = 1;
 
 /**
- * Manual string intern pool. V8 internalizes JSON property *keys* but never
+ * String intern pools. V8 internalizes JSON property *keys* but never
  * values, so a million events with level "info" would otherwise hold a
  * million separate heap strings. High-multiplicity fields (names, levels,
  * results, outcomes, user ids, device strings, paths, agents) pass through
- * here at normalize time; unique ids (trace_id etc.) deliberately do not —
- * interning them would grow the pool without creating sharing. Cleared at
- * the start of each scan.
+ * a pool at normalize time; unique ids (trace_id etc.) deliberately do not.
+ *
+ * One pool **per parseFile call**, retained nowhere afterwards: strings are
+ * shared within a file (where the multiplicity lives), and evicting a
+ * file's records from the store actually frees them — a global pool would
+ * pin every interned string until the next scan.
  */
-const internPool = new Map<string, string>();
+type InternPool = Map<string, string>;
 
-export function clearInternPool(): void {
-  internPool.clear();
-}
-
-function intern(value: string | undefined): string | undefined {
+function intern(pool: InternPool, value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
-  const hit = internPool.get(value);
+  const hit = pool.get(value);
   if (hit !== undefined) return hit;
-  internPool.set(value, value);
+  pool.set(value, value);
   return value;
 }
 
 /** intern(str(v)) — the canonical instance of a parsed string field */
-function istr(value: unknown): string | undefined {
-  return intern(str(value));
+function istr(pool: InternPool, value: unknown): string | undefined {
+  return intern(pool, str(value));
 }
 
 /** Re-parse a record's original line on demand; returns the record body. */
@@ -71,6 +72,7 @@ export function parseFile(
   initialMeta: FileMeta = {},
 ): ParseResult {
   const text = new TextDecoder().decode(bytes);
+  const pool: InternPool = new Map();
   const records: Rec[] = [];
   const metas: FileMeta[] = [];
   let meta: FileMeta = initialMeta;
@@ -111,10 +113,10 @@ export function parseFile(
       continue;
     }
 
-    records.push(normalize(kind as RecordKind, body, line, file, meta));
+    records.push(normalize(kind as RecordKind, body, line, file, meta, pool));
   }
 
-  return { records, metas, lastMeta: meta, skippedLines, unknownKinds };
+  return { records, metas, lastMeta: meta, byteLength: bytes.length, skippedLines, unknownKinds };
 }
 
 function extractMeta(body: Record<string, unknown>): FileMeta {
@@ -139,6 +141,7 @@ function normalize(
   line: string,
   file: ParsedKey,
   meta: FileMeta,
+  pool: InternPool,
 ): Rec {
   let name = '';
   let level: string | undefined;
@@ -164,73 +167,73 @@ function normalize(
 
   switch (kind) {
     case 'transaction': {
-      name = istr(body.name) ?? '(unnamed)';
-      outcome = istr(body.outcome);
-      result = istr(body.result);
+      name = istr(pool, body.name) ?? '(unnamed)';
+      outcome = istr(pool, body.outcome);
+      result = istr(pool, body.result);
       duration = num(body.duration);
       traceId = str(body.trace_id);
       selfId = str(body.id);
-      userId = istr(ctxUser.id);
+      userId = istr(pool, ctxUser.id);
       const request = context.request as Record<string, unknown> | undefined;
       if (request) {
         const url = request.url as Record<string, unknown> | undefined;
         const headers = request.headers as Record<string, unknown> | undefined;
-        path = istr(url?.pathname);
-        agent = istr(headers?.['user-agent']);
+        path = istr(pool, url?.pathname);
+        agent = istr(pool, headers?.['user-agent']);
         const fwd = headers?.['x-forwarded-for'];
         ip =
           typeof fwd === 'string'
-            ? intern(fwd.split(',')[0].trim())
-            : istr((request.socket as Record<string, unknown> | undefined)?.remote_address);
+            ? intern(pool, fwd.split(',')[0].trim())
+            : istr(pool, (request.socket as Record<string, unknown> | undefined)?.remote_address);
       }
       break;
     }
     case 'span': {
-      name = istr(body.name) ?? '(unnamed)';
+      name = istr(pool, body.name) ?? '(unnamed)';
       const type = str(body.type);
       const subtype = str(body.subtype);
-      result = intern(subtype ? `${type}/${subtype}` : type);
-      outcome = istr(body.outcome);
+      result = intern(pool, subtype ? `${type}/${subtype}` : type);
+      outcome = istr(pool, body.outcome);
       duration = num(body.duration);
       traceId = str(body.trace_id);
       transactionId = str(body.transaction_id);
       selfId = str(body.id);
       parentId = str(body.parent_id);
-      userId = istr(ctxUser.id);
+      userId = istr(pool, ctxUser.id);
       break;
     }
     case 'event': {
-      name = istr(body.type) ?? 'event';
-      level = istr(body.level) ?? 'info';
+      name = istr(pool, body.type) ?? 'event';
+      level = istr(pool, body.level) ?? 'info';
       message = str(body.message);
       duration = num(body.duration);
       traceId = str(body.trace_id);
       transactionId = str(body.transaction_id);
       const user = (body.user ?? {}) as Record<string, unknown>;
-      userId = istr(user.id);
+      userId = istr(pool, user.id);
       const error = body.error as Record<string, unknown> | undefined;
       if (error && message === undefined) message = str(error.message);
       const client = body.client as Record<string, unknown> | undefined;
       if (client) {
-        appVersion = istr(client.version);
+        appVersion = istr(pool, client.version);
         const dev = client.device as Record<string, unknown> | undefined;
         const osObj = client.os as Record<string, unknown> | undefined;
-        device = istr(dev?.model);
+        device = istr(pool, dev?.model);
         const osName = str(osObj?.name);
         const osVersion = str(osObj?.version);
-        os = osName ? intern(osVersion ? `${osName} ${osVersion}` : osName) : undefined;
+        os = osName ? intern(pool, osVersion ? `${osName} ${osVersion}` : osName) : undefined;
       }
       break;
     }
     case 'error': {
       const exception = (body.exception ?? {}) as Record<string, unknown>;
       const log = (body.log ?? {}) as Record<string, unknown>;
-      name = istr(exception.type) ?? 'error';
+      name = istr(pool, exception.type) ?? 'error';
       message = str(exception.message) ?? str(log.message);
       level = 'error';
       traceId = str(body.trace_id);
       transactionId = str(body.transaction_id);
-      userId = istr(ctxUser.id);
+      userId = istr(pool, ctxUser.id);
       break;
     }
     case 'metricset': {
@@ -246,11 +249,11 @@ function normalize(
       if (span) {
         const type = str(span.type);
         const subtype = str(span.subtype);
-        result = intern(subtype ? `${type}/${subtype}` : (type ?? 'app'));
+        result = intern(pool, subtype ? `${type}/${subtype}` : (type ?? 'app'));
       }
       name = txn
-        ? intern(`breakdown · ${str(txn.name) ?? '?'}`)!
-        : intern(`${Object.keys(samples).length} samples`)!;
+        ? intern(pool, `breakdown · ${str(txn.name) ?? '?'}`)!
+        : intern(pool, `${Object.keys(samples).length} samples`)!;
       break;
     }
   }

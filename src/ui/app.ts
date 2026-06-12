@@ -17,6 +17,7 @@ import { renderEventsView } from './views/events';
 import { renderMetricsView } from './views/metrics';
 import { renderClientsView } from './views/clients';
 import { renderScannerView } from './views/scanner';
+import { renderStoreView } from './views/storeview';
 import { renderOverview } from './views/overview';
 import { renderTraceView } from './views/trace';
 import { renderTransactionView } from './views/transaction';
@@ -153,6 +154,10 @@ export function startApp(root: HTMLElement): void {
     }
     if (view === '/scanner') {
       teardown = renderScannerView(main);
+      return;
+    }
+    if (view === '/store') {
+      teardown = renderStoreView(main);
       return;
     }
     if (view.startsWith('/trace/')) {

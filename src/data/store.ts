@@ -4,6 +4,22 @@
  * incrementally (stream-render, SPEC §7).
  */
 import type { Rec, RecordKind } from './types';
+import type { ParsedKey } from '../s3/keys';
+
+/** What the store knows about one loaded source file (for the inspector). */
+export interface FileInfo {
+  key: string;
+  channel: string;
+  interval: string;
+  host: string;
+  current: boolean;
+  /** compressed object size from the listing */
+  sizeCompressed: number;
+  /** decompressed bytes parsed (grows for live-appended snapshots) */
+  sizeUncompressed: number;
+  /** records were evicted from memory by the user */
+  evicted: boolean;
+}
 
 export interface ScanProgress {
   filesTotal: number;
@@ -20,6 +36,7 @@ export class Store extends EventTarget {
   channelCounts = new Map<string, number>();
   levelCounts = new Map<string, number>();
   hosts = new Set<string>();
+  files = new Map<string, FileInfo>();
   progress: ScanProgress = {
     filesTotal: 0,
     filesDone: 0,
@@ -30,6 +47,36 @@ export class Store extends EventTarget {
 
   /** monotonically increasing; views compare to know the data changed */
   generation = 0;
+
+  /** Record (or update) what we know about a loaded source file. */
+  registerFile(file: ParsedKey, uncompressedBytes: number, append = false): void {
+    const existing = this.files.get(file.key);
+    this.files.set(file.key, {
+      key: file.key,
+      channel: file.channel,
+      interval: file.interval,
+      host: file.host,
+      current: file.current,
+      sizeCompressed: file.size || (existing?.sizeCompressed ?? 0),
+      sizeUncompressed: append
+        ? (existing?.sizeUncompressed ?? 0) + uncompressedBytes
+        : uncompressedBytes,
+      evicted: false,
+    });
+  }
+
+  /** Drop a file's records from memory; the registry row stays, marked. */
+  evictFile(sourceKey: string): void {
+    const info = this.files.get(sourceKey);
+    if (info) info.evicted = true;
+    this.replaceFile(sourceKey, []);
+  }
+
+  /** Remove a file entirely (live mode: a _current finalized away). */
+  dropFile(sourceKey: string): void {
+    this.files.delete(sourceKey);
+    this.replaceFile(sourceKey, []);
+  }
 
   addBatch(batch: Rec[]): void {
     for (const rec of batch) {
@@ -98,6 +145,7 @@ export class Store extends EventTarget {
     this.channelCounts.clear();
     this.levelCounts.clear();
     this.hosts.clear();
+    this.files.clear();
     this.generation++;
     this.dispatchEvent(new Event('data'));
   }

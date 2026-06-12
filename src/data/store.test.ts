@@ -57,3 +57,50 @@ describe('Store.replaceFile', () => {
     expect(events).toBe(1);
   });
 });
+
+describe('file registry + eviction', () => {
+  const FILE = {
+    key: 'server/2026-06-12/h_current.jsonl.gz',
+    channel: 'server',
+    interval: '2026-06-12',
+    host: 'h',
+    seq: 0,
+    current: true,
+    size: 5000,
+  };
+
+  it('registers files and accumulates appended bytes', () => {
+    const store = new Store();
+    store.registerFile(FILE, 20_000);
+    store.registerFile(FILE, 1_000, true);
+    const info = store.files.get(FILE.key)!;
+    expect(info.sizeCompressed).toBe(5000);
+    expect(info.sizeUncompressed).toBe(21_000);
+    expect(info.current).toBe(true);
+  });
+
+  it('evictFile drops records but keeps the registry row marked', () => {
+    const store = new Store();
+    store.registerFile(FILE, 20_000);
+    store.addBatch([rec({ sourceKey: FILE.key }), rec({ sourceKey: 'other' })]);
+    store.evictFile(FILE.key);
+    expect(store.records).toHaveLength(1);
+    expect(store.files.get(FILE.key)!.evicted).toBe(true);
+  });
+
+  it('dropFile removes records and the registry row', () => {
+    const store = new Store();
+    store.registerFile(FILE, 20_000);
+    store.addBatch([rec({ sourceKey: FILE.key })]);
+    store.dropFile(FILE.key);
+    expect(store.records).toHaveLength(0);
+    expect(store.files.has(FILE.key)).toBe(false);
+  });
+
+  it('clear wipes the registry', () => {
+    const store = new Store();
+    store.registerFile(FILE, 20_000);
+    store.clear();
+    expect(store.files.size).toBe(0);
+  });
+});

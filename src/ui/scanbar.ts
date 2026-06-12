@@ -10,7 +10,7 @@ import { executeScan } from '../data/scan';
 import { LiveUpdater } from '../data/live';
 import { store } from '../data/store';
 import { fmtBytes, fmtCount, utcDaysAgo, utcToday } from './format';
-import { getParam, setParams } from './hashstate';
+import { getParam, setParams, setView } from './hashstate';
 
 interface ScanbarState {
   channels: Map<string, boolean>;
@@ -224,18 +224,38 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     if (fill) updateFill(fill);
     const btn = container.querySelector<HTMLButtonElement>('.btn-primary');
     if (btn) btn.disabled = store.progress.running || !state.plan || state.plan.files.length === 0;
+    updateLoadedText();
+  });
+
+  store.addEventListener('data', updateLoadedText);
+
+  function updateLoadedText(): void {
     const { running, filesTotal, filesDone, filesFromCache } = store.progress;
     const budget = container.querySelector<HTMLElement>('.budget');
-    if (budget && filesTotal > 0) {
-      if (running) {
-        budget.textContent = `fetching ${filesDone}/${filesTotal}…`;
-      } else if (filesDone === filesTotal) {
-        budget.innerHTML = `loaded <span class="accent">${fmtCount(filesTotal)} files</span>${
-          filesFromCache > 0 ? ` · ${fmtCount(filesFromCache)} from cache` : ''
-        }`;
-      }
+    if (!budget || filesTotal === 0) return;
+    if (running) {
+      budget.textContent = `fetching ${filesDone}/${filesTotal}…`;
+      return;
     }
-  });
+    if (store.records.length === 0 && store.files.size === 0) return;
+    clearEl(budget);
+    const link = document.createElement('a');
+    link.href = '#/store';
+    link.className = 'store-link';
+    link.title = 'inspect the in-memory store';
+    link.innerHTML = `<span class="accent">${fmtCount(store.records.length)} records</span> from <span class="accent">${fmtCount(store.files.size)} files</span>${
+      filesFromCache > 0 ? ` · ${fmtCount(filesFromCache)} from cache` : ''
+    }`;
+    link.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      setView('/store');
+    });
+    budget.append(link);
+  }
+
+  function clearEl(node: HTMLElement): void {
+    while (node.firstChild) node.removeChild(node.firstChild);
+  }
 
   render();
 }

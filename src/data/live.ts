@@ -115,7 +115,7 @@ export class LiveUpdater {
             )
           ) {
             if (this.states.has(parsed.key)) {
-              store.replaceFile(parsed.key, []);
+              store.dropFile(parsed.key);
               this.states.delete(parsed.key);
             }
             continue;
@@ -130,6 +130,7 @@ export class LiveUpdater {
           if (tailBytes) {
             // verified append: parse + append only the new lines
             const result = parseFile(tailBytes, parsed, prev!.lastMeta);
+            store.registerFile(parsed, result.byteLength, true);
             store.appendSorted(result.records);
             this.states.set(parsed.key, {
               etag,
@@ -139,6 +140,7 @@ export class LiveUpdater {
             });
           } else {
             const result = parseFile(bytes, parsed);
+            store.registerFile(parsed, result.byteLength);
             store.replaceFile(parsed.key, result.records);
             this.states.set(parsed.key, {
               etag,
