@@ -1054,15 +1054,25 @@ th.sortable.on {
   opacity: 0.45;
 }
 
-.store-link {
-  color: inherit;
+.store-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12.5px;
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  padding: 3px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--thread);
   text-decoration: none;
-  border-bottom: 1px dotted var(--thread);
   cursor: pointer;
+  transition: all 120ms ease;
 }
 
-.store-link:hover {
-  color: var(--thread);
+.store-pill:hover {
+  border-color: var(--thread);
+  color: var(--thread-strong);
 }
 
 /* ---------- store summary panel ---------- */

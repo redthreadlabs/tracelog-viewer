@@ -489,9 +489,9 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     const inMemory = [...store.files.values()].reduce((s, f) => s + f.sizeUncompressed, 0);
     const link = document.createElement('a');
     link.href = '#/store';
-    link.className = 'store-link';
+    link.className = 'store-pill';
     link.title = 'inspect the in-memory store (files, sizes, eviction)';
-    link.innerHTML = `<span class="accent">${fmtCount(store.records.length)} records</span> · ${fmtBytes(inMemory)}`;
+    link.textContent = `${fmtCount(store.records.length)} records · ${fmtBytes(inMemory)}`;
     link.addEventListener('click', (ev) => {
       ev.preventDefault();
       setView('/store');
