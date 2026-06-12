@@ -19,6 +19,7 @@ import { parseKey } from '../s3/keys';
 import { parseFile } from './parse';
 import type { FileMeta } from './types';
 import { store } from './store';
+import { perf } from './perf';
 import { utcToday } from '../ui/format';
 
 export const LIVE_INTERVAL_MS = 60_000;
@@ -91,6 +92,10 @@ export class LiveUpdater {
   async tick(): Promise<void> {
     if (this.ticking) return;
     this.ticking = true;
+    // idle ticks (list-only, nothing changed) are not worth a log entry
+    const doneTick = perf.begin('live', 'live tick');
+    let refetched = 0;
+    let liveRecords = 0;
     try {
       const today = utcToday();
       for (const channel of this.channels()) {
@@ -125,11 +130,13 @@ export class LiveUpdater {
           if (prev?.etag === etag) continue;
 
           const bytes = await this.bucket.getObjectBytes(parsed.key);
+          refetched++;
           const tailBytes = prev ? appendPlan(prev, bytes) : null;
 
           if (tailBytes) {
             // verified append: parse + append only the new lines
             const result = parseFile(tailBytes, parsed, prev!.lastMeta);
+            liveRecords += result.records.length;
             store.registerFile(parsed, result.byteLength, true);
             store.appendSorted(result.records);
             this.states.set(parsed.key, {
@@ -140,6 +147,7 @@ export class LiveUpdater {
             });
           } else {
             const result = parseFile(bytes, parsed);
+            liveRecords += result.records.length;
             store.registerFile(parsed, result.byteLength);
             store.replaceFile(parsed.key, result.records);
             this.states.set(parsed.key, {
@@ -156,6 +164,9 @@ export class LiveUpdater {
       // transient failures are fine; the next tick retries
     } finally {
       this.ticking = false;
+      if (refetched > 0) {
+        doneTick({ detail: `${refetched} snapshots refetched`, records: liveRecords });
+      }
     }
   }
 }

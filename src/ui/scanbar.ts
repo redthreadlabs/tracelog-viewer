@@ -493,13 +493,13 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     clearEl(budget);
     const inMemory = [...store.files.values()].reduce((s, f) => s + f.sizeUncompressed, 0);
     const link = document.createElement('a');
-    link.href = '#/store';
+    link.href = '#/internals/store';
     link.className = 'store-pill';
     link.title = 'inspect the in-memory store (files, sizes, eviction)';
     link.textContent = `MEM: ${fmtCount(store.records.length)} records · ${fmtBytes(inMemory)}`;
     link.addEventListener('click', (ev) => {
       ev.preventDefault();
-      setView('/store');
+      setView('/internals/store');
     });
     budget.append(link);
   }

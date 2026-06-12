@@ -1,5 +1,5 @@
 /**
- * Store inspector (#/store): the full file inventory of the bucket —
+ * Store inspector (#/internals/store): the full file inventory of the bucket —
  * everything available in S3, newest first, paginated — overlaid with
  * what's currently in memory and what's cached locally in IndexedDB.
  * A file is simply loaded or not: unloaded rows are greyed with a "load"
@@ -14,6 +14,7 @@ import { cacheKeys } from '../../data/cache';
 import type { LogBucket } from '../../s3/client';
 import { parseKey, dedupeCurrents, type ParsedKey } from '../../s3/keys';
 import { RECORD_KINDS, type RecordKind } from '../../data/types';
+import { internalsTabs } from './internals';
 import { fmtBytes, fmtCount, fmtDateTime, fmtHumane, zoneLabel } from '../format';
 
 const PAGE_SIZE = 50;
@@ -172,6 +173,7 @@ export function renderStoreView(container: HTMLElement, bucket: LogBucket): () =
 
   function render(): void {
     clear(body);
+    body.append(internalsTabs('/internals/store'));
     const rows = buildRows();
     page = Math.min(page, maxPage(rows));
 

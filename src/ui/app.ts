@@ -13,7 +13,9 @@ import { renderScanbar } from './scanbar';
 import { readHash, setView, setParams, parseWindowParam, getParam } from './hashstate';
 import { viewState, resetViewState } from '../state';
 import { store } from '../data/store';
+import { perf } from '../data/perf';
 import type { Profile } from './profiles';
+import { renderPerfView } from './views/perfview';
 import { renderRecordsView } from './views/records';
 import { renderEventsView } from './views/events';
 import { renderMetricsView } from './views/metrics';
@@ -160,40 +162,30 @@ export function startApp(root: HTMLElement): void {
       });
       return;
     }
-    if (view === '/records') {
-      teardown = renderRecordsView(main);
-      return;
-    }
-    if (view === '/events') {
-      teardown = renderEventsView(main);
-      return;
-    }
-    if (view === '/metrics') {
-      teardown = renderMetricsView(main);
-      return;
-    }
-    if (view === '/clients') {
-      teardown = renderClientsView(main);
-      return;
-    }
-    if (view === '/scanner') {
-      teardown = renderScannerView(main);
-      return;
-    }
-    if (view === '/store') {
-      teardown = renderStoreView(main, bucket!); // route guard ensures a profile
-      return;
-    }
+    // Time every view render against the store size at that moment — the
+    // perf page itself excluded, or logging its render would re-render it.
+    const doneRender = view === '/internals/perf' ? null : perf.begin('render', view);
+    teardown = renderView(view);
+    doneRender?.({ records: store.records.length });
+  }
+
+  function renderView(view: string): (() => void) | null {
+    if (view === '/records') return renderRecordsView(main);
+    if (view === '/events') return renderEventsView(main);
+    if (view === '/metrics') return renderMetricsView(main);
+    if (view === '/clients') return renderClientsView(main);
+    if (view === '/scanner') return renderScannerView(main);
+    // viewer-internals family (#/internals/…): about the app, not the logs
+    if (view === '/internals/store') return renderStoreView(main, bucket!); // route guard ensures a profile
+    if (view === '/internals/perf') return renderPerfView(main);
     if (view.startsWith('/trace/')) {
-      teardown = renderTraceView(main, view.slice('/trace/'.length));
-      return;
+      return renderTraceView(main, view.slice('/trace/'.length));
     }
     if (view.startsWith('/txn/')) {
-      teardown = renderTransactionView(main, decodeURIComponent(view.slice('/txn/'.length)));
-      return;
+      return renderTransactionView(main, decodeURIComponent(view.slice('/txn/'.length)));
     }
     // default: overview
-    teardown = renderOverview(main);
+    return renderOverview(main);
   }
 
   profiles.addEventListener('change', () => {

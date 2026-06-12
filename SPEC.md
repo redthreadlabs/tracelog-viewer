@@ -302,8 +302,13 @@ loading progress ("loading 12 MB of 48 MB…") as the only acknowledgment —
 no confirmation step at any size (decided 2026-06-13). Sub-day ranges
 scan the covering UTC day(s) and narrow the viewed time window to the
 precise range (the same mechanism as the chart brush). The loaded readout
-("12,345 records · 48 MB") links to the store inspector, the opt-in page
-where file-level detail (per-file sizes, counts, eviction) lives.
+("12,345 records · 48 MB") links to the store inspector. Pages about the
+app itself — never the observed service — live under a distinct
+`#/internals/…` route family (so "store"/"perf" can't be confused with
+log content): the store inspector (`#/internals/store`, the opt-in page
+where file-level detail — per-file sizes, counts, eviction — lives) and
+viewer performance (`#/internals/perf`, §6.8), cross-linked by a shared
+tab strip.
 
 ### 6.1 Overview dashboard
 
@@ -361,9 +366,22 @@ is DuiDuiDui-specific in its defaults but generic in mechanism (group by
 A deliberately small view: probes per day, top requested paths, top user
 agents. Mostly entertainment; excluded from all other rollups.
 
----
+### 6.8 Viewer performance (#/internals/perf)
 
-## 7. Design language
+The viewer watching itself: a capped ring-buffer log (`data/perf.ts`,
+1000 entries — bounded per §8) of internal timings, rendered newest-first
+in the store-inspector's visual language. Categories: `list` (scan
+planning), `fetch` (per object, network vs IndexedDB flagged), `parse`
+(per file, with records + bytes), `scan` (whole executeScan summaries),
+`render` (per view, with store size at render time; the perf page itself
+is excluded to avoid a feedback loop), `live` (non-idle ticks), and
+`stall` (longtask observer: main-thread blocks ≥50 ms). Entries stamp
+the Chromium tab heap when available. Summary ledger: session counts +
+worst stall | network/cache/parse throughput | tab heap. A copy-as-JSON
+export is the measurement instrument for §8.1 stress runs — LIMITS.md
+numbers come from here, and users can attach exports to bug reports.
+Instrumentation cost is two `performance.now()` calls and one object per
+operation, so it is always on.
 
 The charts are the product. Goal: closer to a beautifully typeset report
 than a NOC dashboard — restrained, humane, with color spent only on data.
@@ -447,7 +465,8 @@ JSONL contract it writes against is tracelog's SCHEMA.md):
 **The measurements**, per tier (e.g. 10k / 100k / 1M / 5M records):
 
 - scan plan size (files, compressed/uncompressed bytes);
-- cold fetch+parse wall time, warm (IndexedDB) load time once M4 lands;
+- cold fetch+parse wall time, warm (IndexedDB) load time once M4 lands
+  (both read straight off `#/internals/perf` — copy-as-JSON, §6.8);
 - heap after load (`performance.memory` in Chromium) and whether the tab
   survives;
 - interaction latency on the standard moves: overview render, brush,

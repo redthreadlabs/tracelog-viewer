@@ -5,6 +5,7 @@
  */
 import type { LogBucket } from './client';
 import { parseKey, dedupeCurrents, overlapsRange, type ParsedKey } from './keys';
+import { perf } from '../data/perf';
 
 export interface ScanPlan {
   files: ParsedKey[];
@@ -19,6 +20,7 @@ export async function planScan(
   startMs: number,
   endMs: number,
 ): Promise<ScanPlan> {
+  const donePlan = perf.begin('list', `plan ${channels.join(',')}`);
   const startDate = new Date(startMs).toISOString().slice(0, 10);
   const endDate = new Date(endMs).toISOString().slice(0, 10);
   const all: ParsedKey[] = [];
@@ -40,9 +42,15 @@ export async function planScan(
     a.interval === b.interval ? a.key.localeCompare(b.key) : a.interval.localeCompare(b.interval),
   );
 
+  const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
+  donePlan({
+    detail: `${startDate}..${endDate} → ${files.length} files`,
+    bytes: totalBytes,
+  });
+
   return {
     files,
-    totalBytes: files.reduce((sum, f) => sum + f.size, 0),
+    totalBytes,
     hosts: [...new Set(files.map((f) => f.host))].sort(),
     channels: [...new Set(files.map((f) => f.channel))].sort(),
   };

@@ -4,12 +4,34 @@
  */
 import type { LogBucket } from '../s3/client';
 import type { ScanPlan } from '../s3/scanner';
+import type { ParsedKey } from '../s3/keys';
 import { parseFile } from './parse';
 import { cacheGet, cachePut } from './cache';
 import { store } from './store';
+import { perf } from './perf';
 import { resetViewState } from '../state';
 
 const CONCURRENCY = 4;
+
+/** Fetch one file's bytes (IndexedDB first), parse it, and time both. */
+async function fetchAndParse(
+  bucket: LogBucket,
+  file: ParsedKey,
+): Promise<{ result: ReturnType<typeof parseFile>; fromCache: boolean }> {
+  const doneFetch = perf.begin('fetch', file.key);
+  let bytes = file.current ? null : await cacheGet(bucket.bucket, file.key, file.etag);
+  const fromCache = bytes !== null;
+  if (!bytes) {
+    bytes = await bucket.getObjectBytes(file.key);
+    if (!file.current) void cachePut(bucket.bucket, file.key, file.etag, bytes);
+  }
+  doneFetch({ bytes: bytes.length, cached: fromCache });
+
+  const doneParse = perf.begin('parse', file.key);
+  const result = parseFile(bytes, file);
+  doneParse({ bytes: result.byteLength, records: result.records.length });
+  return { result, fromCache };
+}
 
 export async function executeScan(bucket: LogBucket, plan: ScanPlan): Promise<void> {
   store.clear();
@@ -23,8 +45,10 @@ export async function executeScan(bucket: LogBucket, plan: ScanPlan): Promise<vo
     error: undefined,
   });
 
+  const doneScan = perf.begin('scan', `scan s3://${bucket.bucket}`);
   const queue = [...plan.files];
   let failed: string | undefined;
+  let parsedBytes = 0;
 
   async function worker(): Promise<void> {
     for (;;) {
@@ -33,13 +57,8 @@ export async function executeScan(bucket: LogBucket, plan: ScanPlan): Promise<vo
       try {
         // Finalized files are immutable: ETag-checked cache hits skip S3
         // entirely (SPEC §8). _current snapshots are never cached.
-        let bytes = file.current ? null : await cacheGet(bucket.bucket, file.key, file.etag);
-        const fromCache = bytes !== null;
-        if (!bytes) {
-          bytes = await bucket.getObjectBytes(file.key);
-          if (!file.current) void cachePut(bucket.bucket, file.key, file.etag, bytes);
-        }
-        const result = parseFile(bytes, file);
+        const { result, fromCache } = await fetchAndParse(bucket, file);
+        parsedBytes += result.byteLength;
         store.registerFile(file, result.byteLength);
         store.addBatch(result.records);
         store.setProgress({
@@ -59,17 +78,18 @@ export async function executeScan(bucket: LogBucket, plan: ScanPlan): Promise<vo
 
   store.sortByTime();
   store.setProgress({ running: false, error: failed });
+  doneScan({
+    detail:
+      `${plan.files.length} files (${store.progress.filesFromCache} cached)` +
+      (failed ? ` — failed: ${failed}` : ''),
+    bytes: parsedBytes,
+    records: store.records.length,
+  });
 }
 
-
 /** Load one file into the store (inspector "load" action) — cache-aware. */
-export async function loadOneFile(bucket: LogBucket, file: import('../s3/keys').ParsedKey): Promise<void> {
-  let bytes = file.current ? null : await cacheGet(bucket.bucket, file.key, file.etag);
-  if (!bytes) {
-    bytes = await bucket.getObjectBytes(file.key);
-    if (!file.current) void cachePut(bucket.bucket, file.key, file.etag, bytes);
-  }
-  const result = parseFile(bytes, file);
+export async function loadOneFile(bucket: LogBucket, file: ParsedKey): Promise<void> {
+  const { result } = await fetchAndParse(bucket, file);
   store.registerFile(file, result.byteLength);
   store.replaceFile(file.key, result.records);
 }
