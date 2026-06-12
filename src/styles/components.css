@@ -666,3 +666,145 @@ th.sortable.on {
 .brush .selection {
   shape-rendering: crispEdges;
 }
+
+/* ---------- trace waterfall ---------- */
+
+.trace-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 28px 8px;
+  border-top: 1px solid var(--line);
+}
+
+.trace-title {
+  font-size: 20px;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 46vw;
+}
+
+.trace-body {
+  flex: 1;
+  overflow: auto;
+  overflow-anchor: none;
+  padding: 0 28px 20px;
+}
+
+.trace-axis {
+  position: relative;
+  height: 22px;
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.trace-axis .tick {
+  position: absolute;
+  bottom: 4px;
+  transform: translateX(-50%);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
+.trace-axis .tick:first-child {
+  transform: none;
+}
+
+.trace-axis .tick:last-child {
+  transform: translateX(-100%);
+}
+
+.trace-rows {
+  position: relative;
+}
+
+.trace-grid {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.trace-grid span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--line);
+  opacity: 0.7;
+}
+
+.trace-row {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.trace-row:hover {
+  background: color-mix(in srgb, var(--thread-wash) 55%, transparent);
+}
+
+.trace-row.selected {
+  background: var(--thread-wash);
+}
+
+.trace-label {
+  flex: none;
+  width: 280px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+.trace-label-text {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trace-track {
+  position: relative;
+  flex: 1;
+  height: 100%;
+}
+
+.trace-bar {
+  position: absolute;
+  top: 8px;
+  height: 14px;
+  border-radius: 2px;
+  min-width: 2px;
+}
+
+.trace-dur {
+  position: absolute;
+  top: 8px;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.trace-point {
+  position: absolute;
+  top: 11px;
+  width: 8px;
+  height: 8px;
+  transform: rotate(45deg);
+  border-radius: 1px;
+}
+
+.trace-point.alarm {
+  outline: 2px solid var(--thread);
+  outline-offset: 1.5px;
+}
+
+.trace-foot {
+  padding: 10px 0;
+}

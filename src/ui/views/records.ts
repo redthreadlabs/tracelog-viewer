@@ -7,6 +7,7 @@ import { el, clear } from '../dom';
 import { store } from '../../data/store';
 import { RECORD_KINDS, type Rec, type RecordKind } from '../../data/types';
 import { viewState } from '../../state';
+import { renderRecDrawer } from '../recdrawer';
 import { fmtBytes, fmtCount, fmtDateTime, fmtDuration, zoneLabel } from '../format';
 
 const PAGE_SIZE = 100;
@@ -297,56 +298,26 @@ export function renderRecordsView(container: HTMLElement): () => void {
   }
 
   function renderDrawer(): void {
-    clear(drawer);
-    if (!selected) {
-      drawer.classList.remove('open');
-      return;
-    }
-    const r = selected;
-    drawer.classList.add('open');
-
-    drawer.append(
-      el('div', { className: 'drawer-head' }, [
-        el('span', { className: 'kind-mark', attrs: { style: `background: var(--kind-${r.kind})` } }),
-        el('h3', { text: r.name }),
-        el('button', {
-          className: 'btn btn-quiet',
-          text: 'copy',
-          on: {
-            click: () => void navigator.clipboard.writeText(JSON.stringify(r.raw, null, 2)),
-          },
-        }),
-        el('button', {
-          className: 'btn btn-quiet',
-          text: '✕',
-          on: {
-            click: () => {
-              selected = null;
-              renderDrawer();
-              renderRows();
+    renderRecDrawer(
+      drawer,
+      selected,
+      () => {
+        selected = null;
+        renderDrawer();
+        renderRows();
+      },
+      selected?.traceId
+        ? [
+            {
+              label: 'view trace →',
+              title: 'open the waterfall for this trace',
+              onClick: () => {
+                location.hash = `#/trace/${selected!.traceId}`;
+              },
             },
-          },
-        }),
-      ]),
+          ]
+        : [],
     );
-
-    const meta = el('div', { className: 'drawer-meta' });
-    const metaRow = (label: string, value?: string) => {
-      if (!value) return;
-      meta.append(
-        el('span', { className: 'label', text: label }),
-        el('span', { className: 'mono', text: value }),
-      );
-    };
-    metaRow('kind', r.kind);
-    metaRow('time', `${fmtDateTime(r.ts)} ${zoneLabel()}`);
-    metaRow('channel', r.channel);
-    metaRow('host', r.host);
-    metaRow('service', r.meta.serviceVersion && `${r.meta.serviceName} ${r.meta.serviceVersion}`);
-    metaRow('trace', r.traceId);
-    metaRow('user', r.userId);
-
-    drawer.append(el('div', { className: 'drawer-body' }, [meta, prettyJson(r.raw)]));
   }
 
   function renderEmpty(): void {
@@ -423,22 +394,4 @@ function selectFilter(
   select.value = value ?? '';
   select.addEventListener('change', () => onChange(select.value || null));
   return select;
-}
-
-/** Minimal JSON syntax highlighting — keys, strings, numbers, booleans. */
-function prettyJson(obj: unknown): HTMLElement {
-  const json = JSON.stringify(obj, null, 2);
-  const pre = el('pre', { className: 'json' });
-  const escaped = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  pre.innerHTML = escaped.replace(
-    /("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g,
-    (match, str, colon, bool) => {
-      if (str !== undefined) {
-        return colon ? `<span class="k">${str}</span>${colon}` : `<span class="s">${str}</span>`;
-      }
-      if (bool !== undefined) return `<span class="b">${bool}</span>`;
-      return `<span class="n">${match}</span>`;
-    },
-  );
-  return pre;
 }

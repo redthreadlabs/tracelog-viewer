@@ -44,6 +44,16 @@
   --level-warn: #b07c10;
   --level-error: #b3232e;
 
+  /* span types — one stable hue per type/subtype, used by the waterfall
+     and (later) every other span-colored chart. "green = mongo" everywhere. */
+  --spantype-db-mongodb: #3e7a5e;
+  --spantype-db-redis: #b3552c;
+  --spantype-db: #2e6a72;
+  --spantype-storage: #8a6d2f;
+  --spantype-external: #355e93;
+  --spantype-app: #6f5e8f;
+  --spantype-other: #75706a;
+
   /* misc */
   --radius: 4px;
   --radius-lg: 8px;
@@ -75,6 +85,14 @@
   --level-info: #a59d8d;
   --level-warn: #d4a032;
   --level-error: #d8454f;
+
+  --spantype-db-mongodb: #84b89c;
+  --spantype-db-redis: #d98e63;
+  --spantype-db: #7eb3bb;
+  --spantype-storage: #c4a563;
+  --spantype-external: #7da3d4;
+  --spantype-app: #a995c9;
+  --spantype-other: #98928a;
 
   --grain-opacity: 0.5;
 }
