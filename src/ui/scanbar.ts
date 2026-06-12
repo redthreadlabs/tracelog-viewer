@@ -46,6 +46,8 @@ const QUICK_PRESETS: { label: string; minutes: number }[] = [
   { label: 'Last 15 min', minutes: 15 },
   { label: 'Last 1 hr', minutes: 60 },
   { label: 'Last 6 hr', minutes: 360 },
+  { label: 'Last 12 hr', minutes: 720 },
+  { label: 'Last 24 hr', minutes: 1440 },
 ];
 
 const DAY_PRESETS: { label: string; days: number }[] = [
