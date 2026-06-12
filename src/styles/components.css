@@ -218,6 +218,9 @@
 .records-wrap {
   flex: 1;
   overflow: auto;
+  /* The windowed table resizes its spacers on every scroll; browser scroll
+     anchoring would chase those changes and produce runaway auto-scroll. */
+  overflow-anchor: none;
   border-top: 1px solid var(--line);
   background: var(--surface);
 }
@@ -239,7 +242,10 @@ table.records th {
 }
 
 table.records td {
+  /* 4 + 18 + 4 + 1px border = exactly ROW_HEIGHT (27px) — the windowing
+     math in records.ts depends on rows being precisely this tall. */
   padding: 4px 12px;
+  line-height: 18px;
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
   overflow: hidden;

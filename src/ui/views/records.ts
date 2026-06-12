@@ -51,7 +51,15 @@ export function renderRecordsView(container: HTMLElement): () => void {
   const bottomSpacer = el('div');
   wrap.append(topSpacer, table, bottomSpacer);
 
-  wrap.addEventListener('scroll', renderRows);
+  let scrollScheduled = false;
+  wrap.addEventListener('scroll', () => {
+    if (scrollScheduled) return;
+    scrollScheduled = true;
+    requestAnimationFrame(() => {
+      scrollScheduled = false;
+      renderRows();
+    });
+  });
 
   function applyFilters(): void {
     const q = filters.search.toLowerCase();
