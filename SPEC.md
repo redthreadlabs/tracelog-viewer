@@ -260,8 +260,12 @@ src/
              store.ts         — in-memory record store + indexes (by kind, trace_id,
                                 transaction name, event type/level, time buckets)
              cache.ts         — IndexedDB cache of *finalized* files keyed by
-                                S3 key + ETag (immutable, so cache forever);
-                                _current files are never cached
+                                bucket + S3 key, ETag-checked (immutable, so
+                                cache forever; namespaced because every
+                                tracelog bucket repeats the same key paths);
+                                _current files are never cached. Survives
+                                profile switches; deleting the last profile
+                                for a bucket wipes that bucket's entries
   ui/        app.ts           — shell, routing (hash-based), layout
              config.ts        — credentials/profiles panel
              scanbar.ts       — channel / date-range / host / live controls
