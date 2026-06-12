@@ -436,14 +436,24 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
   growing service stays on tracelog, so memory tricks do not require a
   measured justification first (decided 2026-06-12). Built in: a manual
   string intern pool for high-multiplicity fields (V8 internalizes JSON
-  *keys* but never values), and lazy raw — records keep their original
-  NDJSON line as a sliced string plus small eagerly-extracted normalized
-  fields, re-parsing on demand for the drawer. Next on the ladder if the
-  M5 measurements call for it: columnar typed arrays per kind.
+  *keys* but never values), and raw shedding (M5 finding, 2026-06-12: raw
+  retention was ~500 MB of the 760 MB heap at 1M records and most of the
+  scan-time GC) — records from finalized files drop their raw line
+  entirely; the drawer re-reads it from the IndexedDB cache by
+  sourceKey + line index (rawsource.ts, ~30 ms behind a click).
+  Events/errors keep a *flattened copy* of their line so free-text search
+  stays deep where it's used (a plain slice would pin the whole decoded
+  file text via its SlicedString parent); `_current` records keep slices
+  of the small live tail. Next on the ladder if the M5 measurements call
+  for it: columnar typed arrays per kind, and Worker-side parsing.
 - Loading is automatic and as-needed: the range selection is the consent,
   at any size; progress (bytes, from the listing) is the acknowledgment.
   Stream-render always: views populate as data arrives, not after the
-  full scan. The IndexedDB cache keeps repeat ranges near-free.
+  full scan — but data events are adaptively throttled while a scan runs
+  (each dispatch waits 5× the previous one's cost, 1–10 s), after the M5
+  finding that unthrottled per-file re-renders of a growing store are
+  O(n²) and froze a million-record load. The IndexedDB cache keeps repeat
+  ranges near-free.
 - IndexedDB cache (§5) makes every revisit to finalized days free; `ETag`
   equality is the immutability check.
 

@@ -13,6 +13,7 @@ function rec(partial: Partial<Rec>): Rec {
     meta: {},
     name: 'x',
     rawLine: '',
+    line: 0,
     ...partial,
   };
 }

@@ -9,8 +9,13 @@
  * - lines are roughly but not strictly chronological — the caller sorts.
  *
  * Memory model (SPEC §8): the parsed tree is used for extraction and then
- * dropped. Records keep their original line as a sliced string and the
- * small normalized fields; parseRaw() re-parses on demand.
+ * dropped. With `shedRaw` (finalized files, which are in the IndexedDB
+ * cache), spans/transactions/metricsets drop their raw line entirely —
+ * rawsource.ts re-reads it on demand by line index — and events/errors
+ * keep a flattened copy (deep free-text search); a plain slice would pin
+ * the whole decoded file text via its SlicedString parent. Without
+ * `shedRaw` (live `_current` tails, never cached), every record keeps a
+ * slice as before; the shared parent is just the small tail.
  */
 import type { ParsedKey } from '../s3/keys';
 import { RECORD_KINDS, type FileMeta, type Rec, type RecordKind } from './types';
@@ -55,8 +60,35 @@ function istr(pool: InternPool, value: unknown): string | undefined {
   return intern(pool, str(value));
 }
 
-/** Re-parse a record's original line on demand; returns the record body. */
+/** kinds whose raw line is always retained (deep free-text search) */
+const RAW_KINDS: ReadonlySet<string> = new Set(['event', 'error']);
+
+/** Force a flat copy so a kept line doesn't pin the file's decoded text. */
+function flatten(s: string): string {
+  return (' ' + s).slice(1);
+}
+
+/** The 0-based `n`th line of decoded file text (on-demand raw re-reads). */
+export function nthLine(text: string, n: number): string | null {
+  let start = 0;
+  for (let i = 0; i < n; i++) {
+    const next = text.indexOf('\n', start);
+    if (next === -1) return null;
+    start = next + 1;
+  }
+  if (start >= text.length) return null;
+  let end = text.indexOf('\n', start);
+  if (end === -1) end = text.length;
+  return text.slice(start, end);
+}
+
+/**
+ * Re-parse a record's retained line; returns the record body. Records that
+ * shed their line return {} here — use rawsource.loadRawBody, which falls
+ * back to the cache/bucket.
+ */
 export function parseRaw(rec: Rec): Record<string, unknown> {
+  if (rec.rawLine === null) return {};
   try {
     const obj = JSON.parse(rec.rawLine) as Record<string, unknown>;
     const body = obj[rec.kind];
@@ -70,6 +102,7 @@ export function parseFile(
   bytes: Uint8Array,
   file: ParsedKey,
   initialMeta: FileMeta = {},
+  shedRaw = false,
 ): ParseResult {
   const text = new TextDecoder().decode(bytes);
   const pool: InternPool = new Map();
@@ -80,11 +113,13 @@ export function parseFile(
   let unknownKinds = 0;
 
   let start = 0;
+  let lineNo = -1;
   while (start < text.length) {
     let end = text.indexOf('\n', start);
     if (end === -1) end = text.length;
     const line = text.slice(start, end);
     start = end + 1;
+    lineNo++;
     if (line.trim() === '') continue;
 
     let obj: Record<string, unknown>;
@@ -113,7 +148,7 @@ export function parseFile(
       continue;
     }
 
-    records.push(normalize(kind as RecordKind, body, line, file, meta, pool));
+    records.push(normalize(kind as RecordKind, body, line, lineNo, shedRaw, file, meta, pool));
   }
 
   return { records, metas, lastMeta: meta, byteLength: bytes.length, skippedLines, unknownKinds };
@@ -139,6 +174,8 @@ function normalize(
   kind: RecordKind,
   body: Record<string, unknown>,
   line: string,
+  lineNo: number,
+  shedRaw: boolean,
   file: ParsedKey,
   meta: FileMeta,
   pool: InternPool,
@@ -260,6 +297,7 @@ function normalize(
 
   // One literal, every field assigned: all records share one hidden class
   // regardless of kind (see types.ts).
+  const rawLine = !shedRaw ? line : RAW_KINDS.has(kind) ? flatten(line) : null;
   return {
     id: nextId++,
     kind,
@@ -268,7 +306,8 @@ function normalize(
     host: file.host,
     sourceKey: file.key,
     meta,
-    rawLine: line,
+    rawLine,
+    line: lineNo,
     name,
     level,
     outcome,

@@ -93,7 +93,9 @@ export function renderEventsView(container: HTMLElement): () => void {
       }
       if (q) {
         const hay = `${r.name} ${r.message ?? ''} ${r.userId ?? ''}`.toLowerCase();
-        if (!hay.includes(q) && !r.rawLine.toLowerCase().includes(q)) return false;
+        if (!hay.includes(q) && (r.rawLine === null || !r.rawLine.toLowerCase().includes(q))) {
+          return false;
+        }
       }
       return true;
     });

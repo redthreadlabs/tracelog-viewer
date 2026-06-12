@@ -16,6 +16,7 @@ function rec(partial: Partial<Rec>): Rec {
     name: 'x',
     traceId: TRACE,
     rawLine: '',
+    line: 0,
     ...partial,
   };
 }

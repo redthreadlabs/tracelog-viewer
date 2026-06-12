@@ -14,6 +14,7 @@ function rec(partial: Partial<Rec>): Rec {
     meta: {},
     name: 'app',
     rawLine: '',
+    line: 0,
     ...partial,
   };
 }

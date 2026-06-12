@@ -64,7 +64,7 @@ export function renderRecordsView(container: HTMLElement): () => void {
         const hay =
           `${r.name} ${r.message ?? ''} ${r.userId ?? ''} ${r.traceId ?? ''}`.toLowerCase();
         if (!hay.includes(q)) {
-          if (!r.rawLine.toLowerCase().includes(q)) return false;
+          if (r.rawLine === null || !r.rawLine.toLowerCase().includes(q)) return false;
         }
       }
       return true;

@@ -28,7 +28,9 @@ async function fetchAndParse(
   doneFetch({ bytes: bytes.length, cached: fromCache });
 
   const doneParse = perf.begin('parse', file.key);
-  const result = parseFile(bytes, file);
+  // Finalized files are cached, so their records shed raw lines (rawsource
+  // re-reads on demand); _current snapshots have no cache to go back to.
+  const result = parseFile(bytes, file, {}, !file.current);
   doneParse({ bytes: result.byteLength, records: result.records.length });
   return { result, fromCache };
 }

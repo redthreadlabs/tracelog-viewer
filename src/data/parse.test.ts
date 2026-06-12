@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseFile, parseRaw } from './parse';
+import { parseFile, parseRaw, nthLine } from './parse';
 import { parseKey } from '../s3/keys';
 
 const FILE = parseKey('server/2026-06-12/172.31.27.225_current.jsonl.gz', 100)!;
@@ -197,5 +197,39 @@ describe('eager extraction (lazy-raw memory model)', () => {
     expect(records[0].rawLine).toContain('"params"');
     const raw = parseRaw(records[0]);
     expect((raw.params as Record<string, unknown>).a).toBe(1);
+  });
+});
+
+describe('rawLine shedding (SPEC §8: finalized files re-read raw on demand)', () => {
+  const lines = [
+    JSON.stringify(META),
+    JSON.stringify({ span: { name: 'SELECT FROM users', type: 'db', id: 'a'.repeat(16), trace_id: 'b'.repeat(32), transaction_id: 'c'.repeat(16), parent_id: 'c'.repeat(16), duration: 5, timestamp: 1_700_000_000_000_000, sync: false, outcome: 'success' } }),
+    JSON.stringify({ event: { type: 'purchase', timestamp: 1_700_000_000_000_000, level: 'info', params: { total: 12.5 } } }),
+  ];
+  const bytes = new TextEncoder().encode(lines.join('\n') + '\n');
+  const file = { key: 'ch/2026-06-11/h.jsonl.gz', channel: 'ch', interval: '2026-06-11', host: 'h', seq: 0, current: false, size: 1 } as never;
+
+  it('sheds span raw but keeps event raw, with correct line indices', () => {
+    const out = parseFile(bytes, file, {}, true);
+    const span = out.records.find((r) => r.kind === 'span')!;
+    const event = out.records.find((r) => r.kind === 'event')!;
+    expect(span.rawLine).toBeNull();
+    expect(span.line).toBe(1);
+    expect(event.rawLine).toBe(lines[2]);
+    expect(event.line).toBe(2);
+    expect(parseRaw(span)).toEqual({}); // sync path declines; rawsource handles it
+    expect(parseRaw(event).params).toEqual({ total: 12.5 });
+  });
+
+  it('retains every line when shedRaw is off (live tails)', () => {
+    const out = parseFile(bytes, file);
+    expect(out.records.every((r) => typeof r.rawLine === 'string')).toBe(true);
+  });
+
+  it('nthLine extracts by 0-based index, null past the end', () => {
+    const text = 'a\nbb\nccc\n';
+    expect(nthLine(text, 0)).toBe('a');
+    expect(nthLine(text, 2)).toBe('ccc');
+    expect(nthLine(text, 3)).toBeNull();
   });
 });

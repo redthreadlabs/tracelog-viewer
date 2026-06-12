@@ -14,6 +14,7 @@ import { readHash, setView, setParams, parseWindowParam, getParam } from './hash
 import { viewState, resetViewState } from '../state';
 import { store } from '../data/store';
 import { perf } from '../data/perf';
+import { registerRawSource } from '../data/rawsource';
 import type { Profile } from './profiles';
 import { renderPerfView } from './views/perfview';
 import { renderRecordsView } from './views/records';
@@ -143,6 +144,8 @@ export function startApp(root: HTMLElement): void {
       setParams({ ch: null, w: null });
     }
     bucket = active ? new LogBucket(active) : null;
+    const b = bucket;
+    registerRawSource(b ? { bucket: b.bucket, fetch: (key) => b.getObjectBytes(key) } : null);
     renderHeader();
     renderScanbarIfConnected();
   }

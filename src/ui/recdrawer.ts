@@ -6,6 +6,7 @@
 import { el, clear } from './dom';
 import type { Rec } from '../data/types';
 import { parseRaw } from '../data/parse';
+import { loadRawBody } from '../data/rawsource';
 import { fmtDateTime, zoneLabel } from './format';
 
 export interface DrawerAction {
@@ -31,7 +32,10 @@ export function renderRecDrawer(
     el('span', { className: 'kind-mark', attrs: { style: `background: var(--kind-${rec.kind})` } }),
     el('h3', { text: rec.name }),
   ]);
-  const raw = parseRaw(rec); // lazy: the parsed tree exists only while the drawer is open
+  // Lazy: the parsed tree exists only while the drawer is open. Retained
+  // lines resolve in a microtask; shed lines re-read from the cache/bucket.
+  const rawPromise: Promise<Record<string, unknown>> =
+    rec.rawLine !== null ? Promise.resolve(parseRaw(rec)) : loadRawBody(rec);
   for (const action of actions) {
     head.append(
       el('button', {
@@ -46,7 +50,12 @@ export function renderRecDrawer(
     el('button', {
       className: 'btn btn-quiet',
       text: 'copy',
-      on: { click: () => void navigator.clipboard.writeText(JSON.stringify(raw, null, 2)) },
+      on: {
+        click: () =>
+          void rawPromise.then((raw) =>
+            navigator.clipboard.writeText(JSON.stringify(raw, null, 2)),
+          ),
+      },
     }),
     el('button', { className: 'btn btn-quiet', text: '✕', on: { click: onClose } }),
   );
@@ -69,10 +78,20 @@ export function renderRecDrawer(
   metaRow('user', rec.userId);
 
   const body = el('div', { className: 'drawer-body' }, [meta]);
-  const errorBlock = renderErrorBlock(raw);
-  if (errorBlock) body.append(errorBlock);
-  body.append(prettyJson(raw));
+  const loading = el('div', {
+    className: 'faint',
+    text: 'reading raw record…',
+    attrs: { style: 'font-size:12px;padding:4px 0' },
+  });
+  body.append(loading);
   drawer.append(body);
+  void rawPromise.then((raw) => {
+    if (!loading.isConnected) return; // the drawer moved on to another record
+    loading.remove();
+    const errorBlock = renderErrorBlock(raw);
+    if (errorBlock) body.append(errorBlock);
+    body.append(prettyJson(raw));
+  });
 }
 
 /**

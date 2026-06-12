@@ -95,6 +95,29 @@ export async function cachePut(
   });
 }
 
+/**
+ * One cached file's bytes regardless of ETag (on-demand raw re-reads: the
+ * store's records and the cache entry came from the same fetch, so for
+ * this purpose whatever is cached under the key IS the right content).
+ */
+export async function cacheGetAny(bucket: string, key: string): Promise<Uint8Array | null> {
+  const db = await openDb();
+  if (!db) return null;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(STORE, 'readonly');
+      const request = tx.objectStore(STORE).get(bucket + SEP + key);
+      request.onsuccess = () => {
+        const hit = request.result as CachedFile | undefined;
+        resolve(hit ? hit.bytes : null);
+      };
+      request.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
 /** S3 keys of one bucket's cached files — keys only, no byte payloads. */
 export async function cacheKeys(bucket: string): Promise<Set<string>> {
   const db = await openDb();
