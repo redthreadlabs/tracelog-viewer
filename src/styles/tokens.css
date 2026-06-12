@@ -29,22 +29,22 @@
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.28), 0 8px 24px rgba(0, 0, 0, 0.18);
 
   /* the thread — brightened for legibility on grey */
-  --thread: #e05e68;
-  --thread-strong: #ec7a83;
-  --thread-wash: #5a4244;
+  --thread: #e84a57;
+  --thread-strong: #f0707b;
+  --thread-wash: #5c3f43;
 
   /* record kinds — one stable hue per kind, everywhere */
   --kind-transaction: #6f97c9;
   --kind-span: #76ad8e;
   --kind-event: #c0a259;
-  --kind-error: #e05e68;
+  --kind-error: #e84a57;
   --kind-metricset: #a08fc0;
 
   /* event levels — fixed semantic mapping (SPEC §7) */
   --level-debug: #9d9b97;
   --level-info: #c9c7c3;
   --level-warn: #d4a032;
-  --level-error: #e05e68;
+  --level-error: #e84a57;
 
   /* span types — one stable hue per type/subtype */
   --spantype-db-mongodb: #76ad8e;
@@ -84,20 +84,20 @@
   --line: #ebeae8;
   --line-strong: #d7d5d2;
 
-  --thread: #b3232e;
-  --thread-strong: #8f1c25;
-  --thread-wash: #f8eaea;
+  --thread: #c2081d;
+  --thread-strong: #9b0617;
+  --thread-wash: #f9e7e9;
 
   --kind-transaction: #355e93;
   --kind-span: #3e7a5e;
   --kind-event: #8a6d2f;
-  --kind-error: #b3232e;
+  --kind-error: #c2081d;
   --kind-metricset: #6f5e8f;
 
   --level-debug: #9b9994;
   --level-info: #6e6c68;
   --level-warn: #b07c10;
-  --level-error: #b3232e;
+  --level-error: #c2081d;
 
   --spantype-db-mongodb: #3e7a5e;
   --spantype-db-redis: #b3552c;
@@ -124,20 +124,20 @@
   --line-strong: #454545;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.45);
 
-  --thread: #d8454f;
-  --thread-strong: #e9707a;
-  --thread-wash: #3a2426;
+  --thread: #e23845;
+  --thread-strong: #ee636d;
+  --thread-wash: #3d2226;
 
   --kind-transaction: #7da3d4;
   --kind-span: #84b89c;
   --kind-event: #c4a563;
-  --kind-error: #d8454f;
+  --kind-error: #e23845;
   --kind-metricset: #a995c9;
 
   --level-debug: #787671;
   --level-info: #a8a6a1;
   --level-warn: #d4a032;
-  --level-error: #d8454f;
+  --level-error: #e23845;
 
   --spantype-db-mongodb: #84b89c;
   --spantype-db-redis: #d98e63;
@@ -169,9 +169,9 @@
   --line: #383838;
   --line-strong: #4d4d4d;
 
-  --thread: #d8454f;
-  --thread-strong: #e9707a;
-  --thread-wash: #3a2426;
+  --thread: #e23845;
+  --thread-strong: #ee636d;
+  --thread-wash: #3d2226;
 
   color-scheme: dark;
 }
