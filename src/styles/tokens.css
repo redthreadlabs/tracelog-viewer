@@ -79,8 +79,8 @@
   --surface: #fbfbfa;
   --surface-raised: #ffffff;
   --ink: #262522;
-  --ink-soft: #6e6c68;
-  --ink-faint: #9b9994;
+  --ink-soft: #555350;
+  --ink-faint: #7c7973;
   --line: #ebeae8;
   --line-strong: #d7d5d2;
 
@@ -94,8 +94,8 @@
   --kind-error: #c2081d;
   --kind-metricset: #6f5e8f;
 
-  --level-debug: #9b9994;
-  --level-info: #6e6c68;
+  --level-debug: #7c7973;
+  --level-info: #555350;
   --level-warn: #b07c10;
   --level-error: #c2081d;
 
@@ -107,6 +107,9 @@
   --spantype-app: #6f5e8f;
   --spantype-other: #75706a;
 
+  /* restart color inheritance: without this, body's canvas-light ink
+     inherits into the white cards and unclassed text goes white-on-white */
+  color: var(--ink);
   color-scheme: light;
 }
 
@@ -173,5 +176,6 @@
   --thread-strong: #ee636d;
   --thread-wash: #3d2226;
 
+  color: var(--ink);
   color-scheme: dark;
 }
