@@ -8,9 +8,10 @@ import { axisBottom, axisLeft } from 'd3-axis';
 import { el, clear } from '../ui/dom';
 import type { HistBucket } from '../data/aggregate';
 import { fmtCount, fmtDuration } from '../ui/format';
+import { logTicks } from './ticks';
 
 const HEIGHT = 190;
-const MARGIN = { top: 8, right: 10, bottom: 24, left: 40 };
+const MARGIN = { top: 8, right: 10, bottom: 24, left: 44 };
 
 export function renderHistogram(container: HTMLElement, buckets: HistBucket[]): void {
   clear(container);
@@ -43,7 +44,7 @@ export function renderHistogram(container: HTMLElement, buckets: HistBucket[]): 
     .attr('transform', `translate(0,${innerH})`)
     .call(
       axisBottom(x)
-        .ticks(5)
+        .tickValues(logTicks(x0, x1, 6))
         .tickFormat((d) => fmtDuration(d as number))
         .tickSizeOuter(0),
     )

@@ -9,9 +9,10 @@ import { axisBottom, axisLeft } from 'd3-axis';
 import { el, clear } from '../ui/dom';
 import type { Rec } from '../data/types';
 import { fmtDateTime, fmtDuration, isUtcMode } from '../ui/format';
+import { logTicks, timeTickFormat } from './ticks';
 
 const HEIGHT = 190;
-const MARGIN = { top: 8, right: 10, bottom: 24, left: 40 };
+const MARGIN = { top: 8, right: 10, bottom: 24, left: 56 };
 
 export type ResultFamily = 'ok' | 'warn' | 'bad' | 'other';
 
@@ -70,7 +71,12 @@ export function renderScatter(
 
   g.append('g')
     .attr('transform', `translate(0,${innerH})`)
-    .call(axisBottom(x).ticks(Math.min(7, Math.floor(innerW / 110))).tickSizeOuter(0))
+    .call(
+      axisBottom(x)
+        .ticks(Math.min(7, Math.floor(innerW / 110)))
+        .tickFormat((d) => timeTickFormat(t1 - t0)(d as Date))
+        .tickSizeOuter(0),
+    )
     .call((sel) => {
       sel.selectAll('text').attr('fill', inkFaint).style('font', '10.5px var(--font-data)');
       sel.selectAll('line').attr('stroke', lineColor);
@@ -80,7 +86,7 @@ export function renderScatter(
   g.append('g')
     .call(
       axisLeft(y)
-        .ticks(4)
+        .tickValues(logTicks(yMin, yMax, 5))
         .tickFormat((d) => fmtDuration(d as number))
         .tickSizeOuter(0),
     )

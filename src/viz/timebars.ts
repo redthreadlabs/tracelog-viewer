@@ -12,6 +12,7 @@ import { el, clear } from '../ui/dom';
 import { RECORD_KINDS, type RecordKind } from '../data/types';
 import type { BucketResult } from '../data/aggregate';
 import { fmtCount, fmtDateTime, isUtcMode } from '../ui/format';
+import { timeTickFormat } from './ticks';
 
 const HEIGHT = 170;
 const MARGIN = { top: 8, right: 12, bottom: 22, left: 44 };
@@ -55,7 +56,12 @@ export function renderTimebars(
   // axes
   g.append('g')
     .attr('transform', `translate(0,${innerH})`)
-    .call(axisBottom(x).ticks(Math.min(10, Math.floor(innerW / 110))).tickSizeOuter(0))
+    .call(
+      axisBottom(x)
+        .ticks(Math.min(10, Math.floor(innerW / 110)))
+        .tickFormat((d) => timeTickFormat(data.domain[1] - data.domain[0])(d as Date))
+        .tickSizeOuter(0),
+    )
     .call((sel) => {
       sel.selectAll('text').attr('fill', inkFaint).style('font', '10.5px var(--font-data)');
       sel.selectAll('line').attr('stroke', lineColor);
