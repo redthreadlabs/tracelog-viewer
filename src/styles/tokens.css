@@ -28,23 +28,23 @@
   --line-strong: #6e6e6e;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.28), 0 8px 24px rgba(0, 0, 0, 0.18);
 
-  /* the thread — brightened for legibility on grey */
-  --thread: #e84a57;
-  --thread-strong: #f0707b;
-  --thread-wash: #5c3f43;
+  /* the thread — the brand red, everywhere */
+  --thread: #c2081d;
+  --thread-strong: #e84a57;
+  --thread-wash: #553a3d;
 
   /* record kinds — one stable hue per kind, everywhere */
   --kind-transaction: #6f97c9;
   --kind-span: #76ad8e;
   --kind-event: #c0a259;
-  --kind-error: #e84a57;
+  --kind-error: #c2081d;
   --kind-metricset: #a08fc0;
 
   /* event levels — fixed semantic mapping (SPEC §7) */
   --level-debug: #9d9b97;
   --level-info: #c9c7c3;
   --level-warn: #d4a032;
-  --level-error: #e84a57;
+  --level-error: #c2081d;
 
   /* span types — one stable hue per type/subtype */
   --spantype-db-mongodb: #76ad8e;
@@ -128,20 +128,20 @@
   --line-strong: #454545;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.45);
 
-  --thread: #e23845;
-  --thread-strong: #ee636d;
-  --thread-wash: #3d2226;
+  --thread: #c2081d;
+  --thread-strong: #e84a57;
+  --thread-wash: #3a2225;
 
   --kind-transaction: #7da3d4;
   --kind-span: #84b89c;
   --kind-event: #c4a563;
-  --kind-error: #e23845;
+  --kind-error: #c2081d;
   --kind-metricset: #a995c9;
 
   --level-debug: #787671;
   --level-info: #a8a6a1;
   --level-warn: #d4a032;
-  --level-error: #e23845;
+  --level-error: #c2081d;
 
   --spantype-db-mongodb: #84b89c;
   --spantype-db-redis: #d98e63;
@@ -174,9 +174,9 @@
   --line: #383838;
   --line-strong: #4d4d4d;
 
-  --thread: #e23845;
-  --thread-strong: #ee636d;
-  --thread-wash: #3d2226;
+  --thread: #c2081d;
+  --thread-strong: #e84a57;
+  --thread-wash: #3a2225;
 
   color: var(--ink);
   color-scheme: dark;
