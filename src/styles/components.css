@@ -503,3 +503,166 @@ pre.json .b {
   background: var(--thread);
   transition: inset-inline-end 200ms ease;
 }
+
+/* ---------- masthead nav ---------- */
+
+.masthead-nav {
+  display: flex;
+  gap: 4px;
+  margin-left: 22px;
+  transform: translateY(-3px);
+}
+
+.nav-link {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 4px 10px 5px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 120ms ease;
+}
+
+.nav-link:hover {
+  color: var(--ink);
+}
+
+.nav-link.on {
+  color: var(--ink);
+  border-bottom-color: var(--thread);
+}
+
+/* ---------- overview: chart + transaction table ---------- */
+
+.chart-section {
+  padding: 14px 28px 4px;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 0;
+}
+
+.chart-host {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 8px 6px 2px;
+}
+
+.chart-host svg {
+  display: block;
+}
+
+.chart-tooltip {
+  display: none;
+  position: absolute;
+  z-index: 10;
+  pointer-events: none;
+  min-width: 150px;
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 8px 10px;
+  font-family: var(--font-data);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-tooltip .t {
+  color: var(--ink-faint);
+  margin-bottom: 5px;
+}
+
+.chart-tooltip .row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 1px 0;
+}
+
+.chart-tooltip .row .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.chart-tooltip .row .v {
+  margin-left: auto;
+  font-weight: 600;
+}
+
+.txn-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 8px 28px 0;
+}
+
+.txn-wrap {
+  flex: 1;
+  overflow: auto;
+  overflow-anchor: none;
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--surface);
+}
+
+.txn-table tbody tr {
+  cursor: pointer;
+}
+
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+th.sortable:hover {
+  color: var(--ink);
+}
+
+th.sortable.on {
+  color: var(--thread);
+}
+
+.duration-bar {
+  height: 9px;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.duration-bar .fill {
+  height: 100%;
+  background: var(--kind-transaction);
+  opacity: 0.55;
+  border-radius: 2px;
+}
+
+/* ---------- records pager ---------- */
+
+.pagerbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 28px;
+  border-top: 1px solid var(--line-strong);
+  background: var(--surface);
+}
+
+/* d3 brush handles */
+
+.brush .selection {
+  shape-rendering: crispEdges;
+}

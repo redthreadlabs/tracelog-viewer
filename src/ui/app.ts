@@ -11,6 +11,12 @@ import { LogBucket } from '../s3/client';
 import { renderConfig } from './config';
 import { renderScanbar } from './scanbar';
 import { renderRecordsView } from './views/records';
+import { renderOverview } from './views/overview';
+
+const NAV: { hash: string; label: string }[] = [
+  { hash: '#/overview', label: 'Overview' },
+  { hash: '#/records', label: 'Records' },
+];
 
 let teardown: (() => void) | null = null;
 let bucket: LogBucket | null = null;
@@ -29,9 +35,22 @@ export function startApp(root: HTMLElement): void {
     clear(header);
     const active = profiles.active();
 
+    const currentHash = location.hash || '#/overview';
+    const nav = el('nav', { className: 'masthead-nav' });
+    for (const item of NAV) {
+      nav.append(
+        el('button', {
+          className: item.hash === currentHash ? 'nav-link on' : 'nav-link',
+          text: item.label,
+          on: { click: () => navigate(item.hash) },
+        }),
+      );
+    }
+
     const masthead = el('div', { className: 'masthead' }, [
       el('span', { className: 'masthead-title', text: 'Tracelog' }),
       el('span', { className: 'masthead-sub', text: 'Viewer' }),
+      nav,
       el('span', { className: 'masthead-spacer' }),
       el('div', { className: 'masthead-controls' }, [
         active
@@ -67,6 +86,7 @@ export function startApp(root: HTMLElement): void {
               toggleTheme();
               (ev.currentTarget as HTMLElement).textContent =
                 currentTheme() === 'dark' ? '☀' : '☾';
+              route(); // charts re-read color tokens on render
             },
           },
         }),
@@ -97,17 +117,22 @@ export function startApp(root: HTMLElement): void {
     teardown?.();
     teardown = null;
     clear(main);
+    renderHeader(); // keep nav active-state in sync
 
-    const hash = location.hash || '#/records';
+    const hash = location.hash || '#/overview';
     if (!profiles.active() || hash === '#/config') {
       renderConfig(main, () => {
         connect();
-        navigate('#/records');
+        navigate('#/overview');
       });
       return;
     }
-    // default: records view
-    teardown = renderRecordsView(main);
+    if (hash === '#/records') {
+      teardown = renderRecordsView(main);
+      return;
+    }
+    // default: overview
+    teardown = renderOverview(main);
   }
 
   profiles.addEventListener('change', () => {

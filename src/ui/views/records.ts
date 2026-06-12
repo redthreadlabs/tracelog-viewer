@@ -1,16 +1,15 @@
 /**
- * Raw record table with filters (SPEC M1): kind and level chips with live
- * counts, channel and host filters, free-text search, time ordering, and a
- * detail drawer showing the raw record JSON. Rows are windowed so a month
- * of records scrolls smoothly.
+ * Raw record log (secondary view): kind and level chips with live counts,
+ * channel and host filters, free-text search, newest/oldest ordering, and a
+ * detail drawer with the raw record JSON. Paginated.
  */
 import { el, clear } from '../dom';
 import { store } from '../../data/store';
 import { RECORD_KINDS, type Rec, type RecordKind } from '../../data/types';
+import { viewState } from '../../state';
 import { fmtBytes, fmtCount, fmtDateTime, fmtDuration, zoneLabel } from '../format';
 
-const ROW_HEIGHT = 27;
-const OVERSCAN = 12;
+const PAGE_SIZE = 100;
 const LEVELS = ['debug', 'info', 'warn', 'error'];
 
 interface Filters {
@@ -28,77 +27,69 @@ export function renderRecordsView(container: HTMLElement): () => void {
     levels: new Set(LEVELS),
     channel: null,
     host: null,
-    search: '',
+    search: viewState.pendingRecordsSearch ?? '',
     newestFirst: true,
   };
+  viewState.pendingRecordsSearch = null;
 
   let filtered: Rec[] = [];
+  let page = 0;
   let selected: Rec | null = null;
   let lastGeneration = -1;
 
-  // --- static skeleton ---
   const filterbar = el('div', { className: 'filterbar' });
   const wrap = el('div', { className: 'records-wrap' });
+  const pagerbar = el('div', { className: 'pagerbar' });
   const drawer = el('div', { className: 'drawer' });
-  container.append(filterbar, wrap, drawer);
+  container.append(filterbar, wrap, pagerbar, drawer);
 
   const table = el('table', { className: 'records' });
   const thead = el('thead');
   const tbody = el('tbody');
   table.append(thead, tbody);
-
-  const topSpacer = el('div');
-  const bottomSpacer = el('div');
-  wrap.append(topSpacer, table, bottomSpacer);
-
-  let scrollScheduled = false;
-  wrap.addEventListener('scroll', () => {
-    if (scrollScheduled) return;
-    scrollScheduled = true;
-    requestAnimationFrame(() => {
-      scrollScheduled = false;
-      renderRows();
-    });
-  });
+  wrap.append(table);
 
   function applyFilters(): void {
     const q = filters.search.toLowerCase();
+    const w = viewState.timeWindow;
     filtered = store.records.filter((r) => {
       if (!filters.kinds.has(r.kind)) return false;
       if (r.kind === 'event' && r.level && !filters.levels.has(r.level)) return false;
       if (filters.channel && r.channel !== filters.channel) return false;
       if (filters.host && r.host !== filters.host) return false;
+      if (w && (r.ts < w[0] || r.ts > w[1])) return false;
       if (q) {
         const hay =
           `${r.name} ${r.message ?? ''} ${r.userId ?? ''} ${r.traceId ?? ''}`.toLowerCase();
         if (!hay.includes(q)) {
-          // fall back to raw JSON only when the cheap fields miss
           if (!JSON.stringify(r.raw).toLowerCase().includes(q)) return false;
         }
       }
       return true;
     });
     if (filters.newestFirst) filtered.reverse();
+    page = Math.min(page, maxPage());
+  }
+
+  function maxPage(): number {
+    return Math.max(0, Math.ceil(filtered.length / PAGE_SIZE) - 1);
   }
 
   function renderFilterbar(): void {
     clear(filterbar);
 
-    // kind chips with counts
     for (const kind of RECORD_KINDS) {
       const count = store.kindCounts.get(kind) ?? 0;
       const on = filters.kinds.has(kind);
       const chip = el('button', { className: on ? 'chip on' : 'chip' }, [
-        el('span', {
-          className: 'dot',
-          attrs: { style: `background: var(--kind-${kind})` },
-        }),
+        el('span', { className: 'dot', attrs: { style: `background: var(--kind-${kind})` } }),
         el('span', { text: kind }),
         el('span', { className: 'count', text: fmtCount(count) }),
       ]);
       chip.addEventListener('click', () => {
         if (on) filters.kinds.delete(kind);
         else filters.kinds.add(kind);
+        page = 0;
         refresh(true);
       });
       filterbar.append(chip);
@@ -106,7 +97,6 @@ export function renderRecordsView(container: HTMLElement): () => void {
 
     filterbar.append(el('span', { attrs: { style: 'width:10px' } }));
 
-    // level chips (apply to events)
     for (const level of LEVELS) {
       const on = filters.levels.has(level);
       const chip = el('button', { className: on ? 'chip on' : 'chip' }, [
@@ -116,16 +106,17 @@ export function renderRecordsView(container: HTMLElement): () => void {
       chip.addEventListener('click', () => {
         if (on) filters.levels.delete(level);
         else filters.levels.add(level);
+        page = 0;
         refresh(true);
       });
       filterbar.append(chip);
     }
 
-    // channel / host selects
     if (store.channelCounts.size > 1) {
       filterbar.append(
         selectFilter('all channels', [...store.channelCounts.keys()], filters.channel, (v) => {
           filters.channel = v;
+          page = 0;
           refresh(true);
         }),
       );
@@ -134,6 +125,7 @@ export function renderRecordsView(container: HTMLElement): () => void {
       filterbar.append(
         selectFilter('all hosts', [...store.hosts].sort(), filters.host, (v) => {
           filters.host = v;
+          page = 0;
           refresh(true);
         }),
       );
@@ -141,15 +133,23 @@ export function renderRecordsView(container: HTMLElement): () => void {
 
     filterbar.append(el('span', { className: 'spacer' }));
 
-    // result count
-    filterbar.append(
-      el('span', {
-        className: 'budget',
-        text: `${fmtCount(filtered.length)} of ${fmtCount(store.records.length)} records`,
-      }),
-    );
+    if (viewState.timeWindow) {
+      filterbar.append(
+        el('button', {
+          className: 'chip on',
+          text: '⧖ brushed window ✕',
+          title: 'records are narrowed to the time window brushed on the overview — click to clear',
+          on: {
+            click: () => {
+              viewState.timeWindow = null;
+              page = 0;
+              refresh(true);
+            },
+          },
+        }),
+      );
+    }
 
-    // order toggle
     filterbar.append(
       el('button', {
         className: 'toggle on',
@@ -157,13 +157,13 @@ export function renderRecordsView(container: HTMLElement): () => void {
         on: {
           click: () => {
             filters.newestFirst = !filters.newestFirst;
+            page = 0;
             refresh(true);
           },
         },
       }),
     );
 
-    // search
     const search = el('input', {
       className: 'input search',
       attrs: { type: 'search', placeholder: 'Search name, message, user, trace…' },
@@ -174,6 +174,7 @@ export function renderRecordsView(container: HTMLElement): () => void {
       clearTimeout(debounce);
       debounce = setTimeout(() => {
         filters.search = search.value.trim();
+        page = 0;
         refresh(true);
       }, 150);
     });
@@ -196,33 +197,73 @@ export function renderRecordsView(container: HTMLElement): () => void {
   }
 
   function renderRows(): void {
-    const viewTop = wrap.scrollTop;
-    const viewHeight = wrap.clientHeight;
-    const first = Math.max(0, Math.floor(viewTop / ROW_HEIGHT) - OVERSCAN);
-    const last = Math.min(
-      filtered.length,
-      Math.ceil((viewTop + viewHeight) / ROW_HEIGHT) + OVERSCAN,
+    clear(tbody);
+    const start = page * PAGE_SIZE;
+    for (const r of filtered.slice(start, start + PAGE_SIZE)) {
+      tbody.append(row(r));
+    }
+    wrap.scrollTop = 0;
+  }
+
+  function renderPager(): void {
+    clear(pagerbar);
+    const pages = maxPage() + 1;
+    pagerbar.append(
+      el('span', {
+        className: 'budget',
+        text: `${fmtCount(filtered.length)} of ${fmtCount(store.records.length)} records`,
+      }),
+      el('span', { className: 'masthead-spacer' }),
+      el('button', {
+        className: 'btn btn-quiet',
+        text: '⇤',
+        title: 'first page',
+        on: { click: () => goto(0) },
+      }),
+      el('button', {
+        className: 'btn btn-quiet',
+        text: '‹ prev',
+        on: { click: () => goto(page - 1) },
+      }),
+      el('span', {
+        className: 'budget',
+        text: pages > 0 ? `page ${fmtCount(page + 1)} of ${fmtCount(pages)}` : '—',
+      }),
+      el('button', {
+        className: 'btn btn-quiet',
+        text: 'next ›',
+        on: { click: () => goto(page + 1) },
+      }),
+      el('button', {
+        className: 'btn btn-quiet',
+        text: '⇥',
+        title: 'last page',
+        on: { click: () => goto(maxPage()) },
+      }),
     );
 
-    topSpacer.style.height = `${first * ROW_HEIGHT}px`;
-    bottomSpacer.style.height = `${Math.max(0, (filtered.length - last) * ROW_HEIGHT)}px`;
-
-    clear(tbody);
-    for (let i = first; i < last; i++) {
-      tbody.append(row(filtered[i]));
+    const prevBtns = pagerbar.querySelectorAll('button');
+    if (page === 0) {
+      (prevBtns[0] as HTMLButtonElement).disabled = true;
+      (prevBtns[1] as HTMLButtonElement).disabled = true;
     }
+    if (page >= maxPage()) {
+      (prevBtns[2] as HTMLButtonElement).disabled = true;
+      (prevBtns[3] as HTMLButtonElement).disabled = true;
+    }
+  }
+
+  function goto(p: number): void {
+    page = Math.max(0, Math.min(p, maxPage()));
+    renderRows();
+    renderPager();
   }
 
   function row(r: Rec): HTMLTableRowElement {
     const tr = el('tr', { className: selected?.id === r.id ? 'selected' : '' });
-    tr.style.height = `${ROW_HEIGHT}px`;
 
     const detail =
-      r.kind === 'event' || r.kind === 'error'
-        ? (r.message ?? '')
-        : r.kind === 'span'
-          ? (r.result ?? '')
-          : (r.result ?? '');
+      r.kind === 'event' || r.kind === 'error' ? (r.message ?? '') : (r.result ?? '');
 
     tr.append(
       el('td', { className: 'num', text: fmtDateTime(r.ts) }),
@@ -305,32 +346,32 @@ export function renderRecordsView(container: HTMLElement): () => void {
     metaRow('trace', r.traceId);
     metaRow('user', r.userId);
 
-    drawer.append(
-      el('div', { className: 'drawer-body' }, [meta, prettyJson(r.raw)]),
-    );
+    drawer.append(el('div', { className: 'drawer-body' }, [meta, prettyJson(r.raw)]));
   }
 
   function renderEmpty(): void {
     clear(filterbar);
     clear(tbody);
     clear(thead);
+    clear(pagerbar);
     const { running, filesTotal, filesDone, bytesDone, error } = store.progress;
-    const empty = el('div', { className: 'empty' }, [
-      el('div', { className: 'fleuron', text: '❧' }),
-      running
-        ? el('h3', { text: `Scanning… ${filesDone} of ${filesTotal} files` })
-        : error
-          ? el('h3', { text: 'The scan hit a snag' })
-          : el('h3', { text: 'Nothing scanned yet' }),
-      el('p', {
-        text: running
-          ? `${fmtBytes(bytesDone)} fetched — records appear as files land.`
+    wrap.append(
+      el('div', { className: 'empty' }, [
+        el('div', { className: 'fleuron', text: '❧' }),
+        running
+          ? el('h3', { text: `Scanning… ${filesDone} of ${filesTotal} files` })
           : error
-            ? error
-            : 'Choose channels and a date range above. The download budget is shown before any byte is fetched.',
-      }),
-    ]);
-    wrap.append(empty);
+            ? el('h3', { text: 'The scan hit a snag' })
+            : el('h3', { text: 'Nothing scanned yet' }),
+        el('p', {
+          text: running
+            ? `${fmtBytes(bytesDone)} fetched — records appear as files land.`
+            : error
+              ? error
+              : 'Choose channels and a date range above. The download budget is shown before any byte is fetched.',
+        }),
+      ]),
+    );
   }
 
   function refresh(filtersChanged = false): void {
@@ -347,6 +388,7 @@ export function renderRecordsView(container: HTMLElement): () => void {
     renderFilterbar();
     renderHead();
     renderRows();
+    renderPager();
   }
 
   const onData = () => refresh();
@@ -357,7 +399,6 @@ export function renderRecordsView(container: HTMLElement): () => void {
   store.addEventListener('progress', onProgress);
   refresh();
 
-  // teardown for the router
   return () => {
     store.removeEventListener('data', onData);
     store.removeEventListener('progress', onProgress);
@@ -377,8 +418,7 @@ function selectFilter(
   const select = el('select', { className: 'select' });
   select.append(el('option', { text: allLabel, attrs: { value: '' } }));
   for (const opt of options) {
-    const option = el('option', { text: opt, attrs: { value: opt } });
-    select.append(option);
+    select.append(el('option', { text: opt, attrs: { value: opt } }));
   }
   select.value = value ?? '';
   select.addEventListener('change', () => onChange(select.value || null));
