@@ -483,7 +483,7 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     link.href = '#/store';
     link.className = 'store-pill';
     link.title = 'inspect the in-memory store (files, sizes, eviction)';
-    link.textContent = `${fmtCount(store.records.length)} records · ${fmtBytes(inMemory)}`;
+    link.textContent = `MEM: ${fmtCount(store.records.length)} records · ${fmtBytes(inMemory)}`;
     link.addEventListener('click', (ev) => {
       ev.preventDefault();
       setView('/store');
