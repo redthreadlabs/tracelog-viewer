@@ -18,9 +18,15 @@ export interface ParsedKey {
   current: boolean;
   size: number;
   lastModified?: Date;
+  etag?: string;
 }
 
-export function parseKey(key: string, size = 0, lastModified?: Date): ParsedKey | null {
+export function parseKey(
+  key: string,
+  size = 0,
+  lastModified?: Date,
+  etag?: string,
+): ParsedKey | null {
   const parts = key.split('/');
   if (parts.length !== 3) return null;
   const [channel, interval, file] = parts;
@@ -48,7 +54,7 @@ export function parseKey(key: string, size = 0, lastModified?: Date): ParsedKey 
     return null; // not the grammar we know — ignore, don't fail (SPEC §3.5)
   }
 
-  return { key, channel, interval, host, seq, current, size, lastModified };
+  return { key, channel, interval, host, seq, current, size, lastModified, etag };
 }
 
 /**

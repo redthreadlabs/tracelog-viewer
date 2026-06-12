@@ -14,6 +14,7 @@ import {
 } from '../../data/aggregate';
 import { renderTimebars } from '../../viz/timebars';
 import { viewState } from '../../state';
+import { setParams, setView, windowParam } from '../hashstate';
 import { fmtBytes, fmtCount, fmtDateTime, fmtDuration, zoneLabel } from '../format';
 
 export function renderOverview(container: HTMLElement): () => void {
@@ -53,6 +54,7 @@ export function renderOverview(container: HTMLElement): () => void {
           on: {
             click: () => {
               viewState.timeWindow = null;
+              setParams({ w: null });
               render();
             },
           },
@@ -78,6 +80,7 @@ export function renderOverview(container: HTMLElement): () => void {
     renderTimebars(chartHost, bucketByTime(store.records, window), {
       onWindow: (w) => {
         viewState.timeWindow = w;
+        setParams({ w: windowParam(w) });
         render();
       },
     });
@@ -151,7 +154,7 @@ export function renderOverview(container: HTMLElement): () => void {
         el('td', {}, [barCell(group.totalDuration / maxDuration)]),
       ]);
       tr.addEventListener('click', () => {
-        location.hash = `#/txn/${encodeURIComponent(group.name)}`;
+        setView(`/txn/${encodeURIComponent(group.name)}`);
       });
       tbody.append(tr);
     }

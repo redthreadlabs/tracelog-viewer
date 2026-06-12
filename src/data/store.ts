@@ -9,6 +9,7 @@ export interface ScanProgress {
   filesTotal: number;
   filesDone: number;
   bytesDone: number;
+  filesFromCache: number;
   running: boolean;
   error?: string;
 }
@@ -19,7 +20,13 @@ export class Store extends EventTarget {
   channelCounts = new Map<string, number>();
   levelCounts = new Map<string, number>();
   hosts = new Set<string>();
-  progress: ScanProgress = { filesTotal: 0, filesDone: 0, bytesDone: 0, running: false };
+  progress: ScanProgress = {
+    filesTotal: 0,
+    filesDone: 0,
+    bytesDone: 0,
+    filesFromCache: 0,
+    running: false,
+  };
 
   /** monotonically increasing; views compare to know the data changed */
   generation = 0;

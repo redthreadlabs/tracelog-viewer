@@ -1,0 +1,147 @@
+/**
+ * Client analytics (SPEC §6.6): the client channel cut by user and device.
+ * DuiDuiDui-specific in its defaults, generic in mechanism. Pure logic.
+ */
+import type { Rec } from './types';
+
+/** A gap longer than this splits a user's events into separate sessions. */
+export const SESSION_GAP_MS = 15 * 60_000;
+
+/** Client perf threshold — events at/above this duration are "slow". */
+export const SLOW_EVENT_MS = 100;
+
+export interface ClientProfile {
+  userId: string;
+  events: number;
+  errors: number;
+  sessions: number;
+  firstTs: number;
+  lastTs: number;
+  device?: string;
+  os?: string;
+  appVersions: string[];
+}
+
+function clientEvents(records: Rec[], window?: [number, number] | null): Rec[] {
+  return records.filter(
+    (r) =>
+      r.channel === 'client' &&
+      (r.kind === 'event' || r.kind === 'error') &&
+      r.ts > 0 &&
+      (!window || (r.ts >= window[0] && r.ts <= window[1])),
+  );
+}
+
+export function clientProfiles(
+  records: Rec[],
+  window?: [number, number] | null,
+): ClientProfile[] {
+  const byUser = new Map<string, Rec[]>();
+  for (const r of clientEvents(records, window)) {
+    const user = r.userId ?? '(anonymous)';
+    const list = byUser.get(user) ?? [];
+    list.push(r);
+    byUser.set(user, list);
+  }
+
+  const profiles: ClientProfile[] = [];
+  for (const [userId, recs] of byUser) {
+    recs.sort((a, b) => a.ts - b.ts);
+    let sessions = 1;
+    for (let i = 1; i < recs.length; i++) {
+      if (recs[i].ts - recs[i - 1].ts > SESSION_GAP_MS) sessions++;
+    }
+    const versions = new Set<string>();
+    let device: string | undefined;
+    let os: string | undefined;
+    for (const r of recs) {
+      const client = r.raw.client as Record<string, unknown> | undefined;
+      if (!client) continue;
+      if (typeof client.version === 'string') versions.add(client.version);
+      const dev = client.device as Record<string, unknown> | undefined;
+      const osObj = client.os as Record<string, unknown> | undefined;
+      if (!device && typeof dev?.model === 'string') device = dev.model;
+      if (!os && typeof osObj?.name === 'string') {
+        os = typeof osObj.version === 'string' ? `${osObj.name} ${osObj.version}` : osObj.name;
+      }
+    }
+    profiles.push({
+      userId,
+      events: recs.length,
+      errors: recs.filter((r) => r.kind === 'error' || r.level === 'error').length,
+      sessions,
+      firstTs: recs[0].ts,
+      lastTs: recs[recs.length - 1].ts,
+      device,
+      os,
+      appVersions: [...versions].sort(),
+    });
+  }
+
+  return profiles.sort((a, b) => b.events - a.events);
+}
+
+export interface AppVersionStat {
+  version: string;
+  users: number;
+  events: number;
+}
+
+export function appVersions(
+  records: Rec[],
+  window?: [number, number] | null,
+): AppVersionStat[] {
+  const byVersion = new Map<string, { users: Set<string>; events: number }>();
+  for (const r of clientEvents(records, window)) {
+    const client = r.raw.client as Record<string, unknown> | undefined;
+    const version = typeof client?.version === 'string' ? client.version : undefined;
+    if (!version) continue;
+    let stat = byVersion.get(version);
+    if (!stat) {
+      stat = { users: new Set(), events: 0 };
+      byVersion.set(version, stat);
+    }
+    stat.users.add(r.userId ?? '(anonymous)');
+    stat.events++;
+  }
+  return [...byVersion.entries()]
+    .map(([version, s]) => ({ version, users: s.users.size, events: s.events }))
+    .sort((a, b) => b.users - a.users || b.events - a.events);
+}
+
+/** Client events at/above the slow threshold, slowest first. */
+export function slowClientEvents(
+  records: Rec[],
+  window?: [number, number] | null,
+  thresholdMs = SLOW_EVENT_MS,
+): Rec[] {
+  return clientEvents(records, window)
+    .filter((r) => r.duration !== undefined && r.duration >= thresholdMs)
+    .sort((a, b) => b.duration! - a.duration!);
+}
+
+export interface EventTypeStat {
+  type: string;
+  count: number;
+  users: number;
+}
+
+/** Client event types by volume — the generic funnel raw material. */
+export function clientEventTypes(
+  records: Rec[],
+  window?: [number, number] | null,
+): EventTypeStat[] {
+  const byType = new Map<string, { count: number; users: Set<string> }>();
+  for (const r of clientEvents(records, window)) {
+    let stat = byType.get(r.name);
+    if (!stat) {
+      stat = { count: 0, users: new Set() };
+      byType.set(r.name, stat);
+    }
+    stat.count++;
+    stat.users.add(r.userId ?? '(anonymous)');
+  }
+  return [...byType.entries()]
+    .map(([type, s]) => ({ type, count: s.count, users: s.users.size }))
+    .sort((a, b) => b.count - a.count);
+}

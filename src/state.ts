@@ -13,10 +13,13 @@ export const viewState = {
    * events view, which filters to the user in a ±5 min window around ts.
    */
   userContext: null as { userId: string; ts: number } | null,
+  /** consumed once by the events view: plain user filter, no window */
+  pendingEventsUser: null as string | null,
 };
 
 export function resetViewState(): void {
   viewState.timeWindow = null;
   viewState.pendingRecordsSearch = null;
   viewState.userContext = null;
+  viewState.pendingEventsUser = null;
 }

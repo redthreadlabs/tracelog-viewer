@@ -10,6 +10,7 @@ import { store } from '../../data/store';
 import type { Rec } from '../../data/types';
 import { viewState } from '../../state';
 import { renderRecDrawer, type DrawerAction } from '../recdrawer';
+import { getParam, setParams, setView } from '../hashstate';
 import { fmtCount, fmtDateTime, fmtTime, zoneLabel } from '../format';
 
 const PAGE_SIZE = 100;
@@ -31,13 +32,19 @@ interface Filters {
 export function renderEventsView(container: HTMLElement): () => void {
   const filters: Filters = {
     levels: new Set(LEVELS),
-    type: null,
+    type: getParam('type'),
     channel: null,
-    user: '',
-    search: '',
+    user: getParam('user') ?? '',
+    search: getParam('q') ?? '',
     newestFirst: true,
     contextWindow: null,
   };
+
+  if (viewState.pendingEventsUser !== null) {
+    filters.user = viewState.pendingEventsUser;
+    viewState.pendingEventsUser = null;
+    setParams({ user: filters.user || null });
+  }
 
   // arriving via "± 5 min context" from another view
   if (viewState.userContext) {
@@ -140,6 +147,7 @@ export function renderEventsView(container: HTMLElement): () => void {
     userInput.value = filters.user;
     userInput.addEventListener('change', () => {
       filters.user = userInput.value.trim();
+      setParams({ user: filters.user || null });
       page = 0;
       refresh(true);
     });
@@ -202,6 +210,7 @@ export function renderEventsView(container: HTMLElement): () => void {
       clearTimeout(debounce);
       debounce = setTimeout(() => {
         filters.search = search.value.trim();
+        setParams({ q: filters.search || null });
         page = 0;
         refresh(true);
       }, 150);
@@ -226,6 +235,7 @@ export function renderEventsView(container: HTMLElement): () => void {
       );
       facetbar.lastElementChild!.addEventListener('click', () => {
         filters.type = on ? null : type;
+        setParams({ type: filters.type });
         page = 0;
         refresh(true);
       });
@@ -238,6 +248,7 @@ export function renderEventsView(container: HTMLElement): () => void {
           on: {
             click: () => {
               filters.type = null;
+              setParams({ type: null });
               page = 0;
               refresh(true);
             },
@@ -329,7 +340,7 @@ export function renderEventsView(container: HTMLElement): () => void {
       actions.push({
         label: 'view trace →',
         onClick: () => {
-          location.hash = `#/trace/${rec.traceId}`;
+          setView(`/trace/${rec.traceId}`);
         },
       });
     }

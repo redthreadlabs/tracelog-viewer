@@ -27,7 +27,7 @@ export async function planScan(
   );
   for (const listing of listings) {
     for (const obj of listing) {
-      const parsed = parseKey(obj.key, obj.size, obj.lastModified);
+      const parsed = parseKey(obj.key, obj.size, obj.lastModified, obj.etag);
       if (parsed) all.push(parsed);
     }
   }

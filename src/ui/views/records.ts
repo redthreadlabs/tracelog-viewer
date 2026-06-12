@@ -8,6 +8,7 @@ import { store } from '../../data/store';
 import { RECORD_KINDS, type Rec, type RecordKind } from '../../data/types';
 import { viewState } from '../../state';
 import { renderRecDrawer } from '../recdrawer';
+import { getParam, setParams, setView } from '../hashstate';
 import { fmtBytes, fmtCount, fmtDateTime, fmtDuration, zoneLabel } from '../format';
 
 const PAGE_SIZE = 100;
@@ -28,7 +29,7 @@ export function renderRecordsView(container: HTMLElement): () => void {
     levels: new Set(LEVELS),
     channel: null,
     host: null,
-    search: viewState.pendingRecordsSearch ?? '',
+    search: viewState.pendingRecordsSearch ?? getParam('q') ?? '',
     newestFirst: true,
   };
   viewState.pendingRecordsSearch = null;
@@ -175,6 +176,7 @@ export function renderRecordsView(container: HTMLElement): () => void {
       clearTimeout(debounce);
       debounce = setTimeout(() => {
         filters.search = search.value.trim();
+        setParams({ q: filters.search || null });
         page = 0;
         refresh(true);
       }, 150);
@@ -314,7 +316,7 @@ export function renderRecordsView(container: HTMLElement): () => void {
                 title: "show this user's surrounding events",
                 onClick: () => {
                   viewState.userContext = { userId: selected!.userId!, ts: selected!.ts };
-                  location.hash = '#/events';
+                  setView('/events');
                 },
               },
             ]
@@ -325,7 +327,7 @@ export function renderRecordsView(container: HTMLElement): () => void {
                 label: 'view trace →',
                 title: 'open the waterfall for this trace',
                 onClick: () => {
-                  location.hash = `#/trace/${selected!.traceId}`;
+                  setView(`/trace/${selected!.traceId}`);
                 },
               },
             ]

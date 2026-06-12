@@ -10,18 +10,24 @@ import { profiles } from './profiles';
 import { LogBucket } from '../s3/client';
 import { renderConfig } from './config';
 import { renderScanbar } from './scanbar';
+import { readHash, setView, parseWindowParam, getParam } from './hashstate';
+import { viewState } from '../state';
 import { renderRecordsView } from './views/records';
 import { renderEventsView } from './views/events';
 import { renderMetricsView } from './views/metrics';
+import { renderClientsView } from './views/clients';
+import { renderScannerView } from './views/scanner';
 import { renderOverview } from './views/overview';
 import { renderTraceView } from './views/trace';
 import { renderTransactionView } from './views/transaction';
 
-const NAV: { hash: string; label: string }[] = [
-  { hash: '#/overview', label: 'Overview' },
-  { hash: '#/events', label: 'Events' },
-  { hash: '#/metrics', label: 'Metrics' },
-  { hash: '#/records', label: 'Records' },
+const NAV: { view: string; label: string }[] = [
+  { view: '/overview', label: 'Overview' },
+  { view: '/events', label: 'Events' },
+  { view: '/metrics', label: 'Metrics' },
+  { view: '/clients', label: 'Clients' },
+  { view: '/scanner', label: 'Scanner' },
+  { view: '/records', label: 'Records' },
 ];
 
 let teardown: (() => void) | null = null;
@@ -41,14 +47,14 @@ export function startApp(root: HTMLElement): void {
     clear(header);
     const active = profiles.active();
 
-    const currentHash = location.hash || '#/overview';
+    const currentView = readHash().view;
     const nav = el('nav', { className: 'masthead-nav' });
     for (const item of NAV) {
       nav.append(
         el('button', {
-          className: item.hash === currentHash ? 'nav-link on' : 'nav-link',
+          className: item.view === currentView ? 'nav-link on' : 'nav-link',
           text: item.label,
-          on: { click: () => navigate(item.hash) },
+          on: { click: () => setView(item.view) },
         }),
       );
     }
@@ -64,12 +70,12 @@ export function startApp(root: HTMLElement): void {
               className: 'chip',
               title: `s3://${active.bucket} · ${active.region}`,
               text: active.name,
-              on: { click: () => navigate('#/config') },
+              on: { click: () => setView('/config') },
             })
           : el('button', {
               className: 'chip',
               text: 'connect…',
-              on: { click: () => navigate('#/config') },
+              on: { click: () => setView('/config') },
             }),
         el('button', {
           className: isUtcMode() ? 'toggle on' : 'toggle',
@@ -114,10 +120,6 @@ export function startApp(root: HTMLElement): void {
     renderScanbarIfConnected();
   }
 
-  function navigate(hash: string): void {
-    if (location.hash === hash) route();
-    else location.hash = hash;
-  }
 
   function route(): void {
     teardown?.();
@@ -125,35 +127,40 @@ export function startApp(root: HTMLElement): void {
     clear(main);
     renderHeader(); // keep nav active-state in sync
 
-    const hash = location.hash || '#/overview';
-    if (!profiles.active() || hash === '#/config') {
+    const view = readHash().view;
+    if (!profiles.active() || view === '/config') {
       renderConfig(main, () => {
         connect();
-        navigate('#/overview');
+        setView('/overview');
       });
       return;
     }
-    if (hash === '#/records') {
+    if (view === '/records') {
       teardown = renderRecordsView(main);
       return;
     }
-    if (hash === '#/events') {
+    if (view === '/events') {
       teardown = renderEventsView(main);
       return;
     }
-    if (hash === '#/metrics') {
+    if (view === '/metrics') {
       teardown = renderMetricsView(main);
       return;
     }
-    if (hash.startsWith('#/trace/')) {
-      teardown = renderTraceView(main, hash.slice('#/trace/'.length));
+    if (view === '/clients') {
+      teardown = renderClientsView(main);
       return;
     }
-    if (hash.startsWith('#/txn/')) {
-      teardown = renderTransactionView(
-        main,
-        decodeURIComponent(hash.slice('#/txn/'.length)),
-      );
+    if (view === '/scanner') {
+      teardown = renderScannerView(main);
+      return;
+    }
+    if (view.startsWith('/trace/')) {
+      teardown = renderTraceView(main, view.slice('/trace/'.length));
+      return;
+    }
+    if (view.startsWith('/txn/')) {
+      teardown = renderTransactionView(main, decodeURIComponent(view.slice('/txn/'.length)));
       return;
     }
     // default: overview
@@ -165,6 +172,9 @@ export function startApp(root: HTMLElement): void {
   });
 
   window.addEventListener('hashchange', route);
+
+  // restore a shared time window (`w=t0-t1`) on boot
+  viewState.timeWindow = parseWindowParam(getParam('w'));
 
   connect();
   route();

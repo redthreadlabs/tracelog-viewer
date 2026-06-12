@@ -10,6 +10,7 @@ import { executeScan } from '../data/scan';
 import { LiveUpdater } from '../data/live';
 import { store } from '../data/store';
 import { fmtBytes, fmtCount, utcDaysAgo, utcToday } from './format';
+import { getParam, setParams } from './hashstate';
 
 interface ScanbarState {
   channels: Map<string, boolean>;
@@ -35,8 +36,8 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
   activeLive?.stop();
   const state: ScanbarState = {
     channels: new Map(),
-    startDate: utcToday(),
-    endDate: utcToday(),
+    startDate: getParam('from') ?? utcToday(),
+    endDate: getParam('to') ?? utcToday(),
     plan: null,
     planning: false,
     live: false,
@@ -50,7 +51,11 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
   bucket
     .listChannels()
     .then((channels) => {
-      for (const ch of channels) state.channels.set(ch, true);
+      // a shared URL's ch=a,b narrows the default all-on selection
+      const fromUrl = getParam('ch')?.split(',').filter(Boolean);
+      for (const ch of channels) {
+        state.channels.set(ch, !fromUrl || fromUrl.includes(ch));
+      }
       void replan();
     })
     .catch((err) => {
@@ -67,6 +72,11 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
       return;
     }
     state.planning = true;
+    setParams({
+      ch: selected.length === state.channels.size ? null : selected.join(','),
+      from: state.startDate,
+      to: state.endDate,
+    });
     render();
     try {
       state.plan = await planScan(bucket, selected, state.startDate, state.endDate);
@@ -214,6 +224,17 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     if (fill) updateFill(fill);
     const btn = container.querySelector<HTMLButtonElement>('.btn-primary');
     if (btn) btn.disabled = store.progress.running || !state.plan || state.plan.files.length === 0;
+    const { running, filesTotal, filesDone, filesFromCache } = store.progress;
+    const budget = container.querySelector<HTMLElement>('.budget');
+    if (budget && filesTotal > 0) {
+      if (running) {
+        budget.textContent = `fetching ${filesDone}/${filesTotal}…`;
+      } else if (filesDone === filesTotal) {
+        budget.innerHTML = `loaded <span class="accent">${fmtCount(filesTotal)} files</span>${
+          filesFromCache > 0 ? ` · ${fmtCount(filesFromCache)} from cache` : ''
+        }`;
+      }
+    }
   });
 
   render();

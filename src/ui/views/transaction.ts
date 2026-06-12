@@ -10,6 +10,7 @@ import { transactionStats, logHistogram, type TxnStats } from '../../data/aggreg
 import { renderHistogram } from '../../viz/histogram';
 import { renderScatter, resultFamily } from '../../viz/scatter';
 import { viewState } from '../../state';
+import { setParams, setView } from '../hashstate';
 import type { Rec } from '../../data/types';
 import { fmtCount, fmtDateTime, fmtDuration } from '../format';
 
@@ -42,7 +43,7 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
         on: {
           click: () => {
             viewState.pendingRecordsSearch = name;
-            location.hash = '#/records';
+            setView('/records');
           },
         },
       }),
@@ -55,6 +56,7 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
           on: {
             click: () => {
               viewState.timeWindow = null;
+              setParams({ w: null });
               render();
             },
           },
@@ -196,7 +198,7 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
   }
 
   function openTrace(rec: Rec): void {
-    if (rec.traceId) location.hash = `#/trace/${rec.traceId}`;
+    if (rec.traceId) setView(`/trace/${rec.traceId}`);
   }
 
   const onData = () => render();

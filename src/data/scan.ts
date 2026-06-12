@@ -5,6 +5,7 @@
 import type { LogBucket } from '../s3/client';
 import type { ScanPlan } from '../s3/scanner';
 import { parseFile } from './parse';
+import { cacheGet, cachePut } from './cache';
 import { store } from './store';
 import { resetViewState } from '../state';
 
@@ -17,6 +18,7 @@ export async function executeScan(bucket: LogBucket, plan: ScanPlan): Promise<vo
     filesTotal: plan.files.length,
     filesDone: 0,
     bytesDone: 0,
+    filesFromCache: 0,
     running: true,
     error: undefined,
   });
@@ -29,12 +31,20 @@ export async function executeScan(bucket: LogBucket, plan: ScanPlan): Promise<vo
       const file = queue.shift();
       if (!file || failed) return;
       try {
-        const bytes = await bucket.getObjectBytes(file.key);
+        // Finalized files are immutable: ETag-checked cache hits skip S3
+        // entirely (SPEC §8). _current snapshots are never cached.
+        let bytes = file.current ? null : await cacheGet(file.key, file.etag);
+        const fromCache = bytes !== null;
+        if (!bytes) {
+          bytes = await bucket.getObjectBytes(file.key);
+          if (!file.current) void cachePut(file.key, file.etag, bytes);
+        }
         const { records } = parseFile(bytes, file);
         store.addBatch(records);
         store.setProgress({
           filesDone: store.progress.filesDone + 1,
           bytesDone: store.progress.bytesDone + file.size,
+          filesFromCache: store.progress.filesFromCache + (fromCache ? 1 : 0),
         });
       } catch (err) {
         failed = err instanceof Error ? err.message : String(err);
