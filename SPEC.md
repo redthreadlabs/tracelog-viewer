@@ -470,10 +470,20 @@ or date rather than abandon tracelog entirely.
 
 ## 10. Decisions (resolved 2026-06-11)
 
-- **Hosting**: localhost-only for now — develop and use via the Vite dev
-  server through M1–M2. Deployment (S3 static site vs. GitHub Pages) is
-  deferred; revisit when worth shipping, at which point the only change is
-  adding the chosen origin to the bucket CORS rule.
+- **Hosting** (revised 2026-06-12): localhost for development; the public
+  deployment plan is **tracelog.org** as an S3 + CloudFront static site
+  with a wildcard cert (`*.tracelog.org`), every subdomain serving the
+  identical bytes. Because origins partition browser storage, each
+  subdomain is a free, fully client-side **workspace**: visiting
+  `duiduidui.tracelog.org` vs `shaxpir.tracelog.org` yields separate
+  localStorage profiles and separate IndexedDB caches with zero
+  server-side tenancy — the server knows nothing. Users' log buckets
+  allow `https://*.tracelog.org` in CORS (S3 permits one wildcard per
+  origin) alongside localhost. Self-hosting is first-class: the same
+  static `dist/` works from any bucket/domain for anyone who prefers not
+  to trust the hosted instance, or who forks. No cookies, ever — they are
+  the one storage that could leak across subdomains (§4 already forbids
+  them).
 - **Theme**: light **and** dark from day one, token-based (§7), defaulting
   to `prefers-color-scheme` with a manual toggle.
 - **Profiles for other services**: yes — config supports arbitrary
