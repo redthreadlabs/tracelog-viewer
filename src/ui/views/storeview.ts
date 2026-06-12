@@ -62,7 +62,7 @@ export function renderStoreView(container: HTMLElement, bucket: LogBucket): () =
 
   async function loadAvailability(): Promise<void> {
     try {
-      const [channels, cached] = await Promise.all([bucket.listChannels(), cacheKeys()]);
+      const [channels, cached] = await Promise.all([bucket.listChannels(), cacheKeys(bucket.bucket)]);
       cachedSet = cached;
       const listings = await Promise.all(
         channels.map((ch) => bucket.listChannelRange(ch, '0000-01-01', '9999-12-31')),
@@ -87,7 +87,7 @@ export function renderStoreView(container: HTMLElement, bucket: LogBucket): () =
   }
 
   async function refreshCached(): Promise<void> {
-    cachedSet = await cacheKeys();
+    cachedSet = await cacheKeys(bucket.bucket);
   }
 
   // the heap column refreshes in place while the page is open

@@ -3,6 +3,7 @@
  */
 import { el, clear } from './dom';
 import { profiles, type Profile } from './profiles';
+import { cacheWipeBucket } from '../data/cache';
 
 export function renderConfig(container: HTMLElement, onDone: () => void): void {
   clear(container);
@@ -46,6 +47,12 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
             on: {
               click: () => {
                 profiles.remove(p.name);
+                // Deleting credentials reads as "done with this world": drop
+                // the bucket's cached files too — unless another profile
+                // still points at the same bucket.
+                if (!profiles.list().some((other) => other.bucket === p.bucket)) {
+                  void cacheWipeBucket(p.bucket);
+                }
                 renderConfig(container, onDone);
               },
             },

@@ -33,11 +33,11 @@ export async function executeScan(bucket: LogBucket, plan: ScanPlan): Promise<vo
       try {
         // Finalized files are immutable: ETag-checked cache hits skip S3
         // entirely (SPEC §8). _current snapshots are never cached.
-        let bytes = file.current ? null : await cacheGet(file.key, file.etag);
+        let bytes = file.current ? null : await cacheGet(bucket.bucket, file.key, file.etag);
         const fromCache = bytes !== null;
         if (!bytes) {
           bytes = await bucket.getObjectBytes(file.key);
-          if (!file.current) void cachePut(file.key, file.etag, bytes);
+          if (!file.current) void cachePut(bucket.bucket, file.key, file.etag, bytes);
         }
         const result = parseFile(bytes, file);
         store.registerFile(file, result.byteLength);
@@ -64,10 +64,10 @@ export async function executeScan(bucket: LogBucket, plan: ScanPlan): Promise<vo
 
 /** Load one file into the store (inspector "load" action) — cache-aware. */
 export async function loadOneFile(bucket: LogBucket, file: import('../s3/keys').ParsedKey): Promise<void> {
-  let bytes = file.current ? null : await cacheGet(file.key, file.etag);
+  let bytes = file.current ? null : await cacheGet(bucket.bucket, file.key, file.etag);
   if (!bytes) {
     bytes = await bucket.getObjectBytes(file.key);
-    if (!file.current) void cachePut(file.key, file.etag, bytes);
+    if (!file.current) void cachePut(bucket.bucket, file.key, file.etag, bytes);
   }
   const result = parseFile(bytes, file);
   store.registerFile(file, result.byteLength);
