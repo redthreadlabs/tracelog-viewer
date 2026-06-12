@@ -69,3 +69,19 @@ export async function cachePut(key: string, etag: string | undefined, bytes: Uin
     }
   });
 }
+
+/** Keys of all cached files — keys only, no byte payloads materialized. */
+export async function cacheKeys(): Promise<Set<string>> {
+  const db = await openDb();
+  if (!db) return new Set();
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(STORE, 'readonly');
+      const request = tx.objectStore(STORE).getAllKeys();
+      request.onsuccess = () => resolve(new Set(request.result as string[]));
+      request.onerror = () => resolve(new Set());
+    } catch {
+      resolve(new Set());
+    }
+  });
+}

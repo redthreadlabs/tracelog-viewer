@@ -157,7 +157,7 @@ export function startApp(root: HTMLElement): void {
       return;
     }
     if (view === '/store') {
-      teardown = renderStoreView(main);
+      teardown = renderStoreView(main, bucket!); // route guard ensures a profile
       return;
     }
     if (view.startsWith('/trace/')) {

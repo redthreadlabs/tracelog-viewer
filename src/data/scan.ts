@@ -60,3 +60,16 @@ export async function executeScan(bucket: LogBucket, plan: ScanPlan): Promise<vo
   store.sortByTime();
   store.setProgress({ running: false, error: failed });
 }
+
+
+/** Load one file into the store (inspector "load" action) — cache-aware. */
+export async function loadOneFile(bucket: LogBucket, file: import('../s3/keys').ParsedKey): Promise<void> {
+  let bytes = file.current ? null : await cacheGet(file.key, file.etag);
+  if (!bytes) {
+    bytes = await bucket.getObjectBytes(file.key);
+    if (!file.current) void cachePut(file.key, file.etag, bytes);
+  }
+  const result = parseFile(bytes, file);
+  store.registerFile(file, result.byteLength);
+  store.replaceFile(file.key, result.records);
+}

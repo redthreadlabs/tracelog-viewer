@@ -79,15 +79,6 @@ describe('file registry + eviction', () => {
     expect(info.current).toBe(true);
   });
 
-  it('evictFile drops records but keeps the registry row marked', () => {
-    const store = new Store();
-    store.registerFile(FILE, 20_000);
-    store.addBatch([rec({ sourceKey: FILE.key }), rec({ sourceKey: 'other' })]);
-    store.evictFile(FILE.key);
-    expect(store.records).toHaveLength(1);
-    expect(store.files.get(FILE.key)!.evicted).toBe(true);
-  });
-
   it('dropFile removes records and the registry row', () => {
     const store = new Store();
     store.registerFile(FILE, 20_000);

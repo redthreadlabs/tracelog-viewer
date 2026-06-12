@@ -17,8 +17,6 @@ export interface FileInfo {
   sizeCompressed: number;
   /** decompressed bytes parsed (grows for live-appended snapshots) */
   sizeUncompressed: number;
-  /** records were evicted from memory by the user */
-  evicted: boolean;
   /** S3 Last-Modified from the listing, epoch-ms */
   lastModified?: number;
 }
@@ -63,19 +61,11 @@ export class Store extends EventTarget {
       sizeUncompressed: append
         ? (existing?.sizeUncompressed ?? 0) + uncompressedBytes
         : uncompressedBytes,
-      evicted: false,
       lastModified: file.lastModified?.getTime() ?? existing?.lastModified,
     });
   }
 
-  /** Drop a file's records from memory; the registry row stays, marked. */
-  evictFile(sourceKey: string): void {
-    const info = this.files.get(sourceKey);
-    if (info) info.evicted = true;
-    this.replaceFile(sourceKey, []);
-  }
-
-  /** Remove a file entirely (live mode: a _current finalized away). */
+  /** Remove a file from memory entirely (evict, or a _current finalized away). */
   dropFile(sourceKey: string): void {
     this.files.delete(sourceKey);
     this.replaceFile(sourceKey, []);
