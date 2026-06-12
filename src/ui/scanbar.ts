@@ -421,26 +421,21 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
           },
         }),
       );
-    } else if (
-      state.plan &&
-      state.plan.files.length > 0 &&
-      planSignature(state.plan) === loadedSignature &&
-      !store.progress.running
-    ) {
-      right.append(
-        el('button', {
-          className: 'btn btn-quiet',
-          text: '⟳',
-          title: 'reload this range',
-          on: {
-            click: () => {
-              loadedSignature = null;
-              void replan();
-            },
-          },
-        }),
-      );
     }
+
+    const refreshChip = el('button', {
+      className: 'chip refresh-chip',
+      text: '⟳',
+      title: 'reload this range',
+      on: {
+        click: () => {
+          loadedSignature = null;
+          void replan();
+        },
+      },
+    });
+    refreshChip.disabled = state.planning || store.progress.running;
+    right.append(refreshChip);
     bar.append(right);
 
     container.append(bar);

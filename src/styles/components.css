@@ -1194,3 +1194,16 @@ th.sortable.on {
   background-repeat: no-repeat;
   background-position: right 12px center;
 }
+
+
+/* always-visible reload, styled like the LIVE chip family */
+.refresh-chip {
+  font-size: 14px;
+  line-height: 1;
+  padding: 3px 10px;
+}
+
+.chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
