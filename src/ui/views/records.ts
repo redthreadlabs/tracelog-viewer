@@ -341,21 +341,21 @@ export function renderRecordsView(container: HTMLElement): () => void {
     clear(tbody);
     clear(thead);
     clear(pagerbar);
-    const { running, filesTotal, filesDone, bytesDone, error } = store.progress;
+    const { running, bytesDone, error } = store.progress;
     wrap.append(
       el('div', { className: 'empty' }, [
         el('div', { className: 'fleuron', text: '❧' }),
         running
-          ? el('h3', { text: `Scanning… ${filesDone} of ${filesTotal} files` })
+          ? el('h3', { text: `Loading… ${fmtBytes(bytesDone)}` })
           : error
             ? el('h3', { text: 'The scan hit a snag' })
             : el('h3', { text: 'Nothing scanned yet' }),
         el('p', {
           text: running
-            ? `${fmtBytes(bytesDone)} fetched — records appear as files land.`
+            ? 'Records appear as data arrives.'
             : error
               ? error
-              : 'Choose channels and a date range above. The download budget is shown before any byte is fetched.',
+              : 'Pick a range above — it loads on its own; a large range will ask first.',
         }),
       ]),
     );

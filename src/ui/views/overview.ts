@@ -204,21 +204,21 @@ export function renderOverview(container: HTMLElement): () => void {
     clear(chartHead);
     clear(chartHost);
     clear(tableSection);
-    const { running, filesTotal, filesDone, bytesDone, error } = store.progress;
+    const { running, bytesDone, error } = store.progress;
     chartHost.append(
       el('div', { className: 'empty' }, [
         el('div', { className: 'fleuron', text: '❧' }),
         running
-          ? el('h3', { text: `Scanning… ${filesDone} of ${filesTotal} files` })
+          ? el('h3', { text: `Loading… ${fmtBytes(bytesDone)}` })
           : error
             ? el('h3', { text: 'The scan hit a snag' })
             : el('h3', { text: 'Nothing scanned yet' }),
         el('p', {
           text: running
-            ? `${fmtBytes(bytesDone)} fetched — the chart appears as files land.`
+            ? 'The chart fills in as data arrives.'
             : error
               ? error
-              : 'Choose channels and a date range above. The download budget is shown before any byte is fetched.',
+              : 'Pick a range above — it loads on its own; a large range will ask first.',
         }),
       ]),
     );

@@ -8,6 +8,10 @@
  * viewed window instead (viewState.timeWindow — the same mechanism as the
  * chart brush, encoded in the `w` hash param). Quick presets ("15 min")
  * scan the covering day(s) and window down to the precise range.
+ *
+ * UX rule: files are plumbing. Selecting a range *loads it* automatically
+ * when the download is small; only a large range shows its size and asks
+ * first. File detail lives in the store inspector, on demand.
  */
 import { el, clear } from './dom';
 import { LogBucket } from '../s3/client';
@@ -33,6 +37,9 @@ interface ScanbarState {
 }
 
 const DAY_MS = 86_400_000;
+
+/** Ranges at or under this (compressed) load without asking. */
+const AUTO_LOAD_LIMIT_BYTES = 25 * 1024 * 1024;
 
 const QUICK_PRESETS: { label: string; minutes: number }[] = [
   { label: '15 min', minutes: 15 },
@@ -101,6 +108,14 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
   );
   activeLive = live;
 
+  // identity of the currently loaded plan, so range fiddling that resolves
+  // to the same data doesn't reload, and new data auto-loads at most once
+  let loadedSignature: string | null = null;
+
+  function planSignature(plan: ScanPlan): string {
+    return plan.files.map((f) => `${f.key}@${f.etag ?? ''}`).join('|');
+  }
+
   bucket
     .listChannels()
     .then((channels) => {
@@ -137,7 +152,16 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
       state.error = err instanceof Error ? err.message : String(err);
     }
     state.planning = false;
+    maybeAutoLoad();
     render();
+  }
+
+  function maybeAutoLoad(): void {
+    if (!state.plan || state.plan.files.length === 0) return;
+    if (store.progress.running) return;
+    if (planSignature(state.plan) === loadedSignature) return;
+    if (state.plan.totalBytes > AUTO_LOAD_LIMIT_BYTES) return; // big: ask first
+    runScan();
   }
 
   function setRange(startMs: number, endMs: number, wholeDays: boolean): void {
@@ -149,6 +173,7 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
 
   function runScan(): void {
     if (!state.plan || state.plan.files.length === 0) return;
+    loadedSignature = planSignature(state.plan);
     void executeScan(bucket, state.plan); // resets viewState synchronously first
     if (state.wholeDays) {
       viewState.timeWindow = null;
@@ -229,19 +254,21 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     dateGroup.append(startInput, el('span', { className: 'faint', text: '→' }), endInput);
     bar.append(dateGroup);
 
-    // budget + live + scan
+    // status / confirm + live
     const right = el('div', { className: 'group', attrs: { style: 'margin-left:auto' } });
+    const needsConfirm =
+      state.plan !== null &&
+      state.plan.files.length > 0 &&
+      planSignature(state.plan) !== loadedSignature &&
+      state.plan.totalBytes > AUTO_LOAD_LIMIT_BYTES;
     if (state.error) {
       right.append(el('span', { className: 'budget', text: `⚠ ${state.error}` }));
     } else if (state.planning) {
-      right.append(el('span', { className: 'budget faint', text: 'listing…' }));
-    } else if (state.plan) {
-      right.append(
-        el('span', {
-          className: 'budget',
-          html: `would fetch <span class="accent">${fmtCount(state.plan.files.length)} files</span> · <span class="accent">${fmtBytes(state.plan.totalBytes)}</span>`,
-        }),
-      );
+      right.append(el('span', { className: 'budget faint', text: 'looking…' }));
+    } else if (state.plan && state.plan.files.length === 0) {
+      right.append(el('span', { className: 'budget faint', text: 'no data in this range' }));
+    } else {
+      right.append(el('span', { className: 'budget' })); // filled by updateLoadedText
     }
     const liveChip = el('button', {
       className: state.live ? 'chip live on' : 'chip live',
@@ -263,13 +290,40 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     liveChip.append(el('span', { className: 'dot' }), el('span', { text: 'LIVE' }));
     right.append(liveChip);
 
-    const scanBtn = el('button', {
-      className: 'btn btn-primary',
-      text: 'Scan',
-      on: { click: runScan },
-    });
-    scanBtn.disabled = !state.plan || state.plan.files.length === 0 || store.progress.running;
-    right.append(scanBtn);
+    if (needsConfirm && state.plan) {
+      right.append(
+        el('button', {
+          className: 'btn btn-primary',
+          text: `Load ~${fmtBytes(state.plan.totalBytes)}`,
+          title: 'this range is a large download, so it waits for you',
+          on: {
+            click: () => {
+              runScan();
+              render();
+            },
+          },
+        }),
+      );
+    } else if (
+      state.plan &&
+      state.plan.files.length > 0 &&
+      planSignature(state.plan) === loadedSignature &&
+      !store.progress.running
+    ) {
+      right.append(
+        el('button', {
+          className: 'btn btn-quiet',
+          text: '⟳',
+          title: 'reload this range',
+          on: {
+            click: () => {
+              loadedSignature = null;
+              void replan();
+            },
+          },
+        }),
+      );
+    }
     bar.append(right);
 
     container.append(bar);
@@ -304,22 +358,23 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
   store.addEventListener('data', updateLoadedText);
 
   function updateLoadedText(): void {
-    const { running, filesTotal, filesDone, filesFromCache } = store.progress;
+    const { running, filesTotal, bytesDone } = store.progress;
     const budget = container.querySelector<HTMLElement>('.budget');
     if (!budget || filesTotal === 0) return;
     if (running) {
-      budget.textContent = `fetching ${filesDone}/${filesTotal}…`;
+      const total = state.plan?.totalBytes ?? 0;
+      budget.textContent =
+        total > 0 ? `loading ${fmtBytes(bytesDone)} of ${fmtBytes(total)}…` : 'loading…';
       return;
     }
     if (store.records.length === 0 && store.files.size === 0) return;
     clearEl(budget);
+    const inMemory = [...store.files.values()].reduce((s, f) => s + f.sizeUncompressed, 0);
     const link = document.createElement('a');
     link.href = '#/store';
     link.className = 'store-link';
-    link.title = 'inspect the in-memory store';
-    link.innerHTML = `<span class="accent">${fmtCount(store.records.length)} records</span> from <span class="accent">${fmtCount(store.files.size)} files</span>${
-      filesFromCache > 0 ? ` · ${fmtCount(filesFromCache)} from cache` : ''
-    }`;
+    link.title = 'inspect the in-memory store (files, sizes, eviction)';
+    link.innerHTML = `<span class="accent">${fmtCount(store.records.length)} records</span> · ${fmtBytes(inMemory)}`;
     link.addEventListener('click', (ev) => {
       ev.preventDefault();
       setView('/store');
