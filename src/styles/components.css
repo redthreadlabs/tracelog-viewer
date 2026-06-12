@@ -201,8 +201,6 @@
   flex-wrap: wrap;
   gap: 8px;
   padding: 10px 28px;
-  border-top: 1px solid var(--line);
-  background: color-mix(in srgb, var(--surface) 55%, transparent);
 }
 
 .filterbar .spacer {
@@ -221,8 +219,10 @@
   /* The windowed table resizes its spacers on every scroll; browser scroll
      anchoring would chase those changes and produce runaway auto-scroll. */
   overflow-anchor: none;
-  border-top: 1px solid var(--line);
+  margin: 0 28px;
   background: var(--surface);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: var(--shadow);
 }
 
 table.records {
@@ -388,9 +388,9 @@ pre.json .b {
   gap: 12px 14px;
   align-items: center;
   background: var(--surface);
-  border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   padding: 22px 24px;
+  box-shadow: var(--shadow);
 }
 
 .config form .full {
@@ -553,9 +553,9 @@ pre.json .b {
 .chart-host {
   position: relative;
   background: var(--surface);
-  border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  padding: 8px 6px 2px;
+  padding: 10px 8px 4px;
+  box-shadow: var(--shadow);
 }
 
 .chart-host svg {
@@ -629,10 +629,10 @@ pre.json .b {
   flex: 1;
   overflow: auto;
   overflow-anchor: none;
-  border: 1px solid var(--line);
-  border-bottom: 0;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  border-radius: var(--radius-lg);
   background: var(--surface);
+  box-shadow: var(--shadow);
+  margin-bottom: 16px;
 }
 
 .txn-table tbody tr {
@@ -671,9 +671,12 @@ th.sortable.on {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 28px;
-  border-top: 1px solid var(--line-strong);
+  padding: 8px 18px;
+  margin: 0 28px 16px;
+  border-top: 1px solid var(--line);
   background: var(--surface);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  box-shadow: var(--shadow);
 }
 
 /* d3 brush handles */
@@ -706,6 +709,14 @@ th.sortable.on {
   overflow: auto;
   overflow-anchor: none;
   padding: 0 28px 20px;
+}
+
+.trace-sheet {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 10px 16px 6px;
+  margin-bottom: 16px;
 }
 
 .trace-axis {
@@ -1062,10 +1073,10 @@ th.sortable.on {
   gap: 6px 26px;
   align-items: start;
   background: var(--surface);
-  border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   padding: 14px 20px 16px;
-  margin: 12px 0 6px;
+  margin: 12px 0 16px;
+  box-shadow: var(--shadow);
 }
 
 .sgrid {

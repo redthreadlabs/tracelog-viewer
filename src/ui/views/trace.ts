@@ -96,7 +96,8 @@ export function renderTraceView(container: HTMLElement, traceId: string): () => 
       tick.style.left = `${(i / 5) * 100}%`;
       axis.append(tick);
     }
-    body.append(axis);
+    const sheet = el('div', { className: 'trace-sheet' });
+    sheet.append(axis);
 
     const rowsHost = el('div', { className: 'trace-rows' });
     // gridlines aligned with the axis fifths
@@ -172,9 +173,9 @@ export function renderTraceView(container: HTMLElement, traceId: string): () => 
       rowsHost.append(rowEl);
     }
 
-    body.append(rowsHost);
+    sheet.append(rowsHost);
 
-    body.append(
+    sheet.append(
       el('div', { className: 'trace-foot' }, [
         el('span', {
           className: 'budget faint',
@@ -182,6 +183,7 @@ export function renderTraceView(container: HTMLElement, traceId: string): () => 
         }),
       ]),
     );
+    body.append(sheet);
   }
 
   const onData = () => render();

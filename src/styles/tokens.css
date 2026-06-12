@@ -1,12 +1,14 @@
 /*
  * Design tokens (SPEC §7). Every color in the app — UI *and* chart — comes
- * from these custom properties. D3 code reads them via getComputedStyle and
- * never hard-codes a color. Light is warm paper; dark is warm ink. The one
- * accent is the Red Thread crimson, spent on interactive/active states only.
+ * from these custom properties. D3 code reads tokens via getComputedStyle
+ * and never hard-codes a color.
  *
- * Typography is a system tri-stack (zero third-party requests, SPEC §4):
- * serif display for the masthead and headings, quiet sans for UI chrome,
- * monospace with tabular numerals wherever data aligns.
+ * Two scopes (the DuiDuiDui-app scheme, 2026-06-13): the **canvas** — a
+ * neutral grey page with light ink, holding the chrome (masthead, scanbar,
+ * filter rows, section heads) — and **panels** — near-white rounded cards
+ * holding all content (tables, charts, drawers, forms), where ink is dark
+ * and the Red Thread crimson does the linking. Components just read
+ * var(--ink) etc.; the panel selector list re-themes them automatically.
  */
 
 :root {
@@ -15,37 +17,88 @@
   --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --font-data: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
 
-  /* surfaces & ink (light / paper) */
-  --bg: #f6f3ec;
-  --surface: #fdfbf6;
-  --surface-raised: #ffffff;
-  --ink: #1f1c17;
-  --ink-soft: #6b655a;
-  --ink-faint: #9b9486;
-  --line: #e3dcce;
-  --line-strong: #c9c0ad;
-  --shadow: 0 1px 2px rgba(60, 50, 30, 0.06), 0 8px 24px rgba(60, 50, 30, 0.08);
+  /* canvas (light theme): neutral grey with light ink */
+  --bg: #434343;
+  --surface: #4e4e4e;
+  --surface-raised: #575757;
+  --ink: #f2f1ef;
+  --ink-soft: #c9c7c3;
+  --ink-faint: #9d9b97;
+  --line: #565656;
+  --line-strong: #6e6e6e;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.28), 0 8px 24px rgba(0, 0, 0, 0.18);
 
-  /* the thread */
-  --thread: #b3232e;
-  --thread-strong: #8f1c25;
-  --thread-wash: #f7e8e8;
+  /* the thread — brightened for legibility on grey */
+  --thread: #e05e68;
+  --thread-strong: #ec7a83;
+  --thread-wash: #5a4244;
 
   /* record kinds — one stable hue per kind, everywhere */
+  --kind-transaction: #6f97c9;
+  --kind-span: #76ad8e;
+  --kind-event: #c0a259;
+  --kind-error: #e05e68;
+  --kind-metricset: #a08fc0;
+
+  /* event levels — fixed semantic mapping (SPEC §7) */
+  --level-debug: #9d9b97;
+  --level-info: #c9c7c3;
+  --level-warn: #d4a032;
+  --level-error: #e05e68;
+
+  /* span types — one stable hue per type/subtype */
+  --spantype-db-mongodb: #76ad8e;
+  --spantype-db-redis: #cf8158;
+  --spantype-db: #6da7af;
+  --spantype-storage: #c0a259;
+  --spantype-external: #6f97c9;
+  --spantype-app: #a08fc0;
+  --spantype-other: #8f8d89;
+
+  /* misc */
+  --radius: 6px;
+  --radius-lg: 14px;
+  --grain-opacity: 0.4;
+  color-scheme: dark; /* native widgets on the grey canvas */
+}
+
+/*
+ * Panels: the near-white cards. Anything in this selector list (and its
+ * descendants) flips to dark-ink-on-white with the screenshot's link red.
+ */
+.chart-host,
+.records-wrap,
+.pagerbar,
+.txn-wrap,
+.drawer,
+.config form,
+.store-summary,
+.trace-sheet,
+.chart-tooltip {
+  --bg: #fbfbfa;
+  --surface: #fbfbfa;
+  --surface-raised: #ffffff;
+  --ink: #262522;
+  --ink-soft: #6e6c68;
+  --ink-faint: #9b9994;
+  --line: #ebeae8;
+  --line-strong: #d7d5d2;
+
+  --thread: #b3232e;
+  --thread-strong: #8f1c25;
+  --thread-wash: #f8eaea;
+
   --kind-transaction: #355e93;
   --kind-span: #3e7a5e;
   --kind-event: #8a6d2f;
   --kind-error: #b3232e;
   --kind-metricset: #6f5e8f;
 
-  /* event levels — fixed semantic mapping (SPEC §7) */
-  --level-debug: #9b9486;
-  --level-info: #6b655a;
+  --level-debug: #9b9994;
+  --level-info: #6e6c68;
   --level-warn: #b07c10;
   --level-error: #b3232e;
 
-  /* span types — one stable hue per type/subtype, used by the waterfall
-     and (later) every other span-colored chart. "green = mongo" everywhere. */
   --spantype-db-mongodb: #3e7a5e;
   --spantype-db-redis: #b3552c;
   --spantype-db: #2e6a72;
@@ -54,26 +107,26 @@
   --spantype-app: #6f5e8f;
   --spantype-other: #75706a;
 
-  /* misc */
-  --radius: 4px;
-  --radius-lg: 8px;
-  --grain-opacity: 0.35;
+  color-scheme: light;
 }
 
+/* ---------- dark theme ---------- */
+
 [data-theme='dark'] {
-  --bg: #181610;
-  --surface: #201d16;
-  --surface-raised: #27231b;
-  --ink: #ebe5d8;
-  --ink-soft: #a59d8d;
-  --ink-faint: #756e60;
-  --line: #353026;
-  --line-strong: #4d4636;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.45);
+  /* canvas: deeper grey */
+  --bg: #1a1a1a;
+  --surface: #242424;
+  --surface-raised: #2c2c2c;
+  --ink: #e9e7e3;
+  --ink-soft: #a8a6a1;
+  --ink-faint: #787671;
+  --line: #303030;
+  --line-strong: #454545;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.45);
 
   --thread: #d8454f;
   --thread-strong: #e9707a;
-  --thread-wash: #3a2422;
+  --thread-wash: #3a2426;
 
   --kind-transaction: #7da3d4;
   --kind-span: #84b89c;
@@ -81,8 +134,8 @@
   --kind-error: #d8454f;
   --kind-metricset: #a995c9;
 
-  --level-debug: #756e60;
-  --level-info: #a59d8d;
+  --level-debug: #787671;
+  --level-info: #a8a6a1;
   --level-warn: #d4a032;
   --level-error: #d8454f;
 
@@ -95,4 +148,30 @@
   --spantype-other: #98928a;
 
   --grain-opacity: 0.5;
+}
+
+[data-theme='dark'] .chart-host,
+[data-theme='dark'] .records-wrap,
+[data-theme='dark'] .pagerbar,
+[data-theme='dark'] .txn-wrap,
+[data-theme='dark'] .drawer,
+[data-theme='dark'] .config form,
+[data-theme='dark'] .store-summary,
+[data-theme='dark'] .trace-sheet,
+[data-theme='dark'] .chart-tooltip {
+  /* panels: raised cards a step above the dark canvas */
+  --bg: #262626;
+  --surface: #262626;
+  --surface-raised: #2f2f2f;
+  --ink: #e9e7e3;
+  --ink-soft: #a8a6a1;
+  --ink-faint: #787671;
+  --line: #383838;
+  --line-strong: #4d4d4d;
+
+  --thread: #d8454f;
+  --thread-strong: #e9707a;
+  --thread-wash: #3a2426;
+
+  color-scheme: dark;
 }
