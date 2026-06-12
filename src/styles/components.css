@@ -1198,9 +1198,9 @@ th.sortable.on {
 
 /* always-visible reload, styled like the LIVE chip family */
 .refresh-chip {
-  font-size: 14px;
+  font-size: 18px;
   line-height: 1;
-  padding: 3px 10px;
+  padding: 2px 10px 3px;
 }
 
 .chip:disabled {
