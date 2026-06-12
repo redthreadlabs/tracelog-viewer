@@ -1,0 +1,80 @@
+/*
+ * Design tokens (SPEC §7). Every color in the app — UI *and* chart — comes
+ * from these custom properties. D3 code reads them via getComputedStyle and
+ * never hard-codes a color. Light is warm paper; dark is warm ink. The one
+ * accent is the Red Thread crimson, spent on interactive/active states only.
+ *
+ * Typography is a system tri-stack (zero third-party requests, SPEC §4):
+ * serif display for the masthead and headings, quiet sans for UI chrome,
+ * monospace with tabular numerals wherever data aligns.
+ */
+
+:root {
+  /* type */
+  --font-display: ui-serif, 'Iowan Old Style', 'Palatino', 'Palatino Linotype', Georgia, serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-data: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /* surfaces & ink (light / paper) */
+  --bg: #f6f3ec;
+  --surface: #fdfbf6;
+  --surface-raised: #ffffff;
+  --ink: #1f1c17;
+  --ink-soft: #6b655a;
+  --ink-faint: #9b9486;
+  --line: #e3dcce;
+  --line-strong: #c9c0ad;
+  --shadow: 0 1px 2px rgba(60, 50, 30, 0.06), 0 8px 24px rgba(60, 50, 30, 0.08);
+
+  /* the thread */
+  --thread: #b3232e;
+  --thread-strong: #8f1c25;
+  --thread-wash: #f7e8e8;
+
+  /* record kinds — one stable hue per kind, everywhere */
+  --kind-transaction: #355e93;
+  --kind-span: #3e7a5e;
+  --kind-event: #8a6d2f;
+  --kind-error: #b3232e;
+  --kind-metricset: #6f5e8f;
+
+  /* event levels — fixed semantic mapping (SPEC §7) */
+  --level-debug: #9b9486;
+  --level-info: #6b655a;
+  --level-warn: #b07c10;
+  --level-error: #b3232e;
+
+  /* misc */
+  --radius: 4px;
+  --radius-lg: 8px;
+  --grain-opacity: 0.35;
+}
+
+[data-theme='dark'] {
+  --bg: #181610;
+  --surface: #201d16;
+  --surface-raised: #27231b;
+  --ink: #ebe5d8;
+  --ink-soft: #a59d8d;
+  --ink-faint: #756e60;
+  --line: #353026;
+  --line-strong: #4d4636;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.45);
+
+  --thread: #d8454f;
+  --thread-strong: #e9707a;
+  --thread-wash: #3a2422;
+
+  --kind-transaction: #7da3d4;
+  --kind-span: #84b89c;
+  --kind-event: #c4a563;
+  --kind-error: #d8454f;
+  --kind-metricset: #a995c9;
+
+  --level-debug: #756e60;
+  --level-info: #a59d8d;
+  --level-warn: #d4a032;
+  --level-error: #d8454f;
+
+  --grain-opacity: 0.5;
+}
