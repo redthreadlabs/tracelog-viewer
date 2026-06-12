@@ -155,13 +155,12 @@ export function renderStoreView(container: HTMLElement): () => void {
 
     renderMemory();
 
-    const overall = totalKindBar();
     body.append(
       el('div', { className: 'store-summary' }, [
         storeCol,
         el('div', { className: 'sdivider' }),
         heapCol,
-        overall,
+        totalKindStats(),
       ]),
     );
 
@@ -238,15 +237,22 @@ export function renderStoreView(container: HTMLElement): () => void {
     body.append(el('div', { className: 'txn-wrap', attrs: { style: 'flex:none' } }, [table]));
   }
 
-  function totalKindBar(): HTMLElement {
-    const byKind = new Map<RecordKind, number>();
+  function totalKindStats(): HTMLElement {
+    const wrap = el('div', { className: 'kind-stats' });
+    const total = store.records.length;
     for (const kind of RECORD_KINDS) {
       const count = store.kindCounts.get(kind) ?? 0;
-      if (count > 0) byKind.set(kind, count);
+      if (count === 0) continue;
+      const pct = Math.round((count / total) * 100);
+      wrap.append(
+        el('span', { className: 'kind-stat', title: KIND_DESCRIPTIONS[kind] }, [
+          el('span', { className: 'dot', attrs: { style: `background: var(--kind-${kind})` } }),
+          el('span', { text: kind }),
+          el('span', { className: 'num', text: `${fmtCount(count)} (${pct < 1 ? '<1' : pct}%)` }),
+        ]),
+      );
     }
-    const bar = segments(byKind, store.records.length);
-    bar.classList.add('store-kindbar');
-    return bar;
+    return wrap;
   }
 
   function kindBar(row: FileRow): HTMLElement {
