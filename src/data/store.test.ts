@@ -95,3 +95,27 @@ describe('file registry + eviction', () => {
     expect(store.files.size).toBe(0);
   });
 });
+
+describe('data-event throttling during a scan', () => {
+  it('streams freely when idle, throttles while running, and always emits the final sort', () => {
+    const s = new Store();
+    let events = 0;
+    s.addEventListener('data', () => events++);
+
+    // idle (live mode, single loads): every batch dispatches
+    s.addBatch([]);
+    s.addBatch([]);
+    expect(events).toBe(2);
+
+    // running: batches within the wait window are throttled
+    s.setProgress({ running: true });
+    s.addBatch([]);
+    s.addBatch([]);
+    s.addBatch([]);
+    expect(events).toBe(2);
+
+    // the scan's closing sort must never be throttled away
+    s.sortByTime();
+    expect(events).toBe(3);
+  });
+});

@@ -88,7 +88,7 @@ export class Store extends EventTarget {
   sortByTime(): void {
     this.records.sort((a, b) => a.ts - b.ts);
     this.generation++;
-    this.emitData();
+    this.emitData(true); // a scan's final emit must never be throttled away
   }
 
   /** Append a batch keeping time order (live mode: an append-only tail). */
@@ -142,22 +142,44 @@ export class Store extends EventTarget {
     this.files.clear();
     this.progress = { filesTotal: 0, filesDone: 0, bytesDone: 0, filesFromCache: 0, running: false };
     this.generation++;
-    this.emitData();
+    this.emitData(true); // emptying views must never be throttled away
     this.dispatchEvent(new Event('progress'));
   }
+
+  private lastEmit = 0;
+  private lastEmitCost = 0;
 
   /**
    * Every store subscriber (the active view, the MEM pill) re-renders
    * synchronously inside this dispatch — timing it measures the incremental
    * UI cost of data landing, the number that degrades as the store grows
    * (#/internals/perf). Sub-millisecond updates aren't worth a log line.
+   *
+   * While a scan is running, dispatches are adaptively throttled: each must
+   * wait at least 5× the cost of the previous one (clamped 1–10 s). Cheap
+   * early renders stream per-file; expensive late ones space out instead of
+   * freezing the page (perf finding 2026-06-12: unthrottled per-file
+   * re-renders of a growing store were 26.8 s of main-thread stalls in a
+   * 28 s million-record cold load — O(n²) in disguise). Live-mode appends
+   * (progress idle) are never throttled.
    */
-  private emitData(): void {
-    const t0 = performance.now();
+  private emitData(force = false): void {
+    const now = performance.now();
+    if (!force && this.progress.running) {
+      const wait = Math.min(10_000, Math.max(1000, this.lastEmitCost * 5));
+      if (now - this.lastEmit < wait) return;
+    }
+    this.lastEmit = now;
     this.dispatchEvent(new Event('data'));
-    const ms = performance.now() - t0;
-    if (ms >= 1) {
-      perf.push({ ts: Date.now(), cat: 'render', name: 'view update', ms, records: this.records.length });
+    this.lastEmitCost = performance.now() - now;
+    if (this.lastEmitCost >= 1) {
+      perf.push({
+        ts: Date.now(),
+        cat: 'render',
+        name: 'view update',
+        ms: this.lastEmitCost,
+        records: this.records.length,
+      });
     }
   }
 

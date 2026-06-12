@@ -1,0 +1,2211 @@
+{
+  "exportedAt": "2026-06-12T21:07:42.468Z",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+  "heap": 810400203,
+  "entries": [
+    {
+      "ts": 1781298199915,
+      "cat": "render",
+      "name": "/internals/store",
+      "ms": 0.30000007152557373,
+      "records": 0,
+      "heap": 105746469
+    },
+    {
+      "ts": 1781298199921,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 215,
+      "heap": 157709439
+    },
+    {
+      "ts": 1781298200248,
+      "cat": "list",
+      "name": "plan tier-100k",
+      "ms": 108.69999992847443,
+      "detail": "2026-03-15..2026-06-12 → 6 files",
+      "bytes": 4741435,
+      "heap": 159254369
+    },
+    {
+      "ts": 1781298200651,
+      "cat": "fetch",
+      "name": "tier-100k/2026-06-09/10.0.1.10_1.jsonl.gz",
+      "ms": 402.60000002384186,
+      "bytes": 3358618,
+      "cached": false,
+      "heap": 41217986
+    },
+    {
+      "ts": 1781298200667,
+      "cat": "parse",
+      "name": "tier-100k/2026-06-09/10.0.1.10_1.jsonl.gz",
+      "ms": 15.600000023841858,
+      "bytes": 3358618,
+      "records": 7026,
+      "heap": 41217986
+    },
+    {
+      "ts": 1781298200676,
+      "cat": "render",
+      "name": "view update",
+      "ms": 4.5,
+      "records": 7026,
+      "heap": 41217986
+    },
+    {
+      "ts": 1781298200718,
+      "cat": "fetch",
+      "name": "tier-100k/2026-06-10/10.0.1.10_1.jsonl.gz",
+      "ms": 469.39999997615814,
+      "bytes": 3313494,
+      "cached": false,
+      "heap": 67037071
+    },
+    {
+      "ts": 1781298200729,
+      "cat": "parse",
+      "name": "tier-100k/2026-06-10/10.0.1.10_1.jsonl.gz",
+      "ms": 10.900000095367432,
+      "bytes": 3313494,
+      "records": 6959,
+      "heap": 67037071
+    },
+    {
+      "ts": 1781298200738,
+      "cat": "render",
+      "name": "view update",
+      "ms": 4.800000071525574,
+      "records": 13985,
+      "heap": 67037071
+    },
+    {
+      "ts": 1781298200796,
+      "cat": "fetch",
+      "name": "tier-100k/2026-06-09/10.0.1.10.jsonl.gz",
+      "ms": 547.1000000238419,
+      "bytes": 12582890,
+      "cached": false,
+      "heap": 112450854
+    },
+    {
+      "ts": 1781298200841,
+      "cat": "parse",
+      "name": "tier-100k/2026-06-09/10.0.1.10.jsonl.gz",
+      "ms": 45.10000002384186,
+      "bytes": 12582890,
+      "records": 26308,
+      "heap": 112450854
+    },
+    {
+      "ts": 1781298200866,
+      "cat": "render",
+      "name": "view update",
+      "ms": 8.300000071525574,
+      "records": 40293,
+      "heap": 135983834
+    },
+    {
+      "ts": 1781298200794.3,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 73,
+      "heap": 135983834
+    },
+    {
+      "ts": 1781298200877,
+      "cat": "fetch",
+      "name": "tier-100k/2026-06-11/10.0.1.10_1.jsonl.gz",
+      "ms": 200.80000007152557,
+      "bytes": 3361822,
+      "cached": false,
+      "heap": 135983834
+    },
+    {
+      "ts": 1781298200890,
+      "cat": "parse",
+      "name": "tier-100k/2026-06-11/10.0.1.10_1.jsonl.gz",
+      "ms": 12.299999952316284,
+      "bytes": 3361822,
+      "records": 7055,
+      "heap": 135983834
+    },
+    {
+      "ts": 1781298200898,
+      "cat": "render",
+      "name": "view update",
+      "ms": 4.299999952316284,
+      "records": 47348,
+      "heap": 135983834
+    },
+    {
+      "ts": 1781298200997,
+      "cat": "fetch",
+      "name": "tier-100k/2026-06-10/10.0.1.10.jsonl.gz",
+      "ms": 748.3999999761581,
+      "bytes": 12582547,
+      "cached": false,
+      "heap": 92325173
+    },
+    {
+      "ts": 1781298201041,
+      "cat": "parse",
+      "name": "tier-100k/2026-06-10/10.0.1.10.jsonl.gz",
+      "ms": 43.90000009536743,
+      "bytes": 12582547,
+      "records": 26374,
+      "heap": 92325173
+    },
+    {
+      "ts": 1781298201059,
+      "cat": "render",
+      "name": "view update",
+      "ms": 5.200000047683716,
+      "records": 73722,
+      "heap": 140078361
+    },
+    {
+      "ts": 1781298200995.9,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 64,
+      "heap": 140078361
+    },
+    {
+      "ts": 1781298201203,
+      "cat": "fetch",
+      "name": "tier-100k/2026-06-11/10.0.1.10.jsonl.gz",
+      "ms": 465.10000002384186,
+      "bytes": 12582575,
+      "cached": false,
+      "heap": 165636372
+    },
+    {
+      "ts": 1781298201247,
+      "cat": "parse",
+      "name": "tier-100k/2026-06-11/10.0.1.10.jsonl.gz",
+      "ms": 44.39999997615814,
+      "bytes": 12582575,
+      "records": 26279,
+      "heap": 165636372
+    },
+    {
+      "ts": 1781298201269,
+      "cat": "render",
+      "name": "view update",
+      "ms": 6.100000023841858,
+      "records": 100001,
+      "heap": 173269407
+    },
+    {
+      "ts": 1781298201276,
+      "cat": "render",
+      "name": "view update",
+      "ms": 4.5,
+      "records": 100001,
+      "heap": 173269407
+    },
+    {
+      "ts": 1781298201277,
+      "cat": "scan",
+      "name": "scan s3://tracelog-test",
+      "ms": 1027.8999999761581,
+      "detail": "6 files (0 cached)",
+      "bytes": 47781946,
+      "records": 100001,
+      "heap": 173269407
+    },
+    {
+      "ts": 1781298201201.3,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 76,
+      "heap": 173269407
+    },
+    {
+      "ts": 1781298204508,
+      "cat": "render",
+      "name": "/clients",
+      "ms": 23.799999952316284,
+      "records": 100001,
+      "heap": 178174481
+    },
+    {
+      "ts": 1781298218957,
+      "cat": "render",
+      "name": "/events",
+      "ms": 32.09999990463257,
+      "records": 100001,
+      "heap": 170911090
+    },
+    {
+      "ts": 1781298242447,
+      "cat": "render",
+      "name": "/clients",
+      "ms": 25,
+      "records": 100001,
+      "heap": 100592407
+    },
+    {
+      "ts": 1781298246462,
+      "cat": "render",
+      "name": "/events",
+      "ms": 27.299999952316284,
+      "records": 100001,
+      "heap": 99693496
+    },
+    {
+      "ts": 1781298251112,
+      "cat": "render",
+      "name": "/clients",
+      "ms": 15.899999976158142,
+      "records": 100001,
+      "heap": 100578623
+    },
+    {
+      "ts": 1781298265789,
+      "cat": "render",
+      "name": "/events",
+      "ms": 17,
+      "records": 100001,
+      "heap": 99747685
+    },
+    {
+      "ts": 1781298280538.2,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 54,
+      "heap": 100397547
+    },
+    {
+      "ts": 1781298311481,
+      "cat": "render",
+      "name": "/metrics",
+      "ms": 20.59999990463257,
+      "records": 100001,
+      "heap": 102514719
+    },
+    {
+      "ts": 1781298311484.7,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 217,
+      "heap": 103957884
+    },
+    {
+      "ts": 1781298314102,
+      "cat": "render",
+      "name": "/clients",
+      "ms": 18.899999976158142,
+      "records": 100001,
+      "heap": 102245096
+    },
+    {
+      "ts": 1781298315490,
+      "cat": "render",
+      "name": "/scanner",
+      "ms": 5,
+      "records": 100001,
+      "heap": 102644952
+    },
+    {
+      "ts": 1781298363544,
+      "cat": "render",
+      "name": "view update",
+      "ms": 1.2999999523162842,
+      "records": 0,
+      "heap": 99863051
+    },
+    {
+      "ts": 1781298375044,
+      "cat": "render",
+      "name": "/overview",
+      "ms": 0.7000000476837158,
+      "records": 0,
+      "heap": 99897979
+    },
+    {
+      "ts": 1781298382078,
+      "cat": "list",
+      "name": "plan tier-1m",
+      "ms": 478,
+      "detail": "2026-03-15..2026-06-12 → 56 files",
+      "bytes": 47389276,
+      "heap": 100757107
+    },
+    {
+      "ts": 1781298382838,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-05/10.0.1.10_1.jsonl.gz",
+      "ms": 759.5,
+      "bytes": 4504184,
+      "cached": false,
+      "heap": 103308960
+    },
+    {
+      "ts": 1781298382859,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-05/10.0.1.10_1.jsonl.gz",
+      "ms": 20.90000009536743,
+      "bytes": 4504184,
+      "records": 9391,
+      "heap": 103308960
+    },
+    {
+      "ts": 1781298382871,
+      "cat": "render",
+      "name": "view update",
+      "ms": 5.700000047683716,
+      "records": 9391,
+      "heap": 103308960
+    },
+    {
+      "ts": 1781298382885,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-05/10.0.1.11_1.jsonl.gz",
+      "ms": 807,
+      "bytes": 4506494,
+      "cached": false,
+      "heap": 103308960
+    },
+    {
+      "ts": 1781298382905,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-05/10.0.1.11_1.jsonl.gz",
+      "ms": 20.100000023841858,
+      "bytes": 4506494,
+      "records": 9416,
+      "heap": 135159821
+    },
+    {
+      "ts": 1781298382919,
+      "cat": "render",
+      "name": "view update",
+      "ms": 5,
+      "records": 18807,
+      "heap": 135159821
+    },
+    {
+      "ts": 1781298382933,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-05/10.0.1.10.jsonl.gz",
+      "ms": 855.1000000238419,
+      "bytes": 12582322,
+      "cached": false,
+      "heap": 135159821
+    },
+    {
+      "ts": 1781298382982,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-05/10.0.1.10.jsonl.gz",
+      "ms": 48.60000002384186,
+      "bytes": 12582322,
+      "records": 26324,
+      "heap": 165620735
+    },
+    {
+      "ts": 1781298383005,
+      "cat": "render",
+      "name": "view update",
+      "ms": 8.800000071525574,
+      "records": 45131,
+      "heap": 165620735
+    },
+    {
+      "ts": 1781298382931,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 105,
+      "heap": 168078430
+    },
+    {
+      "ts": 1781298383048,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-05/10.0.1.11.jsonl.gz",
+      "ms": 969.2000000476837,
+      "bytes": 12582749,
+      "cached": false,
+      "heap": 168078430
+    },
+    {
+      "ts": 1781298383096,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-05/10.0.1.11.jsonl.gz",
+      "ms": 48.200000047683716,
+      "bytes": 12582749,
+      "records": 26299,
+      "heap": 210506300
+    },
+    {
+      "ts": 1781298383123,
+      "cat": "render",
+      "name": "view update",
+      "ms": 12.5,
+      "records": 71430,
+      "heap": 210506300
+    },
+    {
+      "ts": 1781298383045.6,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 110,
+      "heap": 204529623
+    },
+    {
+      "ts": 1781298383319,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-05/10.0.1.12_1.jsonl.gz",
+      "ms": 448,
+      "bytes": 4499501,
+      "cached": false,
+      "heap": 163972358
+    },
+    {
+      "ts": 1781298383336,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-05/10.0.1.12_1.jsonl.gz",
+      "ms": 17.200000047683716,
+      "bytes": 4499501,
+      "records": 9396,
+      "heap": 163972358
+    },
+    {
+      "ts": 1781298383356,
+      "cat": "render",
+      "name": "view update",
+      "ms": 13.699999928474426,
+      "records": 80826,
+      "heap": 163972358
+    },
+    {
+      "ts": 1781298383318.1,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 69,
+      "heap": 188446631
+    },
+    {
+      "ts": 1781298383483,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-05/10.0.1.13_1.jsonl.gz",
+      "ms": 477.39999997615814,
+      "bytes": 4471872,
+      "cached": false,
+      "heap": 195057038
+    },
+    {
+      "ts": 1781298383499,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-05/10.0.1.13_1.jsonl.gz",
+      "ms": 16.100000023841858,
+      "bytes": 4471872,
+      "records": 9357,
+      "heap": 195057038
+    },
+    {
+      "ts": 1781298383520,
+      "cat": "render",
+      "name": "view update",
+      "ms": 15.800000071525574,
+      "records": 90183,
+      "heap": 195057038
+    },
+    {
+      "ts": 1781298383560,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-05/10.0.1.12.jsonl.gz",
+      "ms": 641,
+      "bytes": 12582340,
+      "cached": false,
+      "heap": 233689051
+    },
+    {
+      "ts": 1781298383611,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-05/10.0.1.12.jsonl.gz",
+      "ms": 51,
+      "bytes": 12582340,
+      "records": 26318,
+      "heap": 251723207
+    },
+    {
+      "ts": 1781298383642,
+      "cat": "render",
+      "name": "view update",
+      "ms": 16.899999976158142,
+      "records": 116501,
+      "heap": 251723207
+    },
+    {
+      "ts": 1781298383482.6,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 70,
+      "heap": 248208551
+    },
+    {
+      "ts": 1781298383558.3,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 117,
+      "heap": 248208551
+    },
+    {
+      "ts": 1781298383685,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-06/10.0.1.10_1.jsonl.gz",
+      "ms": 328.8000000715256,
+      "bytes": 4488557,
+      "cached": false,
+      "heap": 248208551
+    },
+    {
+      "ts": 1781298383702,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-06/10.0.1.10_1.jsonl.gz",
+      "ms": 16.699999928474426,
+      "bytes": 4488557,
+      "records": 9383,
+      "heap": 248208551
+    },
+    {
+      "ts": 1781298383726,
+      "cat": "render",
+      "name": "view update",
+      "ms": 17.200000047683716,
+      "records": 125884,
+      "heap": 248208551
+    },
+    {
+      "ts": 1781298383684.2,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 87,
+      "heap": 278092221
+    },
+    {
+      "ts": 1781298383777,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-05/10.0.1.13.jsonl.gz",
+      "ms": 654.2999999523163,
+      "bytes": 12582719,
+      "cached": false,
+      "heap": 278092221
+    },
+    {
+      "ts": 1781298383829,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-05/10.0.1.13.jsonl.gz",
+      "ms": 51.90000009536743,
+      "bytes": 12582719,
+      "records": 26357,
+      "heap": 322556734
+    },
+    {
+      "ts": 1781298383871,
+      "cat": "render",
+      "name": "view update",
+      "ms": 26.699999928474426,
+      "records": 152241,
+      "heap": 322556734
+    },
+    {
+      "ts": 1781298383775.7,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 147,
+      "heap": 311447343
+    },
+    {
+      "ts": 1781298383986,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-06/10.0.1.10.jsonl.gz",
+      "ms": 465.5,
+      "bytes": 12582591,
+      "cached": false,
+      "heap": 234597990
+    },
+    {
+      "ts": 1781298384032,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-06/10.0.1.10.jsonl.gz",
+      "ms": 46.5,
+      "bytes": 12582591,
+      "records": 26333,
+      "heap": 234597990
+    },
+    {
+      "ts": 1781298384070,
+      "cat": "render",
+      "name": "view update",
+      "ms": 25.299999952316284,
+      "records": 178574,
+      "heap": 291971395
+    },
+    {
+      "ts": 1781298383984.6,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 176,
+      "heap": 293820768
+    },
+    {
+      "ts": 1781298384172,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-06/10.0.1.11_1.jsonl.gz",
+      "ms": 529.3000000715256,
+      "bytes": 4484397,
+      "cached": false,
+      "heap": 293820768
+    },
+    {
+      "ts": 1781298384187,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-06/10.0.1.11_1.jsonl.gz",
+      "ms": 15.599999904632568,
+      "bytes": 4484397,
+      "records": 9391,
+      "heap": 293820768
+    },
+    {
+      "ts": 1781298384217,
+      "cat": "render",
+      "name": "view update",
+      "ms": 25.199999928474426,
+      "records": 187965,
+      "heap": 292995338
+    },
+    {
+      "ts": 1781298384312,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-06/10.0.1.12_1.jsonl.gz",
+      "ms": 440.8000000715256,
+      "bytes": 4543334,
+      "cached": false,
+      "heap": 301371639
+    },
+    {
+      "ts": 1781298384328,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-06/10.0.1.12_1.jsonl.gz",
+      "ms": 16,
+      "bytes": 4543334,
+      "records": 9473,
+      "heap": 301371639
+    },
+    {
+      "ts": 1781298384360,
+      "cat": "render",
+      "name": "view update",
+      "ms": 26.59999990463257,
+      "records": 197438,
+      "heap": 301371639
+    },
+    {
+      "ts": 1781298384171.6,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 136,
+      "heap": 295463952
+    },
+    {
+      "ts": 1781298384311.9,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 138,
+      "heap": 295463952
+    },
+    {
+      "ts": 1781298384471,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-06/10.0.1.11.jsonl.gz",
+      "ms": 744.6999999284744,
+      "bytes": 12582590,
+      "cached": false,
+      "heap": 295463952
+    },
+    {
+      "ts": 1781298384515,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-06/10.0.1.11.jsonl.gz",
+      "ms": 43.90000009536743,
+      "bytes": 12582590,
+      "records": 26324,
+      "heap": 352724990
+    },
+    {
+      "ts": 1781298384557,
+      "cat": "render",
+      "name": "view update",
+      "ms": 29.299999952316284,
+      "records": 223762,
+      "heap": 352724990
+    },
+    {
+      "ts": 1781298384469.9,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 180,
+      "heap": 353518523
+    },
+    {
+      "ts": 1781298384743,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-06/10.0.1.13_1.jsonl.gz",
+      "ms": 525.9000000953674,
+      "bytes": 4475176,
+      "cached": false,
+      "heap": 366358759
+    },
+    {
+      "ts": 1781298384761,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-06/10.0.1.13_1.jsonl.gz",
+      "ms": 17.300000071525574,
+      "bytes": 4475176,
+      "records": 9365,
+      "heap": 366358759
+    },
+    {
+      "ts": 1781298384796,
+      "cat": "render",
+      "name": "view update",
+      "ms": 29.200000047683716,
+      "records": 233127,
+      "heap": 396512861
+    },
+    {
+      "ts": 1781298384743.2,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 145,
+      "heap": 369293737
+    },
+    {
+      "ts": 1781298384900,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-06/10.0.1.12.jsonl.gz",
+      "ms": 829.7000000476837,
+      "bytes": 12582854,
+      "cached": false,
+      "heap": 369293737
+    },
+    {
+      "ts": 1781298384948,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-06/10.0.1.12.jsonl.gz",
+      "ms": 48.299999952316284,
+      "bytes": 12582854,
+      "records": 26242,
+      "heap": 417139274
+    },
+    {
+      "ts": 1781298384995,
+      "cat": "render",
+      "name": "view update",
+      "ms": 32.200000047683716,
+      "records": 259369,
+      "heap": 417139274
+    },
+    {
+      "ts": 1781298385098,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-06/10.0.1.13.jsonl.gz",
+      "ms": 738.2000000476837,
+      "bytes": 12582690,
+      "cached": false,
+      "heap": 425232234
+    },
+    {
+      "ts": 1781298385145,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-06/10.0.1.13.jsonl.gz",
+      "ms": 47.39999997615814,
+      "bytes": 12582690,
+      "records": 26349,
+      "heap": 425232234
+    },
+    {
+      "ts": 1781298385206,
+      "cat": "render",
+      "name": "view update",
+      "ms": 43.60000002384186,
+      "records": 285718,
+      "heap": 460243375
+    },
+    {
+      "ts": 1781298384897.9,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 191,
+      "heap": 347126885
+    },
+    {
+      "ts": 1781298385095.9,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 205,
+      "heap": 347126885
+    },
+    {
+      "ts": 1781298385307,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-07/10.0.1.10_1.jsonl.gz",
+      "ms": 749.7000000476837,
+      "bytes": 4498153,
+      "cached": false,
+      "heap": 347126885
+    },
+    {
+      "ts": 1781298385323,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-07/10.0.1.10_1.jsonl.gz",
+      "ms": 16.299999952316284,
+      "bytes": 4498153,
+      "records": 9386,
+      "heap": 347126885
+    },
+    {
+      "ts": 1781298385364,
+      "cat": "render",
+      "name": "view update",
+      "ms": 35.90000009536743,
+      "records": 295104,
+      "heap": 356775304
+    },
+    {
+      "ts": 1781298385305.9,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 174,
+      "heap": 358864368
+    },
+    {
+      "ts": 1781298385659,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-07/10.0.1.10.jsonl.gz",
+      "ms": 863.2999999523163,
+      "bytes": 12582832,
+      "cached": false,
+      "heap": 380027696
+    },
+    {
+      "ts": 1781298385716,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-07/10.0.1.10.jsonl.gz",
+      "ms": 56.800000071525574,
+      "bytes": 12582832,
+      "records": 26331,
+      "heap": 412225576
+    },
+    {
+      "ts": 1781298385772,
+      "cat": "render",
+      "name": "view update",
+      "ms": 42.60000002384186,
+      "records": 321435,
+      "heap": 417463726
+    },
+    {
+      "ts": 1781298385656.9,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 295,
+      "heap": 420186081
+    },
+    {
+      "ts": 1781298385965,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-07/10.0.1.12_1.jsonl.gz",
+      "ms": 601.2000000476837,
+      "bytes": 4524217,
+      "cached": false,
+      "heap": 420186081
+    },
+    {
+      "ts": 1781298385981,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-07/10.0.1.12_1.jsonl.gz",
+      "ms": 15.799999952316284,
+      "bytes": 4524217,
+      "records": 9454,
+      "heap": 420186081
+    },
+    {
+      "ts": 1781298386030,
+      "cat": "render",
+      "name": "view update",
+      "ms": 42.299999952316284,
+      "records": 330889,
+      "heap": 433154748
+    },
+    {
+      "ts": 1781298386219,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-07/10.0.1.11_1.jsonl.gz",
+      "ms": 1224,
+      "bytes": 4518064,
+      "cached": false,
+      "heap": 439263979
+    },
+    {
+      "ts": 1781298386236,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-07/10.0.1.11_1.jsonl.gz",
+      "ms": 17.299999952316284,
+      "bytes": 4518064,
+      "records": 9471,
+      "heap": 439263979
+    },
+    {
+      "ts": 1781298386283,
+      "cat": "render",
+      "name": "view update",
+      "ms": 41.89999997615814,
+      "records": 340360,
+      "heap": 446898284
+    },
+    {
+      "ts": 1781298385964,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 246,
+      "heap": 449564428
+    },
+    {
+      "ts": 1781298386217.9,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 248,
+      "heap": 449564428
+    },
+    {
+      "ts": 1781298386479,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-07/10.0.1.11.jsonl.gz",
+      "ms": 1273.1000000238419,
+      "bytes": 12582901,
+      "cached": false,
+      "heap": 449564428
+    },
+    {
+      "ts": 1781298386528,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-07/10.0.1.11.jsonl.gz",
+      "ms": 49.5,
+      "bytes": 12582901,
+      "records": 26244,
+      "heap": 500706450
+    },
+    {
+      "ts": 1781298386587,
+      "cat": "render",
+      "name": "view update",
+      "ms": 44.5,
+      "records": 366604,
+      "heap": 507973802
+    },
+    {
+      "ts": 1781298386476.6,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 296,
+      "heap": 500724419
+    },
+    {
+      "ts": 1781298386787,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-07/10.0.1.13_1.jsonl.gz",
+      "ms": 757.6999999284744,
+      "bytes": 4478671,
+      "cached": false,
+      "heap": 500724419
+    },
+    {
+      "ts": 1781298386803,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-07/10.0.1.13_1.jsonl.gz",
+      "ms": 15.700000047683716,
+      "bytes": 4478671,
+      "records": 9359,
+      "heap": 500724419
+    },
+    {
+      "ts": 1781298386854,
+      "cat": "render",
+      "name": "view update",
+      "ms": 46,
+      "records": 375963,
+      "heap": 525142130
+    },
+    {
+      "ts": 1781298387048,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-07/10.0.1.12.jsonl.gz",
+      "ms": 1276.5,
+      "bytes": 12582401,
+      "cached": false,
+      "heap": 536409313
+    },
+    {
+      "ts": 1781298387093,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-07/10.0.1.12.jsonl.gz",
+      "ms": 44.799999952316284,
+      "bytes": 12582401,
+      "records": 26260,
+      "heap": 536409313
+    },
+    {
+      "ts": 1781298387156,
+      "cat": "render",
+      "name": "view update",
+      "ms": 47.799999952316284,
+      "records": 402223,
+      "heap": 547929640
+    },
+    {
+      "ts": 1781298386786.6,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 254,
+      "heap": 538175539
+    },
+    {
+      "ts": 1781298387046.6,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 299,
+      "heap": 538175539
+    },
+    {
+      "ts": 1781298387367,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-07/10.0.1.13.jsonl.gz",
+      "ms": 1083.7999999523163,
+      "bytes": 12582529,
+      "cached": false,
+      "heap": 538175539
+    },
+    {
+      "ts": 1781298387411,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-07/10.0.1.13.jsonl.gz",
+      "ms": 43.60000002384186,
+      "bytes": 12582529,
+      "records": 26357,
+      "heap": 595361813
+    },
+    {
+      "ts": 1781298387483,
+      "cat": "render",
+      "name": "view update",
+      "ms": 50.800000071525574,
+      "records": 428580,
+      "heap": 607956402
+    },
+    {
+      "ts": 1781298387365.5,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 309,
+      "heap": 610768849
+    },
+    {
+      "ts": 1781298387687,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-08/10.0.1.10_1.jsonl.gz",
+      "ms": 1099.4000000953674,
+      "bytes": 4495944,
+      "cached": false,
+      "heap": 610768849
+    },
+    {
+      "ts": 1781298387702,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-08/10.0.1.10_1.jsonl.gz",
+      "ms": 15.300000071525574,
+      "bytes": 4495944,
+      "records": 9385,
+      "heap": 610768849
+    },
+    {
+      "ts": 1781298387760,
+      "cat": "render",
+      "name": "view update",
+      "ms": 52.799999952316284,
+      "records": 437965,
+      "heap": 628814697
+    },
+    {
+      "ts": 1781298387984,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-08/10.0.1.11_1.jsonl.gz",
+      "ms": 827.2000000476837,
+      "bytes": 4518396,
+      "cached": false,
+      "heap": 635940303
+    },
+    {
+      "ts": 1781298387999,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-08/10.0.1.11_1.jsonl.gz",
+      "ms": 15.5,
+      "bytes": 4518396,
+      "records": 9422,
+      "heap": 635940303
+    },
+    {
+      "ts": 1781298388059,
+      "cat": "render",
+      "name": "view update",
+      "ms": 54.39999997615814,
+      "records": 447387,
+      "heap": 649246080
+    },
+    {
+      "ts": 1781298387685.9,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 289,
+      "heap": 647774364
+    },
+    {
+      "ts": 1781298387982.6,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 296,
+      "heap": 647774364
+    },
+    {
+      "ts": 1781298388295,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-08/10.0.1.10.jsonl.gz",
+      "ms": 1441,
+      "bytes": 12582677,
+      "cached": false,
+      "heap": 647774364
+    },
+    {
+      "ts": 1781298388352,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-08/10.0.1.10.jsonl.gz",
+      "ms": 57.5,
+      "bytes": 12582677,
+      "records": 26329,
+      "heap": 648116005
+    },
+    {
+      "ts": 1781298388423,
+      "cat": "render",
+      "name": "view update",
+      "ms": 56.699999928474426,
+      "records": 473716,
+      "heap": 498965869
+    },
+    {
+      "ts": 1781298388293.4,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 430,
+      "heap": 456521975
+    },
+    {
+      "ts": 1781298388747,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-08/10.0.1.12_1.jsonl.gz",
+      "ms": 986.6000000238419,
+      "bytes": 4507331,
+      "cached": false,
+      "heap": 456521975
+    },
+    {
+      "ts": 1781298388763,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-08/10.0.1.12_1.jsonl.gz",
+      "ms": 16,
+      "bytes": 4507331,
+      "records": 9414,
+      "heap": 456521975
+    },
+    {
+      "ts": 1781298388826,
+      "cat": "render",
+      "name": "view update",
+      "ms": 58.10000002384186,
+      "records": 483130,
+      "heap": 487964699
+    },
+    {
+      "ts": 1781298388746.3,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 387,
+      "heap": 489613630
+    },
+    {
+      "ts": 1781298389149,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-08/10.0.1.11.jsonl.gz",
+      "ms": 1666.5,
+      "bytes": 12582896,
+      "cached": false,
+      "heap": 489613630
+    },
+    {
+      "ts": 1781298389194,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-08/10.0.1.11.jsonl.gz",
+      "ms": 44.39999997615814,
+      "bytes": 12582896,
+      "records": 26294,
+      "heap": 544277900
+    },
+    {
+      "ts": 1781298389267,
+      "cat": "render",
+      "name": "view update",
+      "ms": 61.200000047683716,
+      "records": 509424,
+      "heap": 561930435
+    },
+    {
+      "ts": 1781298389147.8,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 425,
+      "heap": 524449810
+    },
+    {
+      "ts": 1781298389590,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-08/10.0.1.13_1.jsonl.gz",
+      "ms": 1167.2999999523163,
+      "bytes": 4491552,
+      "cached": false,
+      "heap": 524449810
+    },
+    {
+      "ts": 1781298389605,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-08/10.0.1.13_1.jsonl.gz",
+      "ms": 15.300000071525574,
+      "bytes": 4491552,
+      "records": 9391,
+      "heap": 524449810
+    },
+    {
+      "ts": 1781298389671,
+      "cat": "render",
+      "name": "view update",
+      "ms": 61.300000071525574,
+      "records": 518815,
+      "heap": 559912502
+    },
+    {
+      "ts": 1781298389985,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-08/10.0.1.12.jsonl.gz",
+      "ms": 1926.3000000715256,
+      "bytes": 12582678,
+      "cached": false,
+      "heap": 575772451
+    },
+    {
+      "ts": 1781298390028,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-08/10.0.1.12.jsonl.gz",
+      "ms": 42.799999952316284,
+      "bytes": 12582678,
+      "records": 26300,
+      "heap": 575772451
+    },
+    {
+      "ts": 1781298390107,
+      "cat": "render",
+      "name": "view update",
+      "ms": 64.40000009536743,
+      "records": 545115,
+      "heap": 627317402
+    },
+    {
+      "ts": 1781298389589.7,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 387,
+      "heap": 587178238
+    },
+    {
+      "ts": 1781298389984.2,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 436,
+      "heap": 587178238
+    },
+    {
+      "ts": 1781298390431,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-09/10.0.1.10_1.jsonl.gz",
+      "ms": 1164.0999999046326,
+      "bytes": 4519112,
+      "cached": false,
+      "heap": 587178238
+    },
+    {
+      "ts": 1781298390447,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-09/10.0.1.10_1.jsonl.gz",
+      "ms": 15.700000047683716,
+      "bytes": 4519112,
+      "records": 9453,
+      "heap": 587178238
+    },
+    {
+      "ts": 1781298390525,
+      "cat": "render",
+      "name": "view update",
+      "ms": 67.70000004768372,
+      "records": 554568,
+      "heap": 622525303
+    },
+    {
+      "ts": 1781298390883,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-08/10.0.1.13.jsonl.gz",
+      "ms": 2057.399999976158,
+      "bytes": 12582864,
+      "cached": false,
+      "heap": 635495378
+    },
+    {
+      "ts": 1781298390925,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-08/10.0.1.13.jsonl.gz",
+      "ms": 42.200000047683716,
+      "bytes": 12582864,
+      "records": 26324,
+      "heap": 635495378
+    },
+    {
+      "ts": 1781298391013,
+      "cat": "render",
+      "name": "view update",
+      "ms": 70.39999997615814,
+      "records": 580892,
+      "heap": 650216871
+    },
+    {
+      "ts": 1781298390430.8,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 443,
+      "heap": 654133106
+    },
+    {
+      "ts": 1781298390881.6,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 483,
+      "heap": 654133106
+    },
+    {
+      "ts": 1781298391387,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-09/10.0.1.10.jsonl.gz",
+      "ms": 1715.7999999523163,
+      "bytes": 12582533,
+      "cached": false,
+      "heap": 654133106
+    },
+    {
+      "ts": 1781298391430,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-09/10.0.1.10.jsonl.gz",
+      "ms": 42.39999997615814,
+      "bytes": 12582533,
+      "records": 26263,
+      "heap": 711291877
+    },
+    {
+      "ts": 1781298391516,
+      "cat": "render",
+      "name": "view update",
+      "ms": 72.89999997615814,
+      "records": 607155,
+      "heap": 692439195
+    },
+    {
+      "ts": 1781298391386.1,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 584,
+      "heap": 696853702
+    },
+    {
+      "ts": 1781298391987,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-09/10.0.1.12_1.jsonl.gz",
+      "ms": 973.6000000238419,
+      "bytes": 4485418,
+      "cached": false,
+      "heap": 696853702
+    },
+    {
+      "ts": 1781298392002,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-09/10.0.1.12_1.jsonl.gz",
+      "ms": 15.600000023841858,
+      "bytes": 4485418,
+      "records": 9392,
+      "heap": 696853702
+    },
+    {
+      "ts": 1781298392084,
+      "cat": "render",
+      "name": "view update",
+      "ms": 77.09999990463257,
+      "records": 616547,
+      "heap": 742632766
+    },
+    {
+      "ts": 1781298392550,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-09/10.0.1.11_1.jsonl.gz",
+      "ms": 2442.399999976158,
+      "bytes": 4519377,
+      "cached": false,
+      "heap": 747013785
+    },
+    {
+      "ts": 1781298392565,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-09/10.0.1.11_1.jsonl.gz",
+      "ms": 15,
+      "bytes": 4519377,
+      "records": 9405,
+      "heap": 747013785
+    },
+    {
+      "ts": 1781298392646,
+      "cat": "render",
+      "name": "view update",
+      "ms": 75.70000004768372,
+      "records": 625952,
+      "heap": 737125682
+    },
+    {
+      "ts": 1781298391986.4,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 555,
+      "heap": 743791296
+    },
+    {
+      "ts": 1781298392549.3,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 552,
+      "heap": 743791296
+    },
+    {
+      "ts": 1781298393122,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-09/10.0.1.11.jsonl.gz",
+      "ms": 2597.5,
+      "bytes": 12582870,
+      "cached": false,
+      "heap": 743791296
+    },
+    {
+      "ts": 1781298393166,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-09/10.0.1.11.jsonl.gz",
+      "ms": 43.89999997615814,
+      "bytes": 12582870,
+      "records": 26311,
+      "heap": 799274164
+    },
+    {
+      "ts": 1781298393260,
+      "cat": "render",
+      "name": "view update",
+      "ms": 77.60000002384186,
+      "records": 652263,
+      "heap": 783327888
+    },
+    {
+      "ts": 1781298393120.1,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 603,
+      "heap": 790159148
+    },
+    {
+      "ts": 1781298393742,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-09/10.0.1.12.jsonl.gz",
+      "ms": 2226.399999976158,
+      "bytes": 12582503,
+      "cached": false,
+      "heap": 790159148
+    },
+    {
+      "ts": 1781298393788,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-09/10.0.1.12.jsonl.gz",
+      "ms": 45.300000071525574,
+      "bytes": 12582503,
+      "records": 26322,
+      "heap": 842074510
+    },
+    {
+      "ts": 1781298393885,
+      "cat": "render",
+      "name": "view update",
+      "ms": 82.39999997615814,
+      "records": 678585,
+      "heap": 828796653
+    },
+    {
+      "ts": 1781298394360,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-09/10.0.1.13_1.jsonl.gz",
+      "ms": 2275.8000000715256,
+      "bytes": 4498055,
+      "cached": false,
+      "heap": 838146151
+    },
+    {
+      "ts": 1781298394375,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-09/10.0.1.13_1.jsonl.gz",
+      "ms": 15.699999928474426,
+      "bytes": 4498055,
+      "records": 9427,
+      "heap": 838146151
+    },
+    {
+      "ts": 1781298394464,
+      "cat": "render",
+      "name": "view update",
+      "ms": 81.90000009536743,
+      "records": 688012,
+      "heap": 868930121
+    },
+    {
+      "ts": 1781298393740.7,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 610,
+      "heap": 836595101
+    },
+    {
+      "ts": 1781298394359.2,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 570,
+      "heap": 836595101
+    },
+    {
+      "ts": 1781298394961,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-09/10.0.1.13.jsonl.gz",
+      "ms": 2314.5999999046326,
+      "bytes": 12582537,
+      "cached": false,
+      "heap": 836595101
+    },
+    {
+      "ts": 1781298395013,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-09/10.0.1.13.jsonl.gz",
+      "ms": 51.800000071525574,
+      "bytes": 12582537,
+      "records": 26289,
+      "heap": 893706048
+    },
+    {
+      "ts": 1781298395125,
+      "cat": "render",
+      "name": "view update",
+      "ms": 96.29999995231628,
+      "records": 714301,
+      "heap": 658617706
+    },
+    {
+      "ts": 1781298394958.3,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 635,
+      "heap": 663052420
+    },
+    {
+      "ts": 1781298395619,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-10/10.0.1.10_1.jsonl.gz",
+      "ms": 2358.7999999523163,
+      "bytes": 4519988,
+      "cached": false,
+      "heap": 663052420
+    },
+    {
+      "ts": 1781298395636,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-10/10.0.1.10_1.jsonl.gz",
+      "ms": 16.700000047683716,
+      "bytes": 4519988,
+      "records": 9441,
+      "heap": 663052420
+    },
+    {
+      "ts": 1781298395727,
+      "cat": "render",
+      "name": "view update",
+      "ms": 86.5,
+      "records": 723742,
+      "heap": 678082406
+    },
+    {
+      "ts": 1781298396252,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-10/10.0.1.11_1.jsonl.gz",
+      "ms": 1787.5,
+      "bytes": 4528397,
+      "cached": false,
+      "heap": 689797033
+    },
+    {
+      "ts": 1781298396268,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-10/10.0.1.11_1.jsonl.gz",
+      "ms": 15.799999952316284,
+      "bytes": 4528397,
+      "records": 9469,
+      "heap": 689797033
+    },
+    {
+      "ts": 1781298396360,
+      "cat": "render",
+      "name": "view update",
+      "ms": 87.29999995231628,
+      "records": 733211,
+      "heap": 687439904
+    },
+    {
+      "ts": 1781298395618.6,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 624,
+      "heap": 692059999
+    },
+    {
+      "ts": 1781298396251,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 624,
+      "heap": 692059999
+    },
+    {
+      "ts": 1781298396897,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-10/10.0.1.10.jsonl.gz",
+      "ms": 3012.399999976158,
+      "bytes": 12582388,
+      "cached": false,
+      "heap": 692059999
+    },
+    {
+      "ts": 1781298396942,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-10/10.0.1.10.jsonl.gz",
+      "ms": 44.299999952316284,
+      "bytes": 12582388,
+      "records": 26273,
+      "heap": 748409994
+    },
+    {
+      "ts": 1781298397046,
+      "cat": "render",
+      "name": "view update",
+      "ms": 92.79999995231628,
+      "records": 759484,
+      "heap": 740941058
+    },
+    {
+      "ts": 1781298396895.5,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 807,
+      "heap": 748735158
+    },
+    {
+      "ts": 1781298397728,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-10/10.0.1.12_1.jsonl.gz",
+      "ms": 2001.1999999284744,
+      "bytes": 4502655,
+      "cached": false,
+      "heap": 748735158
+    },
+    {
+      "ts": 1781298397745,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-10/10.0.1.12_1.jsonl.gz",
+      "ms": 16,
+      "bytes": 4502655,
+      "records": 9431,
+      "heap": 748735158
+    },
+    {
+      "ts": 1781298397842,
+      "cat": "render",
+      "name": "view update",
+      "ms": 91.79999995231628,
+      "records": 768915,
+      "heap": 768585751
+    },
+    {
+      "ts": 1781298398508,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-10/10.0.1.11.jsonl.gz",
+      "ms": 3382.399999976158,
+      "bytes": 12582470,
+      "cached": false,
+      "heap": 788747428
+    },
+    {
+      "ts": 1781298398553,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-10/10.0.1.11.jsonl.gz",
+      "ms": 45.800000071525574,
+      "bytes": 12582470,
+      "records": 26248,
+      "heap": 788747428
+    },
+    {
+      "ts": 1781298398666,
+      "cat": "render",
+      "name": "view update",
+      "ms": 95,
+      "records": 795163,
+      "heap": 814693022
+    },
+    {
+      "ts": 1781298397728.1,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 765,
+      "heap": 819900856
+    },
+    {
+      "ts": 1781298398502.1,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 820,
+      "heap": 819900856
+    },
+    {
+      "ts": 1781298399340,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-10/10.0.1.13_1.jsonl.gz",
+      "ms": 2293,
+      "bytes": 4533870,
+      "cached": false,
+      "heap": 819900856
+    },
+    {
+      "ts": 1781298399357,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-10/10.0.1.13_1.jsonl.gz",
+      "ms": 17.40000009536743,
+      "bytes": 4533870,
+      "records": 9471,
+      "heap": 819900856
+    },
+    {
+      "ts": 1781298399463,
+      "cat": "render",
+      "name": "view update",
+      "ms": 100.5,
+      "records": 804634,
+      "heap": 836089877
+    },
+    {
+      "ts": 1781298400129,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-10/10.0.1.12.jsonl.gz",
+      "ms": 3768.7999999523163,
+      "bytes": 12582846,
+      "cached": false,
+      "heap": 854864226
+    },
+    {
+      "ts": 1781298400174,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-10/10.0.1.12.jsonl.gz",
+      "ms": 45,
+      "bytes": 12582846,
+      "records": 26284,
+      "heap": 854864226
+    },
+    {
+      "ts": 1781298400285,
+      "cat": "render",
+      "name": "view update",
+      "ms": 97.10000002384186,
+      "records": 830918,
+      "heap": 895198474
+    },
+    {
+      "ts": 1781298399338.8,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 779,
+      "heap": 887953107
+    },
+    {
+      "ts": 1781298400126.4,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 819,
+      "heap": 887953107
+    },
+    {
+      "ts": 1781298400969,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-10/10.0.1.13.jsonl.gz",
+      "ms": 3126.600000023842,
+      "bytes": 12582800,
+      "cached": false,
+      "heap": 887953107
+    },
+    {
+      "ts": 1781298401012,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-10/10.0.1.13.jsonl.gz",
+      "ms": 43.60000002384186,
+      "bytes": 12582800,
+      "records": 26243,
+      "heap": 915176727
+    },
+    {
+      "ts": 1781298401130,
+      "cat": "render",
+      "name": "view update",
+      "ms": 100.19999992847443,
+      "records": 857161,
+      "heap": 912998277
+    },
+    {
+      "ts": 1781298400967.9,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 826,
+      "heap": 918292569
+    },
+    {
+      "ts": 1781298401813,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-11/10.0.1.11_1.jsonl.gz",
+      "ms": 1527.3999999761581,
+      "bytes": 4489500,
+      "cached": false,
+      "heap": 918292569
+    },
+    {
+      "ts": 1781298401828,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-11/10.0.1.11_1.jsonl.gz",
+      "ms": 15.799999952316284,
+      "bytes": 4489500,
+      "records": 9408,
+      "heap": 918292569
+    },
+    {
+      "ts": 1781298401939,
+      "cat": "render",
+      "name": "view update",
+      "ms": 105.5,
+      "records": 866569,
+      "heap": 942367117
+    },
+    {
+      "ts": 1781298402666,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-11/10.0.1.10_1.jsonl.gz",
+      "ms": 3999.1999999284744,
+      "bytes": 4503298,
+      "cached": false,
+      "heap": 954945287
+    },
+    {
+      "ts": 1781298402681,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-11/10.0.1.10_1.jsonl.gz",
+      "ms": 15.700000047683716,
+      "bytes": 4503298,
+      "records": 9431,
+      "heap": 954945287
+    },
+    {
+      "ts": 1781298402793,
+      "cat": "render",
+      "name": "view update",
+      "ms": 105.5,
+      "records": 876000,
+      "heap": 968152609
+    },
+    {
+      "ts": 1781298401811.9,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 843,
+      "heap": 973637344
+    },
+    {
+      "ts": 1781298402664.5,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 848,
+      "heap": 973637344
+    },
+    {
+      "ts": 1781298403535,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-11/10.0.1.10.jsonl.gz",
+      "ms": 4071.5,
+      "bytes": 12582770,
+      "cached": false,
+      "heap": 973637344
+    },
+    {
+      "ts": 1781298403582,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-11/10.0.1.10.jsonl.gz",
+      "ms": 46.5,
+      "bytes": 12582770,
+      "records": 26284,
+      "heap": 1004312407
+    },
+    {
+      "ts": 1781298403703,
+      "cat": "render",
+      "name": "view update",
+      "ms": 106.70000004768372,
+      "records": 902284,
+      "heap": 1047187803
+    },
+    {
+      "ts": 1781298403533.7,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 1041,
+      "heap": 1009863938
+    },
+    {
+      "ts": 1781298404590,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-11/10.0.1.11.jsonl.gz",
+      "ms": 3460.2000000476837,
+      "bytes": 12582696,
+      "cached": false,
+      "heap": 1009863938
+    },
+    {
+      "ts": 1781298404637,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-11/10.0.1.11.jsonl.gz",
+      "ms": 46,
+      "bytes": 12582696,
+      "records": 26308,
+      "heap": 1061194323
+    },
+    {
+      "ts": 1781298404764,
+      "cat": "render",
+      "name": "view update",
+      "ms": 113.39999997615814,
+      "records": 928592,
+      "heap": 1064089055
+    },
+    {
+      "ts": 1781298405646,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-11/10.0.1.12_1.jsonl.gz",
+      "ms": 3706.7999999523163,
+      "bytes": 4523311,
+      "cached": false,
+      "heap": 1078344842
+    },
+    {
+      "ts": 1781298405662,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-11/10.0.1.12_1.jsonl.gz",
+      "ms": 15.700000047683716,
+      "bytes": 4523311,
+      "records": 9471,
+      "heap": 1078344842
+    },
+    {
+      "ts": 1781298405778,
+      "cat": "render",
+      "name": "view update",
+      "ms": 111.20000004768372,
+      "records": 938063,
+      "heap": 1088539016
+    },
+    {
+      "ts": 1781298404588.9,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 1047,
+      "heap": 1094675444
+    },
+    {
+      "ts": 1781298405646.1,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 998,
+      "heap": 1094675444
+    },
+    {
+      "ts": 1781298406662,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-11/10.0.1.12.jsonl.gz",
+      "ms": 3868.7999999523163,
+      "bytes": 12582577,
+      "cached": false,
+      "heap": 1094675444
+    },
+    {
+      "ts": 1781298406704,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-11/10.0.1.12.jsonl.gz",
+      "ms": 42.200000047683716,
+      "bytes": 12582577,
+      "records": 26243,
+      "heap": 1119256035
+    },
+    {
+      "ts": 1781298406833,
+      "cat": "render",
+      "name": "view update",
+      "ms": 114.29999995231628,
+      "records": 964306,
+      "heap": 1123869062
+    },
+    {
+      "ts": 1781298406660.6,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 1051,
+      "heap": 1129965843
+    },
+    {
+      "ts": 1781298407727,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-11/10.0.1.13_1.jsonl.gz",
+      "ms": 4024.100000023842,
+      "bytes": 4529624,
+      "cached": false,
+      "heap": 1129965843
+    },
+    {
+      "ts": 1781298407744,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-11/10.0.1.13_1.jsonl.gz",
+      "ms": 16,
+      "bytes": 4529624,
+      "records": 9464,
+      "heap": 1129965843
+    },
+    {
+      "ts": 1781298407866,
+      "cat": "render",
+      "name": "view update",
+      "ms": 117.30000007152557,
+      "records": 973770,
+      "heap": 1155807412
+    },
+    {
+      "ts": 1781298407727.4,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 1017,
+      "heap": 1164176868
+    },
+    {
+      "ts": 1781298408763,
+      "cat": "fetch",
+      "name": "tier-1m/2026-06-11/10.0.1.13.jsonl.gz",
+      "ms": 3998.600000023842,
+      "bytes": 12582518,
+      "cached": false,
+      "heap": 1164176868
+    },
+    {
+      "ts": 1781298408809,
+      "cat": "parse",
+      "name": "tier-1m/2026-06-11/10.0.1.13.jsonl.gz",
+      "ms": 45.799999952316284,
+      "bytes": 12582518,
+      "records": 26250,
+      "heap": 1185491012
+    },
+    {
+      "ts": 1781298408947,
+      "cat": "render",
+      "name": "view update",
+      "ms": 123.10000002384186,
+      "records": 1000020,
+      "heap": 1193155133
+    },
+    {
+      "ts": 1781298410050,
+      "cat": "render",
+      "name": "view update",
+      "ms": 121.69999992847443,
+      "records": 1000020,
+      "heap": 1209261601
+    },
+    {
+      "ts": 1781298410050,
+      "cat": "scan",
+      "name": "scan s3://tracelog-test",
+      "ms": 27971.800000071526,
+      "detail": "56 files (0 cached)",
+      "bytes": 478472589,
+      "records": 1000020,
+      "heap": 1209261601
+    },
+    {
+      "ts": 1781298408761.5,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 2176,
+      "heap": 1215335753
+    },
+    {
+      "ts": 1781298421084,
+      "cat": "render",
+      "name": "/internals/store",
+      "ms": 46.5,
+      "records": 1000020,
+      "heap": 810090548
+    },
+    {
+      "ts": 1781298421035,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 57,
+      "heap": 810090548
+    },
+    {
+      "ts": 1781298421663.6,
+      "cat": "stall",
+      "name": "main thread blocked",
+      "ms": 62,
+      "heap": 811022864
+    }
+  ]
+}
