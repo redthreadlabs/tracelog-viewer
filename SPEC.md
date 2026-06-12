@@ -268,11 +268,16 @@ src/
 
 Data flow: scanbar state → scanner produces a key list → cache/fetch layer
 materializes records → store indexes them → views render from the store and
-subscribe to its updates. Live mode re-fetches `_current` keys on a 60s timer
-and patches the store incrementally — using conditional `GetObject`
-(`If-None-Match: <ETag>`) so an unchanged snapshot costs a 304, not a
-re-download — and re-lists today's prefix each cycle to catch finalization
-(finalized key appears → drop the `_current` copy, §3.5).
+subscribe to its updates. Live mode re-fetches `_current` keys on a 60s
+timer and patches the store incrementally: the per-cycle listing's ETags
+decide which files changed at all (an unchanged snapshot costs nothing —
+cheaper than conditional GETs), and because files are append-only (§3.5) a
+changed snapshot is parsed *incrementally* — the previous byte length and
+boundary bytes are remembered, verified against the new content, and only
+the tail is decoded, parsed (metadata context carried over), and appended;
+any mismatch falls back to a full re-parse. Each cycle also re-lists
+today's prefix to catch finalization (finalized key appears → drop the
+`_current` copy, §3.5).
 
 ---
 

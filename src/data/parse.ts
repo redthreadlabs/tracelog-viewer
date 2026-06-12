@@ -18,6 +18,8 @@ import { RECORD_KINDS, type FileMeta, type Rec, type RecordKind } from './types'
 export interface ParseResult {
   records: Rec[];
   metas: FileMeta[];
+  /** the metadata context in effect at end-of-file (for incremental tails) */
+  lastMeta: FileMeta;
   skippedLines: number;
   unknownKinds: number;
 }
@@ -63,11 +65,15 @@ export function parseRaw(rec: Rec): Record<string, unknown> {
   }
 }
 
-export function parseFile(bytes: Uint8Array, file: ParsedKey): ParseResult {
+export function parseFile(
+  bytes: Uint8Array,
+  file: ParsedKey,
+  initialMeta: FileMeta = {},
+): ParseResult {
   const text = new TextDecoder().decode(bytes);
   const records: Rec[] = [];
   const metas: FileMeta[] = [];
-  let meta: FileMeta = {};
+  let meta: FileMeta = initialMeta;
   let skippedLines = 0;
   let unknownKinds = 0;
 
@@ -108,7 +114,7 @@ export function parseFile(bytes: Uint8Array, file: ParsedKey): ParseResult {
     records.push(normalize(kind as RecordKind, body, line, file, meta));
   }
 
-  return { records, metas, skippedLines, unknownKinds };
+  return { records, metas, lastMeta: meta, skippedLines, unknownKinds };
 }
 
 function extractMeta(body: Record<string, unknown>): FileMeta {

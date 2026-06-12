@@ -50,6 +50,21 @@ export class Store extends EventTarget {
     this.dispatchEvent(new Event('data'));
   }
 
+  /** Append a batch keeping time order (live mode: an append-only tail). */
+  appendSorted(batch: Rec[]): void {
+    if (batch.length === 0) return;
+    for (const rec of batch) {
+      bump(this.kindCounts, rec.kind);
+      bump(this.channelCounts, rec.channel);
+      if (rec.level) bump(this.levelCounts, rec.level);
+      this.hosts.add(rec.host);
+    }
+    this.records.push(...batch);
+    this.records.sort((a, b) => a.ts - b.ts);
+    this.generation++;
+    this.dispatchEvent(new Event('data'));
+  }
+
   /**
    * Replace every record from one source file (live mode: a re-fetched
    * `_current` snapshot supersedes its previous contents; an empty batch
