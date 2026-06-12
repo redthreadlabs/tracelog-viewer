@@ -139,9 +139,12 @@ export function renderOverview(container: HTMLElement): () => void {
     thead.append(
       el('tr', {}, [
         sortableTh('transaction', 'name', ''),
-        sortableTh('count', 'count', 'width:130px;text-align:right'),
-        sortableTh('Σ duration', 'totalDuration', 'width:170px;text-align:right'),
-        el('th', { attrs: { style: 'width:30%' } }), // duration bar gutter
+        sortableTh('count', 'count', 'width:90px;text-align:right'),
+        sortableTh('errors', 'errors', 'width:90px;text-align:right'),
+        sortableTh('avg', 'avg', 'width:100px;text-align:right'),
+        sortableTh('p95', 'p95', 'width:100px;text-align:right'),
+        sortableTh('Σ duration', 'totalDuration', 'width:130px;text-align:right'),
+        el('th', { attrs: { style: 'width:24%' } }), // duration bar gutter
       ]),
     );
     const tbody = el('tbody');
@@ -151,6 +154,21 @@ export function renderOverview(container: HTMLElement): () => void {
         el('td', {
           className: 'num',
           text: fmtCount(group.count),
+          attrs: { style: 'text-align:right' },
+        }),
+        el('td', {
+          className: 'num',
+          text: group.errors > 0 ? fmtCount(group.errors) : '',
+          attrs: { style: 'text-align:right;color:var(--level-error)' },
+        }),
+        el('td', {
+          className: 'num',
+          text: group.avg !== undefined ? fmtDuration(group.avg) : '',
+          attrs: { style: 'text-align:right' },
+        }),
+        el('td', {
+          className: 'num',
+          text: group.p95 !== undefined ? fmtDuration(group.p95) : '',
           attrs: { style: 'text-align:right' },
         }),
         el('td', {

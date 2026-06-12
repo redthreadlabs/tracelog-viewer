@@ -161,3 +161,32 @@ describe('resolveBucketMs / bucketByTime override', () => {
     expect((30 * 86_400_000) / bucketMs).toBeLessThanOrEqual(1500);
   });
 });
+
+describe('TxnGroup p95 / avg / errors', () => {
+  const txn = (name: string, duration: number, result?: string) =>
+    rec({ kind: 'transaction', name, ts: 1000, duration, result });
+
+  it('computes avg, p95, and error counts per group', () => {
+    const records = [
+      txn('GET /a', 100, 'HTTP 2xx'),
+      txn('GET /a', 200, 'HTTP 2xx'),
+      txn('GET /a', 300, 'HTTP 5xx'),
+      txn('GET /a', 400, 'error'),
+    ];
+    const [g] = groupTransactions(records);
+    expect(g.avg).toBe(250);
+    expect(g.p95).toBeCloseTo(385, 0); // linear interpolation over [100..400]
+    expect(g.errors).toBe(2);
+  });
+
+  it('sorts by the new keys', () => {
+    const records = [
+      txn('a', 10, 'HTTP 5xx'),
+      txn('b', 999, 'HTTP 2xx'),
+    ];
+    const groups = groupTransactions(records);
+    expect(sortTxnGroups(groups, 'errors', true)[0].name).toBe('a');
+    expect(sortTxnGroups(groups, 'p95', true)[0].name).toBe('b');
+    expect(sortTxnGroups(groups, 'avg', false)[0].name).toBe('a');
+  });
+});

@@ -98,37 +98,68 @@ export function bucketByTime(
   return { buckets, bucketMs, domain: [start, end] };
 }
 
+export type ResultFamily = 'ok' | 'warn' | 'bad' | 'other';
+
+/** Classify a transaction's result/outcome into a coarse family. */
+export function resultFamily(rec: Rec): ResultFamily {
+  const result = (rec.result ?? '').toLowerCase();
+  const outcome = (rec.outcome ?? '').toLowerCase();
+  if (result.startsWith('http 4')) return 'warn';
+  if (result.startsWith('http 5') || result === 'error' || result === 'failure') return 'bad';
+  if (outcome === 'failure') return 'bad';
+  if (result.startsWith('http 2') || result.startsWith('http 3') || result === 'success') {
+    return 'ok';
+  }
+  if (outcome === 'success') return 'ok';
+  return 'other';
+}
+
 export interface TxnGroup {
   name: string;
   count: number;
   /** ms */
   totalDuration: number;
+  /** ms */
+  avg?: number;
+  /** ms */
+  p95?: number;
+  /** instances whose result family is 'bad' (5xx / error / failure) */
+  errors: number;
 }
 
-export type TxnSortKey = 'name' | 'count' | 'totalDuration';
+export type TxnSortKey = 'name' | 'count' | 'totalDuration' | 'avg' | 'p95' | 'errors';
 
 export function groupTransactions(
   records: Rec[],
   window?: [number, number] | null,
 ): TxnGroup[] {
-  const groups = new Map<string, TxnGroup>();
+  const groups = new Map<string, TxnGroup & { durations: number[] }>();
   for (const r of records) {
     if (r.kind !== 'transaction') continue;
     if (window && (r.ts < window[0] || r.ts > window[1])) continue;
     let group = groups.get(r.name);
     if (!group) {
-      group = { name: r.name, count: 0, totalDuration: 0 };
+      group = { name: r.name, count: 0, totalDuration: 0, errors: 0, durations: [] };
       groups.set(r.name, group);
     }
     group.count++;
     group.totalDuration += r.duration ?? 0;
+    if (r.duration !== undefined) group.durations.push(r.duration);
+    if (resultFamily(r) === 'bad') group.errors++;
   }
-  return [...groups.values()];
+  return [...groups.values()].map(({ durations, ...group }) => {
+    durations.sort((a, b) => a - b);
+    return {
+      ...group,
+      avg: durations.length > 0 ? group.totalDuration / durations.length : undefined,
+      p95: percentile(durations, 95),
+    };
+  });
 }
 
 export function sortTxnGroups(groups: TxnGroup[], key: TxnSortKey, desc: boolean): TxnGroup[] {
   const sorted = [...groups].sort((a, b) =>
-    key === 'name' ? a.name.localeCompare(b.name) : a[key] - b[key],
+    key === 'name' ? a.name.localeCompare(b.name) : (a[key] ?? 0) - (b[key] ?? 0),
   );
   if (desc) sorted.reverse();
   return sorted;

@@ -14,20 +14,9 @@ import { logTicks, timeTickFormat } from './ticks';
 const HEIGHT = 190;
 const MARGIN = { top: 8, right: 10, bottom: 24, left: 56 };
 
-export type ResultFamily = 'ok' | 'warn' | 'bad' | 'other';
+import { resultFamily, type ResultFamily } from '../data/aggregate';
 
-export function resultFamily(rec: Rec): ResultFamily {
-  const result = (rec.result ?? '').toLowerCase();
-  const outcome = (rec.outcome ?? '').toLowerCase();
-  if (result.startsWith('http 4')) return 'warn';
-  if (result.startsWith('http 5') || result === 'error' || result === 'failure') return 'bad';
-  if (outcome === 'failure') return 'bad';
-  if (result.startsWith('http 2') || result.startsWith('http 3') || result === 'success') {
-    return 'ok';
-  }
-  if (outcome === 'success') return 'ok';
-  return 'other';
-}
+export { resultFamily, type ResultFamily };
 
 const FAMILY_TOKEN: Record<ResultFamily, string> = {
   ok: '--kind-span',
