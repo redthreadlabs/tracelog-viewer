@@ -224,10 +224,9 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     const pop = el('div', { className: 'range-pop' });
     const active = currentPresetLabel();
 
-    pop.append(el('div', { className: 'label scol-title', text: 'Quick' }));
-    const quick = el('div', { className: 'preset-grid' });
+    const presets = el('div', { className: 'preset-row' });
     for (const preset of QUICK_PRESETS) {
-      quick.append(
+      presets.append(
         el('button', {
           className: preset.label === active ? 'chip on' : 'chip',
           text: preset.label.replace('Last ', ''),
@@ -240,12 +239,8 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
         }),
       );
     }
-    pop.append(quick);
-
-    pop.append(el('div', { className: 'label scol-title', text: 'Days' }));
-    const days = el('div', { className: 'preset-grid' });
     for (const preset of DAY_PRESETS) {
-      days.append(
+      presets.append(
         el('button', {
           className: preset.label === active ? 'chip on' : 'chip',
           text: preset.label.replace('Last ', ''),
@@ -258,7 +253,7 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
         }),
       );
     }
-    pop.append(days);
+    pop.append(presets);
 
     pop.append(el('div', { className: 'label scol-title', text: 'Custom' }));
     const startInput = datetimeInput(state.startMs, () => {});

@@ -1144,7 +1144,7 @@ th.sortable.on {
   top: calc(100% + 8px);
   left: 0;
   z-index: 40;
-  min-width: 360px;
+  min-width: 420px;
   background: var(--surface-raised);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
@@ -1154,13 +1154,13 @@ th.sortable.on {
   gap: 8px;
 }
 
-.range-pop .preset-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+.range-pop .preset-row {
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
-.range-pop .preset-grid .chip {
+.range-pop .preset-row .chip {
   justify-content: center;
 }
 
