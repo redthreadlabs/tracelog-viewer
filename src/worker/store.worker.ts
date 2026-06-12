@@ -3,6 +3,12 @@
  * every tab), dedicated Worker otherwise (same protocol, per-tab). All the
  * logic lives in backend.ts; this file only routes ports.
  */
+// The AWS SDK's browser build deserializes S3's XML responses with
+// DOMParser, which worker scopes don't provide — polyfill it BEFORE the
+// backend (and therefore the SDK) loads.
+import { DOMParser } from '@xmldom/xmldom';
+(globalThis as unknown as { DOMParser?: unknown }).DOMParser ??= DOMParser;
+
 import { handlePort } from './backend';
 
 const scope = self as unknown as {
