@@ -3,7 +3,7 @@
  * channel and host filters, free-text search, newest/oldest ordering, and a
  * detail drawer with the raw record JSON. Paginated.
  */
-import { el, clear } from '../dom';
+import { el, clear, pendingBlock } from '../dom';
 import { storeClient } from '../../data/storeclient';
 import { perf } from '../../data/perf';
 import { RECORD_KINDS, type Rec, type RecordKind } from '../../data/types';
@@ -53,6 +53,7 @@ export function renderRecordsView(container: HTMLElement): () => void {
   const tbody = el('tbody');
   table.append(thead, tbody);
   wrap.append(table);
+  wrap.append(pendingBlock(160));
 
   /** filtering, windowing, and pagination all happen worker-side */
   async function fetchPage(): Promise<boolean> {
@@ -370,6 +371,7 @@ export function renderRecordsView(container: HTMLElement): () => void {
         lastGeneration = storeClient.snapshot.generation;
         if (!(await fetchPage())) return;
       }
+      wrap.querySelector('.pending-note')?.remove();
       const existingEmpty = wrap.querySelector('.empty');
       if (existingEmpty) existingEmpty.remove();
       if (storeClient.snapshot.recordCount === 0) {

@@ -40,3 +40,14 @@ export function el<K extends keyof HTMLElementTagNameMap>(
 export function clear(node: HTMLElement): void {
   while (node.firstChild) node.removeChild(node.firstChild);
 }
+
+/** Mount-time placeholder: structure renders first, the worker fills it. */
+export function pendingBlock(height = 140): HTMLElement {
+  return el('div', {
+    className: 'faint pending-note',
+    text: 'loading\u2026',
+    attrs: {
+      style: `display:flex;align-items:center;justify-content:center;height:${height}px;font-size:12px`,
+    },
+  });
+}

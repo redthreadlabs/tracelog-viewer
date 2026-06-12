@@ -3,7 +3,7 @@
  * unmatched-route transactions — probes per day, top paths, top user agents, top
  * source IPs. Mostly entertainment.
  */
-import { el, clear } from '../dom';
+import { el, clear, pendingBlock } from '../dom';
 import { storeClient } from '../../data/storeclient';
 import { perf } from '../../data/perf';
 import { type ScannerStats, type RankedCount } from '../../data/scanner-traffic';
@@ -13,6 +13,7 @@ import { fmtCount } from '../format';
 export function renderScannerView(container: HTMLElement): () => void {
   const body = el('div', { className: 'txn-detail-body' });
   container.append(body);
+  body.append(pendingBlock(200));
 
   let token = 0;
   async function render(): Promise<void> {

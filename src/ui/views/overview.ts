@@ -4,7 +4,7 @@
  * chart narrows both; clicking a transaction row opens the per-transaction
  * drill-down view.
  */
-import { el, clear } from '../dom';
+import { el, clear, pendingBlock } from '../dom';
 import { storeClient } from '../../data/storeclient';
 import { perf } from '../../data/perf';
 import { sortTxnGroups, type TxnGroup, type TxnSortKey, type BucketResult } from '../../data/aggregate';
@@ -28,6 +28,15 @@ export function renderOverview(container: HTMLElement): () => void {
 
   const tableSection = el('section', { className: 'txn-section' });
   container.append(chartSection, tableSection);
+
+  // the page's bones render before any data arrives (worker round trip)
+  chartHead.append(el('span', { className: 'label', text: 'Volume' }));
+  chartHost.append(pendingBlock(190));
+  tableSection.append(
+    el('div', { className: 'section-head' }, [
+      el('span', { className: 'label', text: 'Transactions' }),
+    ]),
+  );
 
   async function render(): Promise<void> {
     lastGeneration = storeClient.snapshot.generation;

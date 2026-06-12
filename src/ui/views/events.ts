@@ -5,7 +5,7 @@
  * the primary field-debugging move: "show this user's surrounding events
  * ±5 minutes", arriving via viewState.userContext from any view.
  */
-import { el, clear } from '../dom';
+import { el, clear, pendingBlock } from '../dom';
 import { storeClient } from '../../data/storeclient';
 import { perf } from '../../data/perf';
 import type { Rec } from '../../data/types';
@@ -78,6 +78,7 @@ export function renderEventsView(container: HTMLElement): () => void {
   const tbody = el('tbody');
   table.append(thead, tbody);
   wrap.append(table);
+  wrap.append(pendingBlock(160));
 
   /** filtering, facet counting, and pagination all happen worker-side */
   async function fetchPage(): Promise<boolean> {
@@ -413,6 +414,7 @@ export function renderEventsView(container: HTMLElement): () => void {
         lastGeneration = storeClient.snapshot.generation;
         if (!(await fetchPage())) return;
       }
+      wrap.querySelector('.pending-note')?.remove();
       const existingEmpty = wrap.querySelector('.empty');
       if (existingEmpty) existingEmpty.remove();
       if (poolTotal === 0) {

@@ -3,7 +3,7 @@
  * device — sessions (>15 min gaps), app versions in the wild, slow client
  * events, and event types by volume. Rows link into the events view.
  */
-import { el, clear } from '../dom';
+import { el, clear, pendingBlock } from '../dom';
 import { storeClient } from '../../data/storeclient';
 import { perf } from '../../data/perf';
 import type { Rec } from '../../data/types';
@@ -22,6 +22,7 @@ const SLOW_N = 20;
 export function renderClientsView(container: HTMLElement): () => void {
   const body = el('div', { className: 'txn-detail-body' });
   container.append(body);
+  body.append(pendingBlock(200));
 
   let token = 0;
   async function render(): Promise<void> {

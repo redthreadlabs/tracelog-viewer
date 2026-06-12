@@ -4,7 +4,7 @@
  * duration-over-time scatter, result mix, and the slowest instances, each
  * linking into its trace waterfall.
  */
-import { el, clear } from '../dom';
+import { el, clear, pendingBlock } from '../dom';
 import { storeClient } from '../../data/storeclient';
 import { perf } from '../../data/perf';
 import type { HistBucket } from '../../data/aggregate';
@@ -48,12 +48,12 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
       window: viewState.timeWindow,
     });
     if (t !== token || !container.isConnected) return;
-    renderHead(stats);
+    renderHead();
     renderBody(stats);
     doneRender({ records: stats.count });
   }
 
-  function renderHead(stats: TxnDetail): void {
+  function renderHead(): void {
     clear(head);
     head.append(
       el('button', {
@@ -89,7 +89,6 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
         }),
       );
     }
-    void stats;
   }
 
   function renderBody(stats: TxnDetail): void {
@@ -222,6 +221,10 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
   function openTrace(rec: Rec): void {
     if (rec.traceId) setView(`/trace/${rec.traceId}`);
   }
+
+  // header renders immediately — the name is in the URL, not the data
+  renderHead();
+  body.append(pendingBlock(220));
 
   const onData = () => void render();
   storeClient.addEventListener('data', onData);

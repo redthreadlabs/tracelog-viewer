@@ -3,7 +3,7 @@
  * delay, heap, RSS, CPU) with deployment markers from service.version
  * changes, and span self-time breakdown as stacked bars.
  */
-import { el, clear } from '../dom';
+import { el, clear, pendingBlock } from '../dom';
 import { storeClient } from '../../data/storeclient';
 import { perf } from '../../data/perf';
 import {
@@ -38,6 +38,7 @@ function fmtPct(v: number): string {
 export function renderMetricsView(container: HTMLElement): () => void {
   const body = el('div', { className: 'txn-detail-body' });
   container.append(body);
+  body.append(pendingBlock(200));
 
   let token = 0;
   async function render(): Promise<void> {

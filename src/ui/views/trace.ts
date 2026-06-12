@@ -5,7 +5,7 @@
  * point markers. Clicking any row opens the raw-record drawer. Works for
  * server traces and client perf-timer traces alike.
  */
-import { el, clear } from '../dom';
+import { el, clear, pendingBlock } from '../dom';
 import { storeClient } from '../../data/storeclient';
 import { perf } from '../../data/perf';
 import { spanTypeToken, type TraceModel } from '../../data/trace';
@@ -192,7 +192,18 @@ export function renderTraceView(container: HTMLElement, traceId: string): () => 
     body.append(sheet);
   }
 
-  const onData = () => render();
+  // bones first: back button + title render before the trace arrives
+  head.append(
+    el('button', {
+      className: 'btn btn-quiet',
+      text: '← back',
+      on: { click: () => history.back() },
+    }),
+    el('h2', { className: 'trace-title', text: 'Trace' }),
+  );
+  body.append(pendingBlock(200));
+
+  const onData = () => void render();
   storeClient.addEventListener('data', onData);
   render();
 
