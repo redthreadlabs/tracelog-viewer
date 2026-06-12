@@ -8,27 +8,12 @@ import { scaleUtc, scaleTime, scaleLinear } from 'd3-scale';
 import { axisBottom, axisLeft } from 'd3-axis';
 import { el, clear } from '../ui/dom';
 import type { BreakdownResult } from '../data/metrics';
+import { spanTypeColorToken } from '../data/trace';
 import { fmtDateTime, fmtDuration, isUtcMode } from '../ui/format';
 import { timeTickFormat } from './ticks';
 
 const HEIGHT = 180;
 const MARGIN = { top: 8, right: 12, bottom: 22, left: 56 };
-
-const TYPE_TOKEN_MAP: [RegExp, string][] = [
-  [/^db\/mongodb$/, '--spantype-db-mongodb'],
-  [/^db\/redis$/, '--spantype-db-redis'],
-  [/^db\b/, '--spantype-db'],
-  [/^storage\b/, '--spantype-storage'],
-  [/^(external|http)\b/, '--spantype-external'],
-  [/^(app|custom|client-perf)\b/, '--spantype-app'],
-];
-
-export function spanTypeColorToken(key: string): string {
-  for (const [re, token] of TYPE_TOKEN_MAP) {
-    if (re.test(key)) return token;
-  }
-  return '--spantype-other';
-}
 
 export function renderStackbars(container: HTMLElement, data: BreakdownResult): void {
   clear(container);

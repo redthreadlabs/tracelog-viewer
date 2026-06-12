@@ -33,19 +33,19 @@ export function assembleTrace(records: Rec[], traceId: string): TraceModel {
     .filter((r) => r.kind === 'transaction')
     .sort((a, b) => a.ts - b.ts);
   const root = transactions[0] ?? null;
-  const rootId = root ? str(root.raw.id) : undefined;
+  const rootId = root?.selfId;
 
   const spans = members.filter((r) => r.kind === 'span').sort((a, b) => a.ts - b.ts);
   const points = members
     .filter((r) => r.kind === 'event' || r.kind === 'error')
     .sort((a, b) => a.ts - b.ts);
 
-  // span id → children, parented via raw.parent_id
+  // span id → children, parented via parent_id
   const byParent = new Map<string, Rec[]>();
-  const spanIds = new Set(spans.map((s) => str(s.raw.id)).filter(Boolean) as string[]);
+  const spanIds = new Set(spans.map((s) => s.selfId).filter(Boolean) as string[]);
   const orphans: Rec[] = [];
   for (const span of spans) {
-    const parentId = str(span.raw.parent_id);
+    const parentId = span.parentId;
     if (parentId && (spanIds.has(parentId) || parentId === rootId)) {
       const list = byParent.get(parentId) ?? [];
       list.push(span);
@@ -63,7 +63,7 @@ export function assembleTrace(records: Rec[], traceId: string): TraceModel {
   const visited = new Set<string>();
   function walk(parentId: string, depth: number): void {
     for (const span of byParent.get(parentId) ?? []) {
-      const id = str(span.raw.id);
+      const id = span.selfId;
       if (id && visited.has(id)) continue;
       if (id) visited.add(id);
       rows.push(toRow(span, depth));
@@ -72,7 +72,7 @@ export function assembleTrace(records: Rec[], traceId: string): TraceModel {
   }
   if (rootId) walk(rootId, 1);
   for (const orphan of orphans) {
-    const id = str(orphan.raw.id);
+    const id = orphan.selfId;
     if (id && visited.has(id)) continue;
     if (id) visited.add(id);
     rows.push(toRow(orphan, 1));
@@ -80,7 +80,7 @@ export function assembleTrace(records: Rec[], traceId: string): TraceModel {
   }
   // any remaining (e.g. parented to a missing mid-chain span)
   for (const span of spans) {
-    const id = str(span.raw.id);
+    const id = span.selfId;
     if (id && !visited.has(id)) {
       rows.push(toRow(span, 1));
     }
@@ -114,24 +114,27 @@ function toRow(rec: Rec, depth: number): TraceRow {
   };
 }
 
-function str(value: unknown): string | undefined {
-  return typeof value === 'string' && value !== '' ? value : undefined;
+/** Fixed span-type palette: `type/subtype` key → CSS token (SPEC §7). */
+const TYPE_TOKEN_MAP: [RegExp, string][] = [
+  [/^db\/mongodb$/, '--spantype-db-mongodb'],
+  [/^db\/redis$/, '--spantype-db-redis'],
+  [/^db\b/, '--spantype-db'],
+  [/^storage\b/, '--spantype-storage'],
+  [/^(external|http)\b/, '--spantype-external'],
+  [/^(app|custom|client-perf)\b/, '--spantype-app'],
+];
+
+export function spanTypeColorToken(key: string): string {
+  for (const [re, token] of TYPE_TOKEN_MAP) {
+    if (re.test(key)) return token;
+  }
+  return '--spantype-other';
 }
 
-/** Map a span record's type/subtype onto the fixed span-type palette token. */
+/** Map a record onto the palette: spans by their `type/subtype` result. */
 export function spanTypeToken(rec: Rec): string {
   if (rec.kind === 'transaction') return '--kind-transaction';
   if (rec.kind === 'event') return '--kind-event';
   if (rec.kind === 'error') return '--kind-error';
-  const type = typeof rec.raw.type === 'string' ? rec.raw.type : '';
-  const subtype = typeof rec.raw.subtype === 'string' ? rec.raw.subtype : '';
-  if (type === 'db') {
-    if (subtype === 'mongodb') return '--spantype-db-mongodb';
-    if (subtype === 'redis') return '--spantype-db-redis';
-    return '--spantype-db';
-  }
-  if (type === 'storage') return '--spantype-storage';
-  if (type === 'external' || type === 'http') return '--spantype-external';
-  if (type === 'app' || type === 'custom' || type === 'client-perf') return '--spantype-app';
-  return '--spantype-other';
+  return spanTypeColorToken(rec.result ?? '');
 }

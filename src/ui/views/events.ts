@@ -93,7 +93,7 @@ export function renderEventsView(container: HTMLElement): () => void {
       }
       if (q) {
         const hay = `${r.name} ${r.message ?? ''} ${r.userId ?? ''}`.toLowerCase();
-        if (!hay.includes(q) && !JSON.stringify(r.raw).toLowerCase().includes(q)) return false;
+        if (!hay.includes(q) && !r.rawLine.toLowerCase().includes(q)) return false;
       }
       return true;
     });
@@ -274,13 +274,7 @@ export function renderEventsView(container: HTMLElement): () => void {
   }
 
   function deviceOf(rec: Rec): string {
-    const client = rec.raw.client as Record<string, unknown> | undefined;
-    if (!client) return '';
-    const device = (client.device ?? {}) as Record<string, unknown>;
-    const os = (client.os ?? {}) as Record<string, unknown>;
-    return [device.model, os.name && os.version ? `${os.name} ${os.version}` : os.name]
-      .filter(Boolean)
-      .join(' · ');
+    return [rec.device, rec.os].filter(Boolean).join(' · ');
   }
 
   function renderRows(): void {

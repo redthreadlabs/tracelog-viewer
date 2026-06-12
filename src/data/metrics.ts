@@ -21,9 +21,8 @@ export function runtimeSeries(
   for (const r of records) {
     if (r.kind !== 'metricset' || r.ts <= 0) continue;
     if (window && (r.ts < window[0] || r.ts > window[1])) continue;
-    const samples = r.raw.samples as Record<string, { value?: unknown }> | undefined;
-    const value = samples?.[sampleName]?.value;
-    if (typeof value !== 'number' || !isFinite(value)) continue;
+    const value = r.samples?.[sampleName];
+    if (value === undefined) continue;
     let series = byHost.get(r.host);
     if (!series) {
       series = [];
@@ -84,14 +83,11 @@ export function breakdownSelfTime(
   for (const r of records) {
     if (r.kind !== 'metricset' || r.ts <= 0) continue;
     if (window && (r.ts < window[0] || r.ts > window[1])) continue;
-    const span = r.raw.span as Record<string, unknown> | undefined;
-    if (!span) continue;
-    const raw = r.raw.samples as Record<string, { value?: unknown }> | undefined;
-    const us = raw?.['span.self_time.sum.us']?.value;
-    if (typeof us !== 'number' || !isFinite(us)) continue;
-    const type = typeof span.type === 'string' ? span.type : 'app';
-    const subtype = typeof span.subtype === 'string' ? span.subtype : '';
-    samples.push({ t: r.ts, key: subtype ? `${type}/${subtype}` : type, ms: us / 1000 });
+    // breakdown metricsets carry their span attribution in rec.result
+    if (!r.result) continue;
+    const us = r.samples?.['span.self_time.sum.us'];
+    if (us === undefined) continue;
+    samples.push({ t: r.ts, key: r.result, ms: us / 1000 });
   }
   if (samples.length === 0) return { buckets: [], bucketMs: 60_000, types: [] };
 

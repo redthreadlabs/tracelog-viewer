@@ -12,7 +12,7 @@ function rec(partial: Partial<Rec>): Rec {
     sourceKey: 'k',
     meta: {},
     name: '',
-    raw: {},
+    rawLine: '',
     ...partial,
   };
 }
@@ -20,15 +20,11 @@ function rec(partial: Partial<Rec>): Rec {
 describe('runtimeSeries', () => {
   it('extracts a per-host time-ordered series for one sample', () => {
     const records = [
-      rec({ ts: 2000, raw: { samples: { 'nodejs.memory.heap.used.bytes': { value: 20 } } } }),
-      rec({ ts: 1000, raw: { samples: { 'nodejs.memory.heap.used.bytes': { value: 10 } } } }),
-      rec({
-        ts: 1500,
-        host: 'h2',
-        raw: { samples: { 'nodejs.memory.heap.used.bytes': { value: 99 } } },
-      }),
-      rec({ ts: 3000, raw: { samples: { 'other.metric': { value: 5 } } } }),
-      rec({ ts: 4000, kind: 'event', raw: {} }),
+      rec({ ts: 2000, samples: { 'nodejs.memory.heap.used.bytes': 20 } }),
+      rec({ ts: 1000, samples: { 'nodejs.memory.heap.used.bytes': 10 } }),
+      rec({ ts: 1500, host: 'h2', samples: { 'nodejs.memory.heap.used.bytes': 99 } }),
+      rec({ ts: 3000, samples: { 'other.metric': 5 } }),
+      rec({ ts: 4000, kind: 'event' }),
     ];
     const series = runtimeSeries(records, 'nodejs.memory.heap.used.bytes');
     expect(series.get('h1')).toEqual([
@@ -40,8 +36,8 @@ describe('runtimeSeries', () => {
 
   it('respects the window', () => {
     const records = [
-      rec({ ts: 1000, raw: { samples: { m: { value: 1 } } } }),
-      rec({ ts: 9000, raw: { samples: { m: { value: 2 } } } }),
+      rec({ ts: 1000, samples: { m: 1 } }),
+      rec({ ts: 9000, samples: { m: 2 } }),
     ];
     expect(runtimeSeries(records, 'm', [0, 5000]).get('h1')).toHaveLength(1);
   });
@@ -72,11 +68,8 @@ describe('breakdownSelfTime', () => {
     const mk = (ts: number, type: string, subtype: string | undefined, us: number) =>
       rec({
         ts,
-        raw: {
-          span: subtype ? { type, subtype } : { type },
-          transaction: { name: 'GET /x' },
-          samples: { 'span.self_time.sum.us': { value: us } },
-        },
+        result: subtype ? `${type}/${subtype}` : type,
+        samples: { 'span.self_time.sum.us': us },
       });
     const result = breakdownSelfTime([
       mk(60_000, 'db', 'mongodb', 5000),
@@ -90,7 +83,7 @@ describe('breakdownSelfTime', () => {
 
   it('ignores runtime metricsets without span attribution', () => {
     const result = breakdownSelfTime([
-      rec({ ts: 1000, raw: { samples: { 'span.self_time.sum.us': { value: 100 } } } }),
+      rec({ ts: 1000, samples: { 'span.self_time.sum.us': 100 } }), // no result attribution
     ]);
     expect(result.buckets).toHaveLength(0);
   });

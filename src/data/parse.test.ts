@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseFile } from './parse';
+import { parseFile, parseRaw } from './parse';
 import { parseKey } from '../s3/keys';
 
 const FILE = parseKey('server/2026-06-12/172.31.27.225_current.jsonl.gz', 100)!;
@@ -140,5 +140,62 @@ describe('parseFile', () => {
     const { records } = parseFile(bytes, FILE);
     expect(records[0].result).toBe('db/mongodb');
     expect(records[0].transactionId).toBe('c'.repeat(16));
+  });
+});
+
+describe('eager extraction (lazy-raw memory model)', () => {
+  it('extracts span ids, metricset samples, and client fields at parse time', () => {
+    const bytes = ndjson([
+      META,
+      {
+        span: {
+          name: 's',
+          type: 'db',
+          subtype: 'mongodb',
+          id: 'a'.repeat(16),
+          trace_id: 'b'.repeat(32),
+          transaction_id: 'c'.repeat(16),
+          parent_id: 'c'.repeat(16),
+          timestamp: 5000000,
+          duration: 1,
+        },
+      },
+      {
+        metricset: {
+          timestamp: 6000000,
+          samples: { 'nodejs.eventloop.delay.avg.ms': { value: 1.5 }, bad: { value: 'x' } },
+          span: { type: 'db', subtype: 'mongodb' },
+          transaction: { name: 'GET /x' },
+        },
+      },
+      {
+        event: {
+          type: 'app-startup',
+          timestamp: 7000000,
+          client: {
+            version: '1.4.0',
+            device: { model: 'iPhone 16 Pro' },
+            os: { name: 'iOS', version: '26.5' },
+          },
+        },
+      },
+    ]);
+    const { records } = parseFile(bytes, FILE);
+    const [span, metricset, event] = records;
+    expect(span.selfId).toBe('a'.repeat(16));
+    expect(span.parentId).toBe('c'.repeat(16));
+    expect(metricset.samples).toEqual({ 'nodejs.eventloop.delay.avg.ms': 1.5 });
+    expect(metricset.result).toBe('db/mongodb');
+    expect(event.appVersion).toBe('1.4.0');
+    expect(event.device).toBe('iPhone 16 Pro');
+    expect(event.os).toBe('iOS 26.5');
+  });
+
+  it('keeps the original line and parseRaw round-trips it', () => {
+    const bytes = ndjson([META, { event: { type: 'x', timestamp: 1000000, params: { a: 1 } } }]);
+    const { records } = parseFile(bytes, FILE);
+    expect(records[0].rawLine).toContain('"params"');
+    const raw = parseRaw(records[0]);
+    expect((raw.params as Record<string, unknown>).a).toBe(1);
   });
 });

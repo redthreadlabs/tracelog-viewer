@@ -20,7 +20,7 @@ function rec(partial: Partial<Rec>): Rec {
     sourceKey: 'k',
     meta: {},
     name: 'x',
-    raw: {},
+    rawLine: '',
     ...partial,
   };
 }

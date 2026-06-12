@@ -382,9 +382,14 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
   `TextDecoderStream` + line splitting; a full month of post-cleanup logs
   (~50 MB uncompressed) should load from warm cache in ~1s and from S3 in a
   few seconds on a normal connection.
-- Memory: records stored as parsed objects initially; if a month of data
-  strains memory, switch the store to columnar typed arrays per kind — but
-  do not build that speculatively.
+- Memory: thrift is a feature — every MB of headroom extends how long a
+  growing service stays on tracelog, so memory tricks do not require a
+  measured justification first (decided 2026-06-12). Built in: a manual
+  string intern pool for high-multiplicity fields (V8 internalizes JSON
+  *keys* but never values), and lazy raw — records keep their original
+  NDJSON line as a sliced string plus small eagerly-extracted normalized
+  fields, re-parsing on demand for the drawer. Next on the ladder if the
+  M5 measurements call for it: columnar typed arrays per kind.
 - Always show the fetch budget before scanning (count + bytes from the
   listing), and stream-render: views populate as files land, not after the
   full scan.

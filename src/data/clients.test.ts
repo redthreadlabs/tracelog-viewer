@@ -13,7 +13,7 @@ function rec(partial: Partial<Rec>): Rec {
     sourceKey: 'k',
     meta: {},
     name: 'app',
-    raw: {},
+    rawLine: '',
     ...partial,
   };
 }
@@ -23,11 +23,11 @@ const MIN = 60_000;
 describe('clientProfiles', () => {
   it('groups by user, splits sessions on >15 min gaps, collects device info', () => {
     const records = [
-      rec({ userId: 'u1', ts: 1 * MIN, raw: { client: { version: '1.0.0', device: { model: 'iPhone 16 Pro' }, os: { name: 'iOS', version: '26.5' } } } }),
+      rec({ userId: 'u1', ts: 1 * MIN, appVersion: '1.0.0', device: 'iPhone 16 Pro', os: 'iOS 26.5' }),
       rec({ userId: 'u1', ts: 5 * MIN }),
       rec({ userId: 'u1', ts: 30 * MIN }), // 25 min gap → new session
       rec({ userId: 'u1', ts: 31 * MIN, level: 'error' }),
-      rec({ userId: 'u2', ts: 2 * MIN, raw: { client: { version: '1.1.0' } } }),
+      rec({ userId: 'u2', ts: 2 * MIN, appVersion: '1.1.0' }),
       rec({ userId: 'srv', ts: 3 * MIN, channel: 'server' }), // not client channel
     ];
     const profiles = clientProfiles(records);
@@ -50,10 +50,10 @@ describe('clientProfiles', () => {
 describe('appVersions', () => {
   it('counts users and events per version', () => {
     const records = [
-      rec({ userId: 'u1', ts: MIN, raw: { client: { version: '1.0.0' } } }),
-      rec({ userId: 'u2', ts: MIN, raw: { client: { version: '1.0.0' } } }),
-      rec({ userId: 'u2', ts: 2 * MIN, raw: { client: { version: '1.0.0' } } }),
-      rec({ userId: 'u3', ts: MIN, raw: { client: { version: '1.1.0' } } }),
+      rec({ userId: 'u1', ts: MIN, appVersion: '1.0.0' }),
+      rec({ userId: 'u2', ts: MIN, appVersion: '1.0.0' }),
+      rec({ userId: 'u2', ts: 2 * MIN, appVersion: '1.0.0' }),
+      rec({ userId: 'u3', ts: MIN, appVersion: '1.1.0' }),
     ];
     const versions = appVersions(records);
     expect(versions[0]).toEqual({ version: '1.0.0', users: 2, events: 3 });
@@ -89,19 +89,7 @@ describe('clientEventTypes', () => {
 describe('scannerStats', () => {
   it('aggregates probes per day, top paths/agents/ips', () => {
     const probe = (ts: number, path: string, agent: string, ip: string) =>
-      rec({
-        kind: 'transaction',
-        channel: 'unknown-route',
-        ts,
-        raw: {
-          context: {
-            request: {
-              url: { pathname: path },
-              headers: { 'user-agent': agent, 'x-forwarded-for': `${ip}, 10.0.0.1` },
-            },
-          },
-        },
-      });
+      rec({ kind: 'transaction', channel: 'unknown-route', ts, path, agent, ip });
     const dayMs = 86_400_000;
     const stats = scannerStats([
       probe(dayMs, '/.env', 'zgrab', '1.2.3.4'),

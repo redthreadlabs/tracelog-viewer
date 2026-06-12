@@ -5,6 +5,7 @@
  */
 import { el, clear } from './dom';
 import type { Rec } from '../data/types';
+import { parseRaw } from '../data/parse';
 import { fmtDateTime, zoneLabel } from './format';
 
 export interface DrawerAction {
@@ -30,6 +31,7 @@ export function renderRecDrawer(
     el('span', { className: 'kind-mark', attrs: { style: `background: var(--kind-${rec.kind})` } }),
     el('h3', { text: rec.name }),
   ]);
+  const raw = parseRaw(rec); // lazy: the parsed tree exists only while the drawer is open
   for (const action of actions) {
     head.append(
       el('button', {
@@ -44,7 +46,7 @@ export function renderRecDrawer(
     el('button', {
       className: 'btn btn-quiet',
       text: 'copy',
-      on: { click: () => void navigator.clipboard.writeText(JSON.stringify(rec.raw, null, 2)) },
+      on: { click: () => void navigator.clipboard.writeText(JSON.stringify(raw, null, 2)) },
     }),
     el('button', { className: 'btn btn-quiet', text: '✕', on: { click: onClose } }),
   );
@@ -67,9 +69,9 @@ export function renderRecDrawer(
   metaRow('user', rec.userId);
 
   const body = el('div', { className: 'drawer-body' }, [meta]);
-  const errorBlock = renderErrorBlock(rec);
+  const errorBlock = renderErrorBlock(raw);
   if (errorBlock) body.append(errorBlock);
-  body.append(prettyJson(rec.raw));
+  body.append(prettyJson(raw));
   drawer.append(body);
 }
 
@@ -78,8 +80,8 @@ export function renderRecDrawer(
  * `event.error` or an error record's `exception`/`log` — surface message,
  * type, code, and stack above the raw JSON.
  */
-function renderErrorBlock(rec: Rec): HTMLElement | null {
-  const source = (rec.raw.error ?? rec.raw.exception ?? rec.raw.log) as
+function renderErrorBlock(raw: Record<string, unknown>): HTMLElement | null {
+  const source = (raw.error ?? raw.exception ?? raw.log) as
     | Record<string, unknown>
     | undefined;
   if (!source || typeof source !== 'object') return null;

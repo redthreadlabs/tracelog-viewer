@@ -38,26 +38,9 @@ export function scannerStats(
   for (const r of probes) {
     const day = new Date(r.ts).toISOString().slice(0, 10);
     perDayMap.set(day, (perDayMap.get(day) ?? 0) + 1);
-
-    const context = r.raw.context as Record<string, unknown> | undefined;
-    const request = context?.request as Record<string, unknown> | undefined;
-    const url = request?.url as Record<string, unknown> | undefined;
-    const headers = request?.headers as Record<string, unknown> | undefined;
-
-    const path = typeof url?.pathname === 'string' ? url.pathname : undefined;
-    if (path) paths.set(path, (paths.get(path) ?? 0) + 1);
-
-    const agent = typeof headers?.['user-agent'] === 'string' ? headers['user-agent'] : undefined;
-    if (agent) agents.set(agent, (agents.get(agent) ?? 0) + 1);
-
-    const fwd = headers?.['x-forwarded-for'];
-    const ip =
-      typeof fwd === 'string'
-        ? fwd.split(',')[0].trim()
-        : ((request?.socket as Record<string, unknown> | undefined)?.remote_address as
-            | string
-            | undefined);
-    if (ip) ips.set(ip, (ips.get(ip) ?? 0) + 1);
+    if (r.path) paths.set(r.path, (paths.get(r.path) ?? 0) + 1);
+    if (r.agent) agents.set(r.agent, (agents.get(r.agent) ?? 0) + 1);
+    if (r.ip) ips.set(r.ip, (ips.get(r.ip) ?? 0) + 1);
   }
 
   const rank = (m: Map<string, number>): RankedCount[] =>

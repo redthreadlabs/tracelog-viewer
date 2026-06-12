@@ -12,7 +12,8 @@ import {
   type SeriesPoint,
 } from '../../data/metrics';
 import { renderLine } from '../../viz/line';
-import { renderStackbars, spanTypeColorToken } from '../../viz/stackbars';
+import { renderStackbars } from '../../viz/stackbars';
+import { spanTypeColorToken } from '../../data/trace';
 import { viewState } from '../../state';
 import { fmtBytes, fmtDuration } from '../format';
 

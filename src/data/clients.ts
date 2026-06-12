@@ -55,15 +55,9 @@ export function clientProfiles(
     let device: string | undefined;
     let os: string | undefined;
     for (const r of recs) {
-      const client = r.raw.client as Record<string, unknown> | undefined;
-      if (!client) continue;
-      if (typeof client.version === 'string') versions.add(client.version);
-      const dev = client.device as Record<string, unknown> | undefined;
-      const osObj = client.os as Record<string, unknown> | undefined;
-      if (!device && typeof dev?.model === 'string') device = dev.model;
-      if (!os && typeof osObj?.name === 'string') {
-        os = typeof osObj.version === 'string' ? `${osObj.name} ${osObj.version}` : osObj.name;
-      }
+      if (r.appVersion) versions.add(r.appVersion);
+      if (!device && r.device) device = r.device;
+      if (!os && r.os) os = r.os;
     }
     profiles.push({
       userId,
@@ -93,8 +87,7 @@ export function appVersions(
 ): AppVersionStat[] {
   const byVersion = new Map<string, { users: Set<string>; events: number }>();
   for (const r of clientEvents(records, window)) {
-    const client = r.raw.client as Record<string, unknown> | undefined;
-    const version = typeof client?.version === 'string' ? client.version : undefined;
+    const version = r.appVersion;
     if (!version) continue;
     let stat = byVersion.get(version);
     if (!stat) {
