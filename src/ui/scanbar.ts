@@ -30,6 +30,7 @@ interface ScanbarState {
   endMs: number;
   /** whole-day ranges don't narrow the time window after scanning */
   wholeDays: boolean;
+  rangeOpen: boolean;
   plan: ScanPlan | null;
   planning: boolean;
   live: boolean;
@@ -42,16 +43,25 @@ const DAY_MS = 86_400_000;
 const AUTO_LOAD_LIMIT_BYTES = 25 * 1024 * 1024;
 
 const QUICK_PRESETS: { label: string; minutes: number }[] = [
-  { label: '15 min', minutes: 15 },
-  { label: '1 hr', minutes: 60 },
-  { label: '6 hr', minutes: 360 },
+  { label: 'Last 15 min', minutes: 15 },
+  { label: 'Last 1 hr', minutes: 60 },
+  { label: 'Last 6 hr', minutes: 360 },
 ];
 
 const DAY_PRESETS: { label: string; days: number }[] = [
   { label: 'Today', days: 0 },
-  { label: '7d', days: 6 },
-  { label: '30d', days: 29 },
+  { label: 'Last 7 days', days: 6 },
+  { label: 'Last 30 days', days: 29 },
 ];
+
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** compact local "Jun 10, 09:14" for the pill */
+function shortStamp(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${MONTHS_SHORT[d.getMonth()]} ${d.getDate()}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 /** UTC day label ("2026-06-12") containing an instant. */
 function utcDayOf(ms: number): string {
@@ -89,6 +99,7 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
         startMs: sharedWindow[0],
         endMs: sharedWindow[1],
         wholeDays: false,
+        rangeOpen: false,
         plan: null,
         planning: false,
         live: false,
@@ -98,6 +109,7 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
         startMs: fromDay ? Date.parse(`${fromDay}T00:00:00Z`) : utcDayStart(0),
         endMs: toDay ? Date.parse(`${toDay}T00:00:00Z`) + DAY_MS - 1 : Date.now(),
         wholeDays: true,
+        rangeOpen: false,
         plan: null,
         planning: false,
         live: false,
@@ -185,6 +197,114 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     }
   }
 
+  function currentPresetLabel(): string | null {
+    const now = Date.now();
+    for (const preset of QUICK_PRESETS) {
+      if (
+        !state.wholeDays &&
+        Math.abs(state.endMs - now) < 90_000 &&
+        Math.abs(state.endMs - state.startMs - preset.minutes * 60_000) < 30_000
+      ) {
+        return preset.label;
+      }
+    }
+    for (const preset of DAY_PRESETS) {
+      if (
+        state.wholeDays &&
+        state.startMs === utcDayStart(preset.days) &&
+        utcDayOf(state.endMs) === utcDayOf(now)
+      ) {
+        return preset.label;
+      }
+    }
+    return null;
+  }
+
+  function renderRangePop(): HTMLElement {
+    const pop = el('div', { className: 'range-pop' });
+    const active = currentPresetLabel();
+
+    pop.append(el('div', { className: 'label scol-title', text: 'Quick' }));
+    const quick = el('div', { className: 'preset-grid' });
+    for (const preset of QUICK_PRESETS) {
+      quick.append(
+        el('button', {
+          className: preset.label === active ? 'chip on' : 'chip',
+          text: preset.label.replace('Last ', ''),
+          on: {
+            click: () => {
+              state.rangeOpen = false;
+              setRange(Date.now() - preset.minutes * 60_000, Date.now(), false);
+            },
+          },
+        }),
+      );
+    }
+    pop.append(quick);
+
+    pop.append(el('div', { className: 'label scol-title', text: 'Days' }));
+    const days = el('div', { className: 'preset-grid' });
+    for (const preset of DAY_PRESETS) {
+      days.append(
+        el('button', {
+          className: preset.label === active ? 'chip on' : 'chip',
+          text: preset.label.replace('Last ', ''),
+          on: {
+            click: () => {
+              state.rangeOpen = false;
+              setRange(utcDayStart(preset.days), Date.now(), true);
+            },
+          },
+        }),
+      );
+    }
+    pop.append(days);
+
+    pop.append(el('div', { className: 'label scol-title', text: 'Custom' }));
+    const startInput = datetimeInput(state.startMs, () => {});
+    const endInput = datetimeInput(state.endMs, () => {});
+    pop.append(
+      el('div', { className: 'range-custom' }, [
+        startInput,
+        el('span', { className: 'faint', text: '→' }),
+        endInput,
+        el('button', {
+          className: 'btn btn-primary',
+          text: 'Apply',
+          on: {
+            click: () => {
+              const from = Date.parse(startInput.value);
+              const to = Date.parse(endInput.value);
+              if (isFinite(from) && isFinite(to)) {
+                state.rangeOpen = false;
+                setRange(from, to, false);
+              }
+            },
+          },
+        }),
+      ]),
+    );
+
+    // close on outside click
+    setTimeout(() => {
+      const onDown = (ev: MouseEvent) => {
+        if (!pop.isConnected) {
+          document.removeEventListener('mousedown', onDown);
+          return;
+        }
+        const target = ev.target as Node;
+        if (!pop.contains(target) && !pop.parentElement?.contains(target)) {
+          document.removeEventListener('mousedown', onDown);
+          state.rangeOpen = false;
+          render();
+        }
+      };
+      document.addEventListener('mousedown', onDown);
+    }, 0);
+
+    return pop;
+  }
+
   function render(): void {
     clear(container);
     const bar = el('div', { className: 'scanbar' });
@@ -212,46 +332,26 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     }
     bar.append(channelGroup);
 
-    // range presets + datetime inputs
-    const dateGroup = el('div', { className: 'group' }, [
+    // range: one pill, opening a popover with presets + custom datetimes
+    const dateGroup = el('div', { className: 'group range-wrap' }, [
       el('span', { className: 'label', text: 'Range' }),
     ]);
-    for (const preset of QUICK_PRESETS) {
-      const now = Date.now();
-      const active =
-        !state.wholeDays &&
-        Math.abs(state.endMs - now) < 90_000 &&
-        Math.abs(state.endMs - state.startMs - preset.minutes * 60_000) < 30_000;
-      dateGroup.append(
-        el('button', {
-          className: active ? 'chip on' : 'chip',
-          text: preset.label,
-          title: `the last ${preset.label} (scans the covering day, windows the views)`,
-          on: {
-            click: () => setRange(Date.now() - preset.minutes * 60_000, Date.now(), false),
-          },
-        }),
-      );
+
+    const pillLabel =
+      currentPresetLabel() ?? `${shortStamp(state.startMs)} → ${shortStamp(state.endMs)}`;
+    const pill = el('button', { className: state.rangeOpen ? 'chip range-pill on' : 'chip range-pill' }, [
+      el('span', { text: pillLabel }),
+      el('span', { className: 'caret', text: '▾' }),
+    ]);
+    pill.addEventListener('click', () => {
+      state.rangeOpen = !state.rangeOpen;
+      render();
+    });
+    dateGroup.append(pill);
+
+    if (state.rangeOpen) {
+      dateGroup.append(renderRangePop());
     }
-    for (const preset of DAY_PRESETS) {
-      const presetStart = utcDayStart(preset.days);
-      const active =
-        state.wholeDays &&
-        state.startMs === presetStart &&
-        utcDayOf(state.endMs) === utcDayOf(Date.now());
-      dateGroup.append(
-        el('button', {
-          className: active ? 'chip on' : 'chip',
-          text: preset.label,
-          on: {
-            click: () => setRange(presetStart, Date.now(), true),
-          },
-        }),
-      );
-    }
-    const startInput = datetimeInput(state.startMs, (ms) => setRange(ms, state.endMs, false));
-    const endInput = datetimeInput(state.endMs, (ms) => setRange(state.startMs, ms, false));
-    dateGroup.append(startInput, el('span', { className: 'faint', text: '→' }), endInput);
     bar.append(dateGroup);
 
     // status / confirm + live

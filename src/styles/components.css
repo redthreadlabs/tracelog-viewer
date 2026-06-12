@@ -1126,3 +1126,46 @@ th.sortable.on {
 .kind-stat .num {
   color: var(--ink);
 }
+
+
+/* ---------- range pill + popover ---------- */
+
+.range-wrap {
+  position: relative;
+}
+
+.range-pill .caret {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.range-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  min-width: 360px;
+  background: var(--surface-raised);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.range-pop .preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.range-pop .preset-grid .chip {
+  justify-content: center;
+}
+
+.range-pop .range-custom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
