@@ -241,45 +241,44 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     const pop = el('div', { className: 'range-pop' });
     const active = currentPresetLabel();
 
-    const presets = el('div', { className: 'preset-row' });
-    for (const preset of QUICK_PRESETS) {
+    // left: presets as a vertical menu
+    const presets = el('div', { className: 'range-presets' });
+    const item = (label: string, onPick: () => void) =>
       presets.append(
         el('button', {
-          className: preset.label === active ? 'chip on' : 'chip',
-          text: preset.label.replace('Last ', ''),
+          className: label === active ? 'range-preset on' : 'range-preset',
+          text: label.replace('Last ', ''),
           on: {
             click: () => {
               state.rangeOpen = false;
-              setRange(Date.now() - preset.minutes * 60_000, Date.now(), false);
+              onPick();
             },
           },
         }),
+      );
+    for (const preset of QUICK_PRESETS) {
+      item(preset.label, () =>
+        setRange(Date.now() - preset.minutes * 60_000, Date.now(), false),
       );
     }
     for (const preset of DAY_PRESETS) {
-      presets.append(
-        el('button', {
-          className: preset.label === active ? 'chip on' : 'chip',
-          text: preset.label.replace('Last ', ''),
-          on: {
-            click: () => {
-              state.rangeOpen = false;
-              setRange(utcDayStart(preset.days), Date.now(), true);
-            },
-          },
-        }),
-      );
+      item(preset.label, () => setRange(utcDayStart(preset.days), Date.now(), true));
     }
-    pop.append(presets);
 
-    pop.append(el('div', { className: 'label scol-title', text: 'Custom' }));
+    // right: custom range, inputs stacked, Apply in the lower-right
     const startInput = datetimeInput(state.startMs, () => {});
     const endInput = datetimeInput(state.endMs, () => {});
-    pop.append(
-      el('div', { className: 'range-custom' }, [
+    const custom = el('div', { className: 'range-custom-col' }, [
+      el('div', { className: 'label scol-title', text: 'Custom' }),
+      el('div', { className: 'range-field' }, [
+        el('span', { className: 'label', text: 'start' }),
         startInput,
-        el('span', { className: 'faint', text: '→' }),
+      ]),
+      el('div', { className: 'range-field' }, [
+        el('span', { className: 'label', text: 'end' }),
         endInput,
+      ]),
+      el('div', { className: 'range-apply' }, [
         el('button', {
           className: 'btn btn-primary',
           text: 'Apply',
@@ -295,7 +294,9 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
           },
         }),
       ]),
-    );
+    ]);
+
+    pop.append(presets, el('div', { className: 'sdivider' }), custom);
 
     // close on outside click
     setTimeout(() => {
