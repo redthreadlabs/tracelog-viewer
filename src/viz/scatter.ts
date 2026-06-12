@@ -209,7 +209,12 @@ export function renderScatter(
     const pill = el('button', {
       className: 'chip',
       text: 'sampled',
-      attrs: { style: 'font-size:11px', title: 'this chart draws a sample — click for details' },
+      attrs: {
+        // compact enough not to grow the section-head row: the panel below
+        // must stay flush with its neighbor's top edge
+        style: 'font-size:11px;line-height:1.3;padding:1px 9px;margin:-3px 0',
+        title: 'this chart draws a sample — click for details',
+      },
       on: {
         click: () => {
           const open = pop.style.display === 'block';
