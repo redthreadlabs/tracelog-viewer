@@ -258,8 +258,13 @@ src/
   s3/        client.ts        — SDK wrapper: list, get, head (typed, minimal)
              scanner.ts       — channel discovery + date-range scan planner (§3.2)
   data/      parse.ts         — NDJSON parse, kind dispatch, timestamp normalization
-             store.ts         — in-memory record store + indexes (by kind, trace_id,
-                                transaction name, event type/level, time buckets)
+             store.ts         — in-memory record store + file-rooted index
+                                bundles (per-kind arrays; transactions by
+                                name; records by trace_id) — the logfile is
+                                the root unit of memory management, so
+                                evicting a file drops its whole bundle and
+                                everything GCs together; cross-file queries
+                                merge bundles, memoized per generation
              cache.ts         — IndexedDB cache of *finalized* files keyed by
                                 bucket + S3 key, ETag-checked (immutable, so
                                 cache forever; namespaced because every
@@ -446,6 +451,10 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
   file text via its SlicedString parent); `_current` records keep slices
   of the small live tail. Next on the ladder if the M5 measurements call
   for it: columnar typed arrays per kind, and Worker-side parsing.
+  Interaction latency is index-served, never full-store-scanned (M5
+  finding, 2026-06-12: the drill-down page froze ~25 s at 18k instances —
+  one SVG node per scatter point, plus full-store scans per interaction;
+  fixed by canvas-drawn scatter points and the file-rooted indexes).
 - Loading is automatic and as-needed: the range selection is the consent,
   at any size; progress (bytes, from the listing) is the acknowledgment.
   Stream-render always: views populate as data arrives, not after the
