@@ -15,7 +15,7 @@ export function renderScannerView(container: HTMLElement): () => void {
 
   function render(): void {
     clear(body);
-    const stats = scannerStats(store.records, viewState.timeWindow);
+    const stats = scannerStats(store.kindRecords('transaction'), viewState.timeWindow);
 
     if (stats.total === 0) {
       body.append(

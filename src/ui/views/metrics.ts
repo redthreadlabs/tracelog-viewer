@@ -49,7 +49,7 @@ export function renderMetricsView(container: HTMLElement): () => void {
     const allSeries = new Map<string, Map<string, SeriesPoint[]>>();
     const hosts = new Set<string>();
     for (const spec of SERIES) {
-      const byHost = runtimeSeries(store.records, spec.key, window);
+      const byHost = runtimeSeries(store.kindRecords('metricset'), spec.key, window);
       allSeries.set(spec.key, byHost);
       for (const host of byHost.keys()) hosts.add(host);
     }
@@ -115,7 +115,7 @@ export function renderMetricsView(container: HTMLElement): () => void {
     }
 
     // breakdown self-time
-    const breakdown = breakdownSelfTime(store.records, window, chosenBucketMs());
+    const breakdown = breakdownSelfTime(store.kindRecords('metricset'), window, chosenBucketMs());
     if (breakdown.buckets.length > 0) {
       const legendItems = breakdown.types.slice(0, 8).map((key) =>
         el('span', { className: 'chip', attrs: { style: 'cursor:default' } }, [

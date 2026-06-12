@@ -107,7 +107,7 @@ export function renderOverview(container: HTMLElement): () => void {
     clear(tableSection);
 
     const groups = sortTxnGroups(
-      groupTransactions(store.records, viewState.timeWindow),
+      groupTransactions(store.kindRecords('transaction'), viewState.timeWindow),
       sortKey,
       sortDesc,
     );

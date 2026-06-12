@@ -6,7 +6,7 @@
  * ±5 minutes", arriving via viewState.userContext from any view.
  */
 import { el, clear } from '../dom';
-import { store } from '../../data/store';
+import { store, mergeByTime } from '../../data/store';
 import type { Rec } from '../../data/types';
 import { viewState } from '../../state';
 import { renderRecDrawer, type DrawerAction } from '../recdrawer';
@@ -74,7 +74,7 @@ export function renderEventsView(container: HTMLElement): () => void {
   wrap.append(table);
 
   function pool(): Rec[] {
-    return store.records.filter((r) => r.kind === 'event' || r.kind === 'error');
+    return mergeByTime(store.kindRecords('event'), store.kindRecords('error'));
   }
 
   function applyFilters(): void {

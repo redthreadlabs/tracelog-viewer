@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Store } from './store';
+import { Store, mergeByTime } from './store';
 import type { Rec } from './types';
 
 function rec(partial: Partial<Rec>): Rec {
@@ -118,5 +118,76 @@ describe('data-event throttling during a scan', () => {
     // the scan's closing sort must never be throttled away
     s.sortByTime();
     expect(events).toBe(3);
+  });
+});
+
+describe('file-rooted indexes', () => {
+  const mk = (partial: Partial<Rec>): Rec => rec({ kind: 'transaction', ...partial });
+
+  it('serves transactions by name across files, time-sorted', () => {
+    const s = new Store();
+    s.addBatch([
+      mk({ name: 'GET /api/feed', ts: 30, sourceKey: 'f1' }),
+      mk({ name: 'GET /api/feed', ts: 10, sourceKey: 'f1' }),
+      mk({ name: 'GET /healthz', ts: 20, sourceKey: 'f1' }),
+    ]);
+    s.addBatch([mk({ name: 'GET /api/feed', ts: 20, sourceKey: 'f2' })]);
+    expect(s.transactionsNamed('GET /api/feed').map((r) => r.ts)).toEqual([10, 20, 30]);
+    expect(s.transactionsNamed('GET /healthz')).toHaveLength(1);
+    expect(s.transactionsNamed('nope')).toEqual([]);
+  });
+
+  it('serves trace records across kinds and files', () => {
+    const s = new Store();
+    s.addBatch([
+      mk({ ts: 10, traceId: 't1', sourceKey: 'f1' }),
+      rec({ kind: 'span', ts: 12, traceId: 't1', sourceKey: 'f1' }),
+      rec({ kind: 'error', ts: 14, traceId: 't1', sourceKey: 'f2' }),
+      rec({ kind: 'span', ts: 11, traceId: 'other', sourceKey: 'f1' }),
+    ]);
+    expect(s.traceRecords('t1').map((r) => r.kind)).toEqual(['transaction', 'span', 'error']);
+  });
+
+  it('memoizes kindRecords per generation and invalidates on change', () => {
+    const s = new Store();
+    s.addBatch([rec({ kind: 'event', ts: 2 }), rec({ kind: 'event', ts: 1 })]);
+    const first = s.kindRecords('event');
+    expect(first.map((r) => r.ts)).toEqual([1, 2]);
+    expect(s.kindRecords('event')).toBe(first); // same generation → same array
+    s.addBatch([rec({ kind: 'event', ts: 3 })]);
+    const second = s.kindRecords('event');
+    expect(second).not.toBe(first);
+    expect(second).toHaveLength(3);
+  });
+
+  it('dropFile removes a file from every index at once', () => {
+    const s = new Store();
+    s.addBatch([
+      mk({ name: 'GET /x', ts: 1, traceId: 'tA', sourceKey: 'f1' }),
+      mk({ name: 'GET /x', ts: 2, traceId: 'tB', sourceKey: 'f2' }),
+    ]);
+    s.dropFile('f1');
+    expect(s.transactionsNamed('GET /x')).toHaveLength(1);
+    expect(s.traceRecords('tA')).toEqual([]);
+    expect(s.kindRecords('transaction')).toHaveLength(1);
+  });
+
+  it('replaceFile reindexes only that file', () => {
+    const s = new Store();
+    s.addBatch([mk({ name: 'GET /x', ts: 1, sourceKey: 'live' })]);
+    s.replaceFile('live', [
+      mk({ name: 'GET /x', ts: 1, sourceKey: 'live' }),
+      mk({ name: 'GET /x', ts: 2, sourceKey: 'live' }),
+    ]);
+    expect(s.transactionsNamed('GET /x')).toHaveLength(2);
+  });
+});
+
+describe('mergeByTime', () => {
+  it('merges two sorted arrays stably', () => {
+    const a = [rec({ ts: 1 }), rec({ ts: 3 })];
+    const b = [rec({ ts: 2 }), rec({ ts: 4 })];
+    expect(mergeByTime(a, b).map((r) => r.ts)).toEqual([1, 2, 3, 4]);
+    expect(mergeByTime([], b)).toBe(b);
   });
 });

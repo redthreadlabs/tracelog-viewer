@@ -22,7 +22,8 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
   container.append(head, body);
 
   function render(): void {
-    const stats = transactionStats(store.records, name, viewState.timeWindow);
+    // the name index narrows 1M records to this transaction's instances
+    const stats = transactionStats(store.transactionsNamed(name), name, viewState.timeWindow);
     renderHead(stats);
     renderBody(stats);
   }

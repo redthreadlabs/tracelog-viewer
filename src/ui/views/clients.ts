@@ -4,7 +4,7 @@
  * events, and event types by volume. Rows link into the events view.
  */
 import { el, clear } from '../dom';
-import { store } from '../../data/store';
+import { store, mergeByTime } from '../../data/store';
 import {
   clientProfiles,
   appVersions,
@@ -25,7 +25,9 @@ export function renderClientsView(container: HTMLElement): () => void {
   function render(): void {
     clear(body);
     const window = viewState.timeWindow;
-    const profiles = clientProfiles(store.records, window);
+    // client analytics only ever looks at events ∪ errors (~15% of records)
+    const pool = mergeByTime(store.kindRecords('event'), store.kindRecords('error'));
+    const profiles = clientProfiles(pool, window);
 
     if (profiles.length === 0) {
       body.append(
@@ -38,9 +40,9 @@ export function renderClientsView(container: HTMLElement): () => void {
       return;
     }
 
-    const versions = appVersions(store.records, window);
-    const slow = slowClientEvents(store.records, window);
-    const types = clientEventTypes(store.records, window);
+    const versions = appVersions(pool, window);
+    const slow = slowClientEvents(pool, window);
+    const types = clientEventTypes(pool, window);
 
     // --- stat cards ---
     const cards = el('div', { className: 'stat-cards' });

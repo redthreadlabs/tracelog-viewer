@@ -24,7 +24,7 @@ export function renderTraceView(container: HTMLElement, traceId: string): () => 
   container.append(head, body, drawer);
 
   function render(): void {
-    const model = assembleTrace(store.records, traceId);
+    const model = assembleTrace(store.traceRecords(traceId), traceId);
     renderHead(model);
     renderWaterfall(model);
   }

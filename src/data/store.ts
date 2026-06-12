@@ -7,6 +7,34 @@ import type { Rec, RecordKind } from './types';
 import type { ParsedKey } from '../s3/keys';
 import { perf } from './perf';
 
+/**
+ * Per-file index bundle (SPEC §5, §8): the logfile is the root unit of
+ * memory management, so every index lives inside its file's bundle —
+ * dropping the file drops the indexes, and everything GCs together. The
+ * arrays hold references to the same Rec objects as `records`; the cost
+ * is pointers, not copies. Cross-file queries (Store.kindRecords,
+ * transactionsNamed, traceRecords) merge bundles on demand.
+ */
+interface FileIndex {
+  /** records of this file, in arrival (≈ time) order */
+  records: Rec[];
+  byKind: Map<RecordKind, Rec[]>;
+  /** transactions only, keyed by transaction name */
+  txnsByName: Map<string, Rec[]>;
+  /** every record carrying a trace_id (txns, spans, errors, events) */
+  byTrace: Map<string, Rec[]>;
+}
+
+function emptyIndex(): FileIndex {
+  return { records: [], byKind: new Map(), txnsByName: new Map(), byTrace: new Map() };
+}
+
+function push<K>(map: Map<K, Rec[]>, key: K, rec: Rec): void {
+  const list = map.get(key);
+  if (list) list.push(rec);
+  else map.set(key, [rec]);
+}
+
 /** What the store knows about one loaded source file (for the inspector). */
 export interface FileInfo {
   key: string;
@@ -49,6 +77,62 @@ export class Store extends EventTarget {
   /** monotonically increasing; views compare to know the data changed */
   generation = 0;
 
+  private fileIndexes = new Map<string, FileIndex>();
+  /** merged per-kind arrays, memoized per generation (built on first use) */
+  private kindCache = new Map<RecordKind, { gen: number; arr: Rec[] }>();
+
+  private indexBatch(batch: Rec[]): void {
+    for (const rec of batch) {
+      let index = this.fileIndexes.get(rec.sourceKey);
+      if (!index) {
+        index = emptyIndex();
+        this.fileIndexes.set(rec.sourceKey, index);
+      }
+      index.records.push(rec);
+      push(index.byKind, rec.kind, rec);
+      if (rec.kind === 'transaction') push(index.txnsByName, rec.name, rec);
+      if (rec.traceId) push(index.byTrace, rec.traceId, rec);
+    }
+  }
+
+  /**
+   * All records of one kind, time-sorted, merged across files. Memoized per
+   * generation: the first caller after a data change pays one merge+sort,
+   * everyone else reads it free.
+   */
+  kindRecords(kind: RecordKind): Rec[] {
+    const hit = this.kindCache.get(kind);
+    if (hit && hit.gen === this.generation) return hit.arr;
+    const arr: Rec[] = [];
+    for (const index of this.fileIndexes.values()) {
+      const list = index.byKind.get(kind);
+      if (list) for (const rec of list) arr.push(rec);
+    }
+    arr.sort((a, b) => a.ts - b.ts);
+    this.kindCache.set(kind, { gen: this.generation, arr });
+    return arr;
+  }
+
+  /** All transactions with this name, time-sorted (drill-down page). */
+  transactionsNamed(name: string): Rec[] {
+    const arr: Rec[] = [];
+    for (const index of this.fileIndexes.values()) {
+      const list = index.txnsByName.get(name);
+      if (list) for (const rec of list) arr.push(rec);
+    }
+    return arr.sort((a, b) => a.ts - b.ts);
+  }
+
+  /** Every record of one trace, time-sorted (waterfall assembly). */
+  traceRecords(traceId: string): Rec[] {
+    const arr: Rec[] = [];
+    for (const index of this.fileIndexes.values()) {
+      const list = index.byTrace.get(traceId);
+      if (list) for (const rec of list) arr.push(rec);
+    }
+    return arr.sort((a, b) => a.ts - b.ts);
+  }
+
   /** Record (or update) what we know about a loaded source file. */
   registerFile(file: ParsedKey, uncompressedBytes: number, append = false): void {
     const existing = this.files.get(file.key);
@@ -80,6 +164,7 @@ export class Store extends EventTarget {
       if (rec.level) bump(this.levelCounts, rec.level);
       this.hosts.add(rec.host);
     }
+    this.indexBatch(batch);
     this.generation++;
     this.emitData();
   }
@@ -102,6 +187,7 @@ export class Store extends EventTarget {
     }
     this.records.push(...batch);
     this.records.sort((a, b) => a.ts - b.ts);
+    this.indexBatch(batch);
     this.generation++;
     this.emitData();
   }
@@ -115,6 +201,8 @@ export class Store extends EventTarget {
     this.records = this.records.filter((r) => r.sourceKey !== sourceKey);
     this.records.push(...batch);
     this.records.sort((a, b) => a.ts - b.ts);
+    this.fileIndexes.delete(sourceKey); // the whole bundle GCs at once
+    this.indexBatch(batch);
     this.rebuildIndexes();
     this.generation++;
     this.emitData();
@@ -135,6 +223,8 @@ export class Store extends EventTarget {
 
   clear(): void {
     this.records = [];
+    this.fileIndexes.clear();
+    this.kindCache.clear();
     this.kindCounts.clear();
     this.channelCounts.clear();
     this.levelCounts.clear();
@@ -187,6 +277,20 @@ export class Store extends EventTarget {
     this.progress = { ...this.progress, ...progress };
     this.dispatchEvent(new Event('progress'));
   }
+}
+
+/** Merge two ts-sorted record arrays into one (events ∪ errors, etc.). */
+export function mergeByTime(a: Rec[], b: Rec[]): Rec[] {
+  if (a.length === 0) return b;
+  if (b.length === 0) return a;
+  const out: Rec[] = new Array<Rec>(a.length + b.length);
+  let i = 0;
+  let j = 0;
+  let k = 0;
+  while (i < a.length && j < b.length) out[k++] = a[i].ts <= b[j].ts ? a[i++] : b[j++];
+  while (i < a.length) out[k++] = a[i++];
+  while (j < b.length) out[k++] = b[j++];
+  return out;
 }
 
 function bump<K>(map: Map<K, number>, key: K): void {
