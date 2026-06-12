@@ -1,6 +1,6 @@
 /**
  * Scanner traffic view (SPEC §6.7): a deliberately small page for the
- * unknown-route channel — probes per day, top paths, top user agents, top
+ * unmatched-route transactions — probes per day, top paths, top user agents, top
  * source IPs. Mostly entertainment.
  */
 import { el, clear } from '../dom';
@@ -22,7 +22,7 @@ export function renderScannerView(container: HTMLElement): () => void {
         el('div', { className: 'empty' }, [
           el('div', { className: 'fleuron', text: '❧' }),
           el('h3', { text: 'No scanner traffic in the scan' }),
-          el('p', { text: 'Include the unknown-route channel in the scan range above.' }),
+          el('p', { text: 'Requests that matched no route (\u201cGET unknown route\u201d) appear here.' }),
         ]),
       );
       return;

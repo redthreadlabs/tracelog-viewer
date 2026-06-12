@@ -98,6 +98,19 @@ const ROUTES = [
   { name: 'GET /api/notifications',    w: 6,  med: 35,  sig: 0.7, spans: ['redis', 'pg'],          err: 0.002, user: 1 },
   { name: 'POST /api/auth/login',      w: 4,  med: 110, sig: 0.7, spans: ['pg', 'http'],           err: 0.01, user: 0.5 },
   { name: 'GET /api/admin/reports',    w: 2,  med: 450, sig: 0.9, spans: ['pg', 'pg', 'es'],       err: 0.004, user: 1 },
+  // internet background noise: requests matching no route — the agent names
+  // these `<METHOD> unknown route`, which is what the scanner view keys on
+  { name: 'GET unknown route',         w: 3,  med: 2,   sig: 0.5, spans: [],                       err: 0, user: 0, scanner: true },
+];
+
+const SCANNER_PATHS = [
+  '/.env', '/wp-login.php', '/xmlrpc.php', '/admin/config.php', '/.git/config',
+  '/cgi-bin/luci', '/owa/auth/logon.aspx', '/phpmyadmin/index.php', '/actuator/health',
+  '/boaform/admin/formLogin', '/.aws/credentials', '/vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php',
+];
+const SCANNER_AGENTS = [
+  'zgrab/0.x', 'python-requests/2.32', 'Go-http-client/1.1', 'curl/8.5.0',
+  'Mozilla/5.0 (compatible; CensysInspect/1.1)', 'masscan/1.3', 'Mozilla/5.0 zgrab/0.x',
 ];
 const ROUTE_W = ROUTES.reduce((s, r) => s + r.w, 0);
 
@@ -179,7 +192,9 @@ function makeRequest(t, tsMs, route, version, users, errMult = 1) {
     Math.exp(Math.log(route.med) + route.sig * t.normal())));
   const failed = t.rng() < route.err * errMult;
   const clientErr = !failed && t.rng() < 0.03;
-  const status = failed ? 500 : clientErr ? t.pick([400, 404, 404]) : 200;
+  const status = route.scanner
+    ? t.pick([404, 404, 404, 400, 403])
+    : failed ? 500 : clientErr ? t.pick([400, 404, 404]) : 200;
   const userId = t.rng() < route.user ? t.pick(users) : null;
 
   // spans: route profile, occasionally dropping or repeating one
@@ -209,7 +224,9 @@ function makeRequest(t, tsMs, route, version, users, errMult = 1) {
   }
 
   const tsUs = Math.round(tsMs * 1000);
-  const [method, path] = route.name.split(' ');
+  const method = route.name.split(' ')[0];
+  const path = route.scanner ? t.pick(SCANNER_PATHS) : route.name.split(' ')[1];
+  const ua = route.scanner ? t.pick(SCANNER_AGENTS) : 'fleet-app/1.0';
   recs.push({ ts: tsUs, line: JSON.stringify({ transaction: {
     id: txnId, trace_id: traceId, name: route.name, type: 'request',
     duration: Math.round(dur * 1000) / 1000, timestamp: tsUs,
@@ -220,7 +237,7 @@ function makeRequest(t, tsMs, route, version, users, errMult = 1) {
       request: {
         method, http_version: '1.1',
         url: { protocol: 'https:', hostname: 'api.fleet.example', pathname: path, full: `https://api.fleet.example${path}` },
-        headers: { 'user-agent': 'fleet-app/1.0', accept: 'application/json' },
+        headers: { 'user-agent': ua, accept: 'application/json' },
         socket: { remote_address: `203.0.${t.int(0, 31)}.${t.int(1, 254)}` },
       },
       response: { status_code: status, finished: true, headers_sent: true },

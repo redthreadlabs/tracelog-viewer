@@ -1,6 +1,11 @@
 /**
- * Client analytics (SPEC §6.6): the client channel cut by user and device.
- * Opinionated only in its display defaults, generic in mechanism. Pure logic.
+ * Client analytics (SPEC §6.6): client-originated records cut by user and
+ * device. Selection is content-based — a record "comes from a client" when
+ * it carries client identity (device / OS / app version from
+ * `event.client.*`) — with a channel conventionally named `client` honored
+ * as a secondary hint for deployments whose older clients sent no identity.
+ * Channel names are deployment-specific; content is the contract (§3.2).
+ * Pure logic.
  */
 import type { Rec } from './types';
 
@@ -22,11 +27,21 @@ export interface ClientProfile {
   appVersions: string[];
 }
 
+/** Content first, conventional channel name as a courtesy. */
+export function isClientRec(r: Rec): boolean {
+  return (
+    (r.kind === 'event' || r.kind === 'error') &&
+    (r.device !== undefined ||
+      r.os !== undefined ||
+      r.appVersion !== undefined ||
+      r.channel === 'client')
+  );
+}
+
 function clientEvents(records: Rec[], window?: [number, number] | null): Rec[] {
   return records.filter(
     (r) =>
-      r.channel === 'client' &&
-      (r.kind === 'event' || r.kind === 'error') &&
+      isClientRec(r) &&
       r.ts > 0 &&
       (!window || (r.ts >= window[0] && r.ts <= window[1])),
   );

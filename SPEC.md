@@ -356,16 +356,25 @@ record JSON.
 
 ### 6.6 Client analytics
 
-The client channel cut by `user.id` / device: sessions (gaps > 15 min),
+Client-originated records cut by `user.id` / device. Selection is
+**content-based** — an event/error counts as client-originated when it
+carries client identity (`event.client.*` device / OS / app version);
+a channel conventionally named `client` is honored as a secondary hint
+(channel names are deployment-specific, content is the contract, §3.2).
+The cuts: sessions (gaps > 15 min),
 app versions in the wild, slow-query perf events (everything ≥ the 100 ms
 client threshold), review-session funnels from lifecycle events. This view
 is opinionated only in its display defaults and generic in mechanism
 (group by `event.type`).
 
-### 6.7 Scanner traffic (unknown-route)
+### 6.7 Scanner traffic (unmatched routes)
 
 A deliberately small view: probes per day, top requested paths, top user
-agents. Mostly entertainment; excluded from all other rollups.
+agents. Selection is **content-based**: agents name a transaction that
+matched no route `<METHOD> unknown route`, so that name is the signal in
+any deployment; a channel conventionally named `unknown-route` (write-time
+diversion) is honored as a secondary hint. Mostly entertainment; excluded
+from all other rollups.
 
 ### 6.8 Viewer performance (#/internals/perf)
 

@@ -1,5 +1,5 @@
 /**
- * Client analytics view (SPEC §6.6): the client channel cut by user and
+ * Client analytics view (SPEC §6.6): client-identified events cut by user and
  * device — sessions (>15 min gaps), app versions in the wild, slow client
  * events, and event types by volume. Rows link into the events view.
  */
@@ -31,8 +31,8 @@ export function renderClientsView(container: HTMLElement): () => void {
       body.append(
         el('div', { className: 'empty' }, [
           el('div', { className: 'fleuron', text: '❧' }),
-          el('h3', { text: 'No client-channel data in the scan' }),
-          el('p', { text: 'Include the client channel in the scan range above.' }),
+          el('h3', { text: 'No client-identified events in the scan' }),
+          el('p', { text: 'Events carrying client identity (device, OS, app version) appear here.' }),
         ]),
       );
       return;

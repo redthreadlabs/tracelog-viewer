@@ -1,8 +1,21 @@
 /**
- * Scanner traffic (SPEC §6.7): the unknown-route channel — internet
- * background noise hitting the public ALB. Deliberately small. Pure logic.
+ * Scanner traffic (SPEC §6.7): internet background noise probing the public
+ * endpoint. Selection is content-based: Elastic-lineage agents name a
+ * transaction that matched no route `<METHOD> unknown route`, so that name
+ * is the contract in every deployment; a channel conventionally named
+ * `unknown-route` (deployments that divert the noise at write time) is
+ * honored as a secondary hint. Deliberately small. Pure logic.
  */
 import type { Rec } from './types';
+
+const UNKNOWN_ROUTE = /^[A-Z]+ unknown route$/;
+
+export function isScannerRec(r: Rec): boolean {
+  return (
+    r.kind === 'transaction' &&
+    (UNKNOWN_ROUTE.test(r.name ?? '') || r.channel === 'unknown-route')
+  );
+}
 
 export interface RankedCount {
   key: string;
@@ -24,8 +37,7 @@ export function scannerStats(
 ): ScannerStats {
   const probes = records.filter(
     (r) =>
-      r.channel === 'unknown-route' &&
-      r.kind === 'transaction' &&
+      isScannerRec(r) &&
       r.ts > 0 &&
       (!window || (r.ts >= window[0] && r.ts <= window[1])),
   );

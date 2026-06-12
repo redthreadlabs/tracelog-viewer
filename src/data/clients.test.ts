@@ -104,3 +104,28 @@ describe('scannerStats', () => {
     expect(stats.topIps[0]).toEqual({ key: '1.2.3.4', count: 2 });
   });
 });
+
+describe('content-based selection (channel names are deployment-specific)', () => {
+  it('counts events with client identity from ANY channel as client events', () => {
+    const records = [
+      rec({ userId: 'u1', ts: MIN, channel: 'tier-1m', device: 'Pixel 9', os: 'Android 15' }),
+      rec({ userId: 'u1', ts: 2 * MIN, channel: 'tier-1m', appVersion: '2.4.0' }),
+      rec({ userId: 'u2', ts: MIN, channel: 'server' }), // no identity, no client channel
+    ];
+    const profiles = clientProfiles(records);
+    expect(profiles).toHaveLength(1);
+    expect(profiles[0].userId).toBe('u1');
+    expect(profiles[0].events).toBe(2);
+  });
+
+  it('counts unmatched-route transactions from ANY channel as scanner probes', () => {
+    const stats = scannerStats([
+      rec({ kind: 'transaction', channel: 'tier-1m', name: 'GET unknown route', ts: MIN, path: '/.env' }),
+      rec({ kind: 'transaction', channel: 'tier-1m', name: 'POST unknown route', ts: MIN, path: '/xmlrpc.php' }),
+      rec({ kind: 'transaction', channel: 'tier-1m', name: 'GET /api/users/:id', ts: MIN }), // routed fine
+      rec({ kind: 'event', channel: 'tier-1m', name: 'GET unknown route', ts: MIN }), // not a transaction
+    ]);
+    expect(stats.total).toBe(2);
+    expect(stats.topPaths[0]).toEqual({ key: '/.env', count: 1 });
+  });
+});
