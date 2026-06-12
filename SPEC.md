@@ -286,16 +286,15 @@ today's prefix to catch finalization (finalized key appears → drop the
 ### 6.0 Shell
 
 Persistent header: profile picker, scanbar (channels multi-select populated
-by discovery; datetime-range picker with quick presets — 15 min, 1 hr,
-6 hr, today, 7d, 30d; LIVE toggle). Selecting a range **loads it
-automatically** when the download is small (≤25 MB compressed); a larger
-range shows its size and waits for an explicit "Load" — the budget-first
-rule exists to prevent surprise downloads, not to make users think about
-files. Sub-day ranges scan the covering UTC day(s) and narrow the viewed
-time window to the precise range (the same mechanism as the chart brush).
-The loaded readout ("12,345 records · 48 MB") links to the store
-inspector, the opt-in page where file-level detail (per-file sizes,
-counts, eviction) lives.
+by discovery; datetime-range picker with quick presets — 15 min through
+30 d; LIVE toggle). Setting a range **is the user's intent**: the app
+fetches whatever satisfies it, behind the scenes and as needed, with
+loading progress ("loading 12 MB of 48 MB…") as the only acknowledgment —
+no confirmation step at any size (decided 2026-06-13). Sub-day ranges
+scan the covering UTC day(s) and narrow the viewed time window to the
+precise range (the same mechanism as the chart brush). The loaded readout
+("12,345 records · 48 MB") links to the store inspector, the opt-in page
+where file-level detail (per-file sizes, counts, eviction) lives.
 
 ### 6.1 Overview dashboard
 
@@ -402,10 +401,10 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
   NDJSON line as a sliced string plus small eagerly-extracted normalized
   fields, re-parsing on demand for the drawer. Next on the ladder if the
   M5 measurements call for it: columnar typed arrays per kind.
-- No surprise downloads: small ranges load automatically; ranges beyond
-  the auto-load limit show their size (from the listing alone) and wait
-  for explicit confirmation. Stream-render either way: views populate as
-  data arrives, not after the full scan.
+- Loading is automatic and as-needed: the range selection is the consent,
+  at any size; progress (bytes, from the listing) is the acknowledgment.
+  Stream-render always: views populate as data arrives, not after the
+  full scan. The IndexedDB cache keeps repeat ranges near-free.
 - IndexedDB cache (§5) makes every revisit to finalized days free; `ETag`
   equality is the immutability check.
 
@@ -485,7 +484,8 @@ or date rather than abandon tracelog entirely.
   noted here so it isn't forgotten.
 - **UX before plumbing** (2026-06-12): the app is oriented around the
   user's questions, not its own mechanics — "files" are a managed detail,
-  surfaced only in the store inspector. Concretely: ranges auto-load when
-  small, only large downloads ask, chrome copy counts records and bytes
-  rather than files, and future features should prefer "the app handled
-  it" over "the app asked me about it".
+  surfaced only in the store inspector. Concretely: setting a range is the
+  consent — loading is automatic at any size with progress as the only
+  acknowledgment (large-download confirmation removed 2026-06-13); chrome
+  copy counts records and bytes rather than files; and future features
+  should prefer "the app handled it" over "the app asked me about it".

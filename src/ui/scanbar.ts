@@ -9,9 +9,10 @@
  * chart brush, encoded in the `w` hash param). Quick presets ("15 min")
  * scan the covering day(s) and window down to the precise range.
  *
- * UX rule: files are plumbing. Selecting a range *loads it* automatically
- * when the download is small; only a large range shows its size and asks
- * first. File detail lives in the store inspector, on demand.
+ * UX rule: files are plumbing. Setting a range *is* the user's intent —
+ * the app fetches whatever satisfies it, behind the scenes, with progress
+ * as the only acknowledgment. File detail lives in the store inspector,
+ * on demand.
  */
 import { el, clear } from './dom';
 import { LogBucket } from '../s3/client';
@@ -39,9 +40,6 @@ interface ScanbarState {
 }
 
 const DAY_MS = 86_400_000;
-
-/** Ranges at or under this (compressed) load without asking. */
-const AUTO_LOAD_LIMIT_BYTES = 25 * 1024 * 1024;
 
 const QUICK_PRESETS: { label: string; minutes: number }[] = [
   { label: 'Last 15 min', minutes: 15 },
@@ -187,7 +185,6 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
       window.dispatchEvent(new HashChangeEvent('hashchange'));
       return;
     }
-    if (state.plan.totalBytes > AUTO_LOAD_LIMIT_BYTES) return; // big: ask first
     runScan();
   }
 
@@ -382,13 +379,8 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
       );
     }
 
-    // status / confirm + live
+    // status + live
     const right = el('div', { className: 'group', attrs: { style: 'margin-left:auto' } });
-    const needsConfirm =
-      state.plan !== null &&
-      state.plan.files.length > 0 &&
-      planSignature(state.plan) !== loadedSignature &&
-      state.plan.totalBytes > AUTO_LOAD_LIMIT_BYTES;
     if (state.error) {
       right.append(el('span', { className: 'budget', text: `⚠ ${state.error}` }));
     } else if (state.planning) {
@@ -417,22 +409,6 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     });
     liveChip.append(el('span', { className: 'dot' }), el('span', { text: 'LIVE' }));
     right.append(liveChip);
-
-    if (needsConfirm && state.plan) {
-      right.append(
-        el('button', {
-          className: 'btn btn-primary',
-          text: `Load ~${fmtBytes(state.plan.totalBytes)}`,
-          title: 'this range is a large download, so it waits for you',
-          on: {
-            click: () => {
-              runScan();
-              render();
-            },
-          },
-        }),
-      );
-    }
 
     const refreshChip = el('button', {
       className: 'chip refresh-chip',
