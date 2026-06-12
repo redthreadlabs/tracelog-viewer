@@ -3,11 +3,15 @@
  * every tab), dedicated Worker otherwise (same protocol, per-tab). All the
  * logic lives in backend.ts; this file only routes ports.
  */
-// The AWS SDK's browser build deserializes S3's XML responses with
-// DOMParser, which worker scopes don't provide — polyfill it BEFORE the
-// backend (and therefore the SDK) loads.
-import { DOMParser } from '@xmldom/xmldom';
-(globalThis as unknown as { DOMParser?: unknown }).DOMParser ??= DOMParser;
+// The AWS SDK's browser build deserializes S3's XML responses with the
+// DOM — DOMParser to parse, the Node global's nodeType constants to walk
+// the tree — none of which worker scopes provide. Polyfill from xmldom;
+// the SDK touches these at response-parse time, safely after module eval.
+import { DOMParser, Node as XmlNode, XMLSerializer } from '@xmldom/xmldom';
+const g = globalThis as Record<string, unknown>;
+g.DOMParser ??= DOMParser;
+g.Node ??= XmlNode;
+g.XMLSerializer ??= XMLSerializer;
 
 import { handlePort } from './backend';
 
