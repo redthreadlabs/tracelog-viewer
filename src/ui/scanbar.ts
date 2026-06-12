@@ -180,9 +180,27 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
   function maybeAutoLoad(): void {
     if (!state.plan || state.plan.files.length === 0) return;
     if (store.progress.running) return;
-    if (planSignature(state.plan) === loadedSignature) return;
+    if (planSignature(state.plan) === loadedSignature) {
+      // same data, possibly a different slice of it: apply the window and
+      // re-render the views without refetching anything
+      applyWindow();
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+      return;
+    }
     if (state.plan.totalBytes > AUTO_LOAD_LIMIT_BYTES) return; // big: ask first
     runScan();
+  }
+
+  /** Narrow (or clear) the viewed time window to match the selected range. */
+  function applyWindow(): void {
+    if (state.wholeDays) {
+      viewState.timeWindow = null;
+      setParams({ w: null });
+    } else {
+      // sub-day precision: narrow the viewed window, same as a brush
+      viewState.timeWindow = [state.startMs, state.endMs];
+      setParams({ w: windowParam(viewState.timeWindow) });
+    }
   }
 
   function setRange(startMs: number, endMs: number, wholeDays: boolean): void {
@@ -196,14 +214,7 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     if (!state.plan || state.plan.files.length === 0) return;
     loadedSignature = planSignature(state.plan);
     void executeScan(bucket, state.plan); // resets viewState synchronously first
-    if (state.wholeDays) {
-      viewState.timeWindow = null;
-      setParams({ w: null });
-    } else {
-      // sub-day precision: narrow the viewed window, same as a brush
-      viewState.timeWindow = [state.startMs, state.endMs];
-      setParams({ w: windowParam(viewState.timeWindow) });
-    }
+    applyWindow();
   }
 
   function currentPresetLabel(): string | null {
