@@ -10,7 +10,7 @@ import { el, clear } from '../ui/dom';
 import type { BreakdownResult } from '../data/metrics';
 import { spanTypeColorToken } from '../data/trace';
 import { fmtDateTime, fmtDuration, isUtcMode } from '../ui/format';
-import { timeTickFormat } from './ticks';
+import { timeTickFormat, contentWidth } from './ticks';
 
 const HEIGHT = 180;
 const MARGIN = { top: 8, right: 12, bottom: 22, left: 56 };
@@ -19,7 +19,7 @@ export function renderStackbars(container: HTMLElement, data: BreakdownResult): 
   clear(container);
   if (data.buckets.length === 0) return;
 
-  const width = Math.max(container.clientWidth, 320);
+  const width = contentWidth(container, 320);
   const innerW = width - MARGIN.left - MARGIN.right;
   const innerH = HEIGHT - MARGIN.top - MARGIN.bottom;
 

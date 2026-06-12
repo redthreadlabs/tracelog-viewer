@@ -54,3 +54,14 @@ export function timeTickFormat(domainMs: number): (d: Date | number) => string {
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
+
+/**
+ * Content-box width of a chart host. clientWidth includes padding, and
+ * .chart-host has some — an SVG sized to clientWidth overflows its panel
+ * by the horizontal padding (visibly misaligning right edges).
+ */
+export function contentWidth(container: HTMLElement, min: number): number {
+  const cs = getComputedStyle(container);
+  const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+  return Math.max(container.clientWidth - pad, min);
+}

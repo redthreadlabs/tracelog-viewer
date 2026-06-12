@@ -12,7 +12,7 @@ import { el, clear } from '../ui/dom';
 import { RECORD_KINDS, type RecordKind } from '../data/types';
 import type { BucketResult } from '../data/aggregate';
 import { fmtCount, fmtDateTime, isUtcMode } from '../ui/format';
-import { timeTickFormat } from './ticks';
+import { timeTickFormat, contentWidth } from './ticks';
 
 const HEIGHT = 170;
 const MARGIN = { top: 8, right: 12, bottom: 22, left: 44 };
@@ -29,7 +29,7 @@ export function renderTimebars(
   clear(container);
   if (data.buckets.length === 0) return;
 
-  const width = Math.max(container.clientWidth, 320);
+  const width = contentWidth(container, 320);
   const innerW = width - MARGIN.left - MARGIN.right;
   const innerH = HEIGHT - MARGIN.top - MARGIN.bottom;
 

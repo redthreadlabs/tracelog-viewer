@@ -19,7 +19,7 @@ import { axisBottom, axisLeft } from 'd3-axis';
 import { el, clear } from '../ui/dom';
 import type { Rec } from '../data/types';
 import { fmtDateTime, fmtDuration, isUtcMode } from '../ui/format';
-import { logTicks, timeTickFormat } from './ticks';
+import { logTicks, timeTickFormat, contentWidth } from './ticks';
 
 const HEIGHT = 190;
 const MARGIN = { top: 8, right: 10, bottom: 24, left: 56 };
@@ -80,7 +80,7 @@ export function renderScatter(
   const points = instances.filter((r) => r.duration !== undefined && r.ts > 0);
   if (points.length === 0) return;
 
-  const width = Math.max(container.clientWidth, 280);
+  const width = contentWidth(container, 280);
   const innerW = width - MARGIN.left - MARGIN.right;
   const innerH = HEIGHT - MARGIN.top - MARGIN.bottom;
 
@@ -142,8 +142,12 @@ export function renderScatter(
   const canvas = el('canvas');
   canvas.width = Math.round(innerW * dpr);
   canvas.height = Math.round(innerH * dpr);
+  // absolute positioning anchors to the padding box; the in-flow svg
+  // starts at the content box — offset by the host's padding to match
+  const padLeft = parseFloat(styles.paddingLeft) || 0;
+  const padTop = parseFloat(styles.paddingTop) || 0;
   canvas.style.cssText =
-    `position:absolute;left:${MARGIN.left}px;top:${MARGIN.top}px;` +
+    `position:absolute;left:${padLeft + MARGIN.left}px;top:${padTop + MARGIN.top}px;` +
     `width:${innerW}px;height:${innerH}px`;
   container.append(canvas);
 

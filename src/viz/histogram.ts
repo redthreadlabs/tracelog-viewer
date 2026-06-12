@@ -8,7 +8,7 @@ import { axisBottom, axisLeft } from 'd3-axis';
 import { el, clear } from '../ui/dom';
 import type { HistBucket } from '../data/aggregate';
 import { fmtCount, fmtDuration } from '../ui/format';
-import { logTicks } from './ticks';
+import { logTicks, contentWidth } from './ticks';
 
 const HEIGHT = 190;
 const MARGIN = { top: 8, right: 10, bottom: 24, left: 44 };
@@ -18,7 +18,7 @@ export function renderHistogram(container: HTMLElement, buckets: HistBucket[]): 
   const nonEmpty = buckets.filter((b) => b.count > 0);
   if (nonEmpty.length === 0) return;
 
-  const width = Math.max(container.clientWidth, 280);
+  const width = contentWidth(container, 280);
   const innerW = width - MARGIN.left - MARGIN.right;
   const innerH = HEIGHT - MARGIN.top - MARGIN.bottom;
 

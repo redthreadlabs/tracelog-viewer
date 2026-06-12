@@ -8,7 +8,7 @@ import { axisBottom, axisLeft } from 'd3-axis';
 import { el, clear } from '../ui/dom';
 import type { SeriesPoint, DeploymentMarker } from '../data/metrics';
 import { fmtDateTime, isUtcMode } from '../ui/format';
-import { timeTickFormat } from './ticks';
+import { timeTickFormat, contentWidth } from './ticks';
 
 const HEIGHT = 110;
 const MARGIN = { top: 14, right: 8, bottom: 18, left: 52 };
@@ -29,7 +29,7 @@ export function renderLine(
   clear(container);
   if (points.length === 0) return;
 
-  const width = Math.max(container.clientWidth, 200);
+  const width = contentWidth(container, 200);
   const innerW = width - MARGIN.left - MARGIN.right;
   const innerH = HEIGHT - MARGIN.top - MARGIN.bottom;
 
