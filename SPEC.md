@@ -449,7 +449,9 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
 - Loading is automatic and as-needed: the range selection is the consent,
   at any size; progress (bytes, from the listing) is the acknowledgment.
   Stream-render always: views populate as data arrives, not after the
-  full scan — but data events are adaptively throttled while a scan runs
+  full scan; the plan fetches newest intervals first and works backward,
+  so the freshest data appears immediately — but data events are
+  adaptively throttled while a scan runs
   (each dispatch waits 5× the previous one's cost, 1–10 s), after the M5
   finding that unthrottled per-file re-renders of a growing store are
   O(n²) and froze a million-record load. The IndexedDB cache keeps repeat

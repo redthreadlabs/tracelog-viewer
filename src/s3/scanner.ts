@@ -38,8 +38,11 @@ export async function planScan(
     }
   }
 
+  // Newest intervals first: stream-render fills the most recent (most
+  // relevant) data in first and works backward through the range. Within
+  // an interval, key order keeps the plan deterministic.
   const files = dedupeCurrents(all).sort((a, b) =>
-    a.interval === b.interval ? a.key.localeCompare(b.key) : a.interval.localeCompare(b.interval),
+    a.interval === b.interval ? a.key.localeCompare(b.key) : b.interval.localeCompare(a.interval),
   );
 
   const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
