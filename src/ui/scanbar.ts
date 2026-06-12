@@ -20,6 +20,7 @@ import { planScan, type ScanPlan } from '../s3/scanner';
 import { executeScan } from '../data/scan';
 import { LiveUpdater } from '../data/live';
 import { store } from '../data/store';
+import { heapNow } from '../data/perf';
 import { viewState } from '../state';
 import { fmtBytes, fmtCount } from './format';
 import { getParam, setParams, setView, parseWindowParam, windowParam, readHash } from './hashstate';
@@ -102,10 +103,12 @@ const BUCKETED_VIEWS = new Set(['/overview', '/metrics']);
 // listener that shows/hides the bars picker per view.
 let activeLive: LiveUpdater | null = null;
 let activeHashHandler: (() => void) | null = null;
+let activeHeapTimer: ReturnType<typeof setInterval> | null = null;
 
 export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
   activeLive?.stop();
   if (activeHashHandler) window.removeEventListener('hashchange', activeHashHandler);
+  if (activeHeapTimer) clearInterval(activeHeapTimer);
 
   // initial range: a shared URL's precise window wins; else its day params;
   // else today.
@@ -532,14 +535,21 @@ export function renderScanbar(container: HTMLElement, bucket: LogBucket): void {
     }
     if (store.records.length === 0 && store.files.size === 0) return;
     clearEl(budget);
+    // the tab's real heap (Chromium); elsewhere, fall back to parsed bytes
+    const heap = heapNow();
     const inMemory = [...store.files.values()].reduce((s, f) => s + f.sizeUncompressed, 0);
     budget.append(
       storePill(
-        `MEM: ${fmtCount(store.records.length)} records · ${fmtBytes(inMemory)}`,
+        heap !== undefined
+          ? `HEAP: ${fmtBytes(heap)}`
+          : `MEM: ${fmtCount(store.records.length)} records · ${fmtBytes(inMemory)}`,
         'inspect the in-memory store (files, sizes, eviction)',
       ),
     );
   }
+
+  // the heap reading drifts with GC, not just with data events
+  activeHeapTimer = setInterval(updateLoadedText, 2000);
 
   function clearEl(node: HTMLElement): void {
     while (node.firstChild) node.removeChild(node.firstChild);

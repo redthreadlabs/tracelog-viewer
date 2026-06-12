@@ -37,7 +37,8 @@ export interface PerfEntry {
 
 const MAX_ENTRIES = 2500; // a 448-file scan emits ~950 entries — leave room
 
-function heapNow(): number | undefined {
+/** Chromium's per-tab used-heap reading; undefined elsewhere. */
+export function heapNow(): number | undefined {
   const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
   return mem && typeof mem.usedJSHeapSize === 'number' ? mem.usedJSHeapSize : undefined;
 }
