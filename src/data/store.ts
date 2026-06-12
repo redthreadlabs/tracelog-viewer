@@ -5,6 +5,7 @@
  */
 import type { Rec, RecordKind } from './types';
 import type { ParsedKey } from '../s3/keys';
+import { perf } from './perf';
 
 /** What the store knows about one loaded source file (for the inspector). */
 export interface FileInfo {
@@ -80,14 +81,14 @@ export class Store extends EventTarget {
       this.hosts.add(rec.host);
     }
     this.generation++;
-    this.dispatchEvent(new Event('data'));
+    this.emitData();
   }
 
   /** Sort once after a scan completes — lines arrive roughly ordered (§3.5). */
   sortByTime(): void {
     this.records.sort((a, b) => a.ts - b.ts);
     this.generation++;
-    this.dispatchEvent(new Event('data'));
+    this.emitData();
   }
 
   /** Append a batch keeping time order (live mode: an append-only tail). */
@@ -102,7 +103,7 @@ export class Store extends EventTarget {
     this.records.push(...batch);
     this.records.sort((a, b) => a.ts - b.ts);
     this.generation++;
-    this.dispatchEvent(new Event('data'));
+    this.emitData();
   }
 
   /**
@@ -116,7 +117,7 @@ export class Store extends EventTarget {
     this.records.sort((a, b) => a.ts - b.ts);
     this.rebuildIndexes();
     this.generation++;
-    this.dispatchEvent(new Event('data'));
+    this.emitData();
   }
 
   private rebuildIndexes(): void {
@@ -141,8 +142,23 @@ export class Store extends EventTarget {
     this.files.clear();
     this.progress = { filesTotal: 0, filesDone: 0, bytesDone: 0, filesFromCache: 0, running: false };
     this.generation++;
-    this.dispatchEvent(new Event('data'));
+    this.emitData();
     this.dispatchEvent(new Event('progress'));
+  }
+
+  /**
+   * Every store subscriber (the active view, the MEM pill) re-renders
+   * synchronously inside this dispatch — timing it measures the incremental
+   * UI cost of data landing, the number that degrades as the store grows
+   * (#/internals/perf). Sub-millisecond updates aren't worth a log line.
+   */
+  private emitData(): void {
+    const t0 = performance.now();
+    this.dispatchEvent(new Event('data'));
+    const ms = performance.now() - t0;
+    if (ms >= 1) {
+      perf.push({ ts: Date.now(), cat: 'render', name: 'view update', ms, records: this.records.length });
+    }
   }
 
   setProgress(progress: Partial<ScanProgress>): void {

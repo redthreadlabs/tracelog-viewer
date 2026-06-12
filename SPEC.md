@@ -373,8 +373,10 @@ The viewer watching itself: a capped ring-buffer log (`data/perf.ts`,
 in the store-inspector's visual language. Categories: `list` (scan
 planning), `fetch` (per object, network vs IndexedDB flagged), `parse`
 (per file, with records + bytes), `scan` (whole executeScan summaries),
-`render` (per view, with store size at render time; the perf page itself
-is excluded to avoid a feedback loop), `live` (non-idle ticks), and
+`render` (route navigations, plus every store-data dispatch ≥1 ms — all
+subscribers re-render synchronously inside it, so this is the incremental
+UI cost as the store grows; the perf page itself is excluded to avoid a
+feedback loop), `live` (non-idle ticks), and
 `stall` (longtask observer: main-thread blocks ≥50 ms). Entries stamp
 the Chromium tab heap when available. Summary ledger: session counts +
 worst stall | network/cache/parse throughput | tab heap. A copy-as-JSON
