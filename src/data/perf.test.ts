@@ -58,3 +58,17 @@ describe('PerfLog', () => {
     expect(typeof parsed.exportedAt).toBe('string');
   });
 });
+
+describe('exportJson shape', () => {
+  it('leads with a computed summary and stays valid JSON', () => {
+    const log = new PerfLog();
+    log.push(entry({ cat: 'scan', ms: 100.06, detail: '2 files', records: 5 }));
+    log.push(entry({ cat: 'stall', ms: 250.04 }));
+    const parsed = JSON.parse(log.exportJson());
+    expect(parsed.summary.byCategory.scan).toEqual({ count: 1, totalMs: 100 });
+    expect(parsed.summary.worstStallMs).toBe(250);
+    expect(parsed.summary.scans[0].detail).toBe('2 files');
+    expect(parsed.entries).toHaveLength(2);
+    expect(parsed.entries[0].ms).toBe(100.1); // rounded at push time
+  });
+});

@@ -61,6 +61,9 @@ export class PerfLog extends EventTarget {
 
   push(entry: PerfEntry): void {
     entry.heap ??= heapNow();
+    // sub-0.1 ms precision is float noise; rounding keeps exports compact
+    entry.ms = Math.round(entry.ms * 10) / 10;
+    entry.ts = Math.round(entry.ts);
     this.entries.push(entry);
     if (this.entries.length > MAX_ENTRIES) {
       this.entries.splice(0, this.entries.length - MAX_ENTRIES);
@@ -75,18 +78,39 @@ export class PerfLog extends EventTarget {
     this.dispatchEvent(new Event('entry'));
   }
 
-  /** The whole log as pretty JSON — the export that travels into LIMITS.md. */
+  /**
+   * The whole log as JSON — the export that travels into LIMITS.md. A
+   * computed summary leads (the topline a human wants without crunching);
+   * entries follow one compact line each (easy to eyeball, easy to jq).
+   */
   exportJson(): string {
-    return JSON.stringify(
-      {
-        exportedAt: new Date().toISOString(),
-        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
-        heap: heapNow(),
-        entries: this.entries,
+    const byCategory: Record<string, { count: number; totalMs: number }> = {};
+    let worstStallMs = 0;
+    let peakHeap = 0;
+    for (const e of this.entries) {
+      const c = (byCategory[e.cat] ??= { count: 0, totalMs: 0 });
+      c.count++;
+      c.totalMs += e.ms;
+      if (e.cat === 'stall' && e.ms > worstStallMs) worstStallMs = e.ms;
+      if (e.heap && e.heap > peakHeap) peakHeap = e.heap;
+    }
+    for (const c of Object.values(byCategory)) c.totalMs = Math.round(c.totalMs);
+    const meta = {
+      exportedAt: new Date().toISOString(),
+      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
+      heap: heapNow(),
+      summary: {
+        byCategory,
+        scans: this.entries
+          .filter((e) => e.cat === 'scan')
+          .map((e) => ({ detail: e.detail, ms: Math.round(e.ms), records: e.records })),
+        worstStallMs: Math.round(worstStallMs),
+        peakHeap: peakHeap || undefined,
       },
-      null,
-      2,
-    );
+    };
+    const head = JSON.stringify(meta, null, 2);
+    const lines = this.entries.map((e) => '    ' + JSON.stringify(e)).join(',\n');
+    return `${head.slice(0, -2)},\n  "entries": [\n${lines}\n  ]\n}`;
   }
 }
 
