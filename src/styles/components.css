@@ -808,3 +808,53 @@ th.sortable.on {
 .trace-foot {
   padding: 10px 0;
 }
+
+/* ---------- transaction drill-down ---------- */
+
+.txn-detail-body {
+  flex: 1;
+  overflow: auto;
+  overflow-anchor: none;
+  padding: 4px 28px 24px;
+}
+
+.stat-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 22px;
+  flex-wrap: wrap;
+  padding: 6px 0 14px;
+}
+
+.stat-cards {
+  display: flex;
+  gap: 26px;
+}
+
+.stat-card .label {
+  margin-bottom: 2px;
+}
+
+.stat-value {
+  font-size: 21px;
+  font-weight: 600;
+}
+
+.result-mix {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-bottom: 4px;
+}
+
+.charts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+@media (max-width: 980px) {
+  .charts-grid {
+    grid-template-columns: 1fr;
+  }
+}

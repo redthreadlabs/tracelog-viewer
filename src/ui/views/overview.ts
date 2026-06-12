@@ -1,8 +1,8 @@
 /**
  * The default view: a Kibana-style time-series volume chart over a sortable
  * table of transaction rollups (name · count · Σ duration). Brushing the
- * chart narrows both; clicking a transaction row opens the records view
- * pre-filtered to that name.
+ * chart narrows both; clicking a transaction row opens the per-transaction
+ * drill-down view.
  */
 import { el, clear } from '../dom';
 import { store } from '../../data/store';
@@ -151,8 +151,7 @@ export function renderOverview(container: HTMLElement): () => void {
         el('td', {}, [barCell(group.totalDuration / maxDuration)]),
       ]);
       tr.addEventListener('click', () => {
-        viewState.pendingRecordsSearch = group.name;
-        location.hash = '#/records';
+        location.hash = `#/txn/${encodeURIComponent(group.name)}`;
       });
       tbody.append(tr);
     }

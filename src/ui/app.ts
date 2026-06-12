@@ -13,6 +13,7 @@ import { renderScanbar } from './scanbar';
 import { renderRecordsView } from './views/records';
 import { renderOverview } from './views/overview';
 import { renderTraceView } from './views/trace';
+import { renderTransactionView } from './views/transaction';
 
 const NAV: { hash: string; label: string }[] = [
   { hash: '#/overview', label: 'Overview' },
@@ -134,6 +135,13 @@ export function startApp(root: HTMLElement): void {
     }
     if (hash.startsWith('#/trace/')) {
       teardown = renderTraceView(main, hash.slice('#/trace/'.length));
+      return;
+    }
+    if (hash.startsWith('#/txn/')) {
+      teardown = renderTransactionView(
+        main,
+        decodeURIComponent(hash.slice('#/txn/'.length)),
+      );
       return;
     }
     // default: overview

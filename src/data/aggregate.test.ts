@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { bucketByTime, chooseBucketMs, groupTransactions, sortTxnGroups } from './aggregate';
+import {
+  bucketByTime,
+  chooseBucketMs,
+  groupTransactions,
+  sortTxnGroups,
+  percentile,
+  transactionStats,
+  logHistogram,
+} from './aggregate';
 import type { Rec } from './types';
 
 function rec(partial: Partial<Rec>): Rec {
@@ -84,5 +92,56 @@ describe('groupTransactions', () => {
     expect(sortTxnGroups(groups, 'count', true)[0].name).toBe('GET /a');
     expect(sortTxnGroups(groups, 'totalDuration', false)[0].name).toBe('GET /b');
     expect(sortTxnGroups(groups, 'name', false)[0].name).toBe('GET /a');
+  });
+});
+
+describe('percentile', () => {
+  it('interpolates linearly', () => {
+    expect(percentile([10, 20, 30, 40], 50)).toBe(25);
+    expect(percentile([10, 20, 30, 40], 0)).toBe(10);
+    expect(percentile([10, 20, 30, 40], 100)).toBe(40);
+    expect(percentile([7], 95)).toBe(7);
+    expect(percentile([], 50)).toBeUndefined();
+  });
+});
+
+describe('transactionStats', () => {
+  const records = [
+    rec({ kind: 'transaction', name: 'GET /a', ts: 0, duration: 100, result: 'HTTP 2xx' }),
+    rec({ kind: 'transaction', name: 'GET /a', ts: 60_000, duration: 300, result: 'HTTP 2xx' }),
+    rec({ kind: 'transaction', name: 'GET /a', ts: 120_000, duration: 200, result: 'HTTP 5xx' }),
+    rec({ kind: 'transaction', name: 'GET /b', ts: 0, duration: 999 }),
+  ];
+
+  it('computes count, percentiles, result mix, and rpm', () => {
+    const s = transactionStats(records, 'GET /a');
+    expect(s.count).toBe(3);
+    expect(s.p50).toBe(200);
+    expect(s.max).toBe(300);
+    expect(s.resultCounts.get('HTTP 2xx')).toBe(2);
+    expect(s.resultCounts.get('HTTP 5xx')).toBe(1);
+    expect(s.rpm).toBeCloseTo(1.5, 5); // 3 requests over 2 minutes
+  });
+
+  it('respects the time window', () => {
+    const s = transactionStats(records, 'GET /a', [50_000, 130_000]);
+    expect(s.count).toBe(2);
+  });
+});
+
+describe('logHistogram', () => {
+  it('spreads heavy-tailed durations across log bins', () => {
+    const durations = [1, 2, 10, 100, 1000, 1000];
+    const buckets = logHistogram(durations, 10);
+    expect(buckets.reduce((s, b) => s + b.count, 0)).toBe(6);
+    const nonEmpty = buckets.filter((b) => b.count > 0);
+    expect(nonEmpty.length).toBeGreaterThanOrEqual(4);
+    expect(buckets[buckets.length - 1].count).toBe(2); // the two 1s outliers
+  });
+
+  it('clamps zero durations into the lowest bin and handles empty input', () => {
+    expect(logHistogram([])).toHaveLength(0);
+    const buckets = logHistogram([0, 0.001], 5);
+    expect(buckets[0].count).toBe(2);
   });
 });
