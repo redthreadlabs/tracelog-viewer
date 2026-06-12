@@ -42,7 +42,8 @@ export function renderLine(
   const x = (isUtcMode() ? scaleUtc() : scaleTime())
     .domain([new Date(options.domain[0]), new Date(options.domain[1])])
     .range([0, innerW]);
-  const vMax = Math.max(...points.map((p) => p.v));
+  let vMax = -Infinity; // no spread: long ranges produce >100k points
+  for (const p of points) if (p.v > vMax) vMax = p.v;
   const y = scaleLinear().domain([0, vMax * 1.1 || 1]).nice().range([innerH, 0]);
 
   const svg = select(container).append('svg').attr('width', width).attr('height', HEIGHT);

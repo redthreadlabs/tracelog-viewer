@@ -251,7 +251,10 @@ export interface HistBucket {
 export function logHistogram(durations: number[], bins = 24): HistBucket[] {
   if (durations.length === 0) return [];
   const MIN = 0.01; // 10µs floor
-  const max = Math.max(...durations, MIN * 10);
+  // a loop, not Math.max(...durations): spreading puts every element on
+  // the call stack, which overflows past ~100k instances
+  let max = MIN * 10;
+  for (const d of durations) if (d > max) max = d;
   const lo = Math.log10(MIN);
   const hi = Math.log10(max * 1.001);
   const step = (hi - lo) / bins;
