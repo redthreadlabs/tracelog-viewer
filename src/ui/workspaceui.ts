@@ -42,12 +42,20 @@ export function openNewWorkspace(): void {
     el('p', {
       className: 'field-note',
       attrs: { style: 'margin-top:10px' },
-      text:
-        'Nothing is provisioned: no DNS record is created, no cloud service ' +
-        'is involved, no account is registered anywhere. A workspace is just ' +
-        'a separate corner of this browser — the subdomain already resolves ' +
-        'for everyone, and yours exists only on this device.',
-    }),
+    }, [
+      el('span', {
+        text:
+          'Nothing is provisioned: no DNS record is created, no cloud service ' +
+          'is involved, no account is registered anywhere. This site serves the ' +
+          'exact same pages to every subdomain, but your ',
+      }),
+      el('em', { text: 'browser' }),
+      el('span', {
+        text:
+          ' uses separate storage per subdomain, so each of your workspaces ' +
+          'gets its own storage and memory sandbox.',
+      }),
+    ]),
     el('div', { className: 'modal-actions' }, [
       el('button', { className: 'btn', text: 'Cancel', on: { click: close } }),
       el('button', { className: 'btn btn-primary', text: 'Continue', on: { click: submit } }),
