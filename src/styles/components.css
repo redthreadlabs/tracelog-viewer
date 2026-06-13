@@ -374,7 +374,7 @@ pre.json .b {
   font-size: 24px;
   font-style: italic;
   text-align: center;
-  margin-bottom: 16px;
+  margin: 0 0 16px;
 }
 
 .config .lede {

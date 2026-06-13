@@ -24,13 +24,11 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
   const hereLabel = ctx.current && ctx.apexHost ? `${ctx.current}.${ctx.apexHost}` : 'this device';
   const existing = profiles.active();
 
-  // the lede carries the disclosure + warning, updated by the public toggle
+  // the lede carries the disclosure + warning, updated by the public toggle.
+  // the headline + lede live at the top of the panel itself (added to the
+  // form below), so the whole thing reads as one card.
   const lede = el('p', { className: 'lede' });
   const wrap = el('div', { className: 'config' });
-  wrap.append(
-    el('h2', { text: 'Connect Workspace' }),
-    lede,
-  );
 
   // --- connection form (prefilled when editing an existing connection) ---
   const region = field('text', 'us-east-1', existing?.region ?? 'us-east-1');
@@ -96,6 +94,8 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
   authToggle.addEventListener('change', syncAuth);
 
   const form = el('form', {}, [
+    el('h2', { text: 'Connect Workspace' }),
+    lede,
     el('div', { className: 'config-cols' }, [
       // left column: where the bucket is, plus the on-device limits
       el('div', { className: 'config-col' }, [
