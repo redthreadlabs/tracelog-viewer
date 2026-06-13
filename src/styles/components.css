@@ -1494,6 +1494,11 @@ th.sortable.on {
   flex: 1;
 }
 
+.modal-row .input::placeholder {
+  /* a touch lighter than the standard faint ink */
+  color: color-mix(in srgb, var(--ink-faint) 55%, transparent);
+}
+
 .modal-suffix {
   font-family: var(--font-data);
   font-size: 13px;
