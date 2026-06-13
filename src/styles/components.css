@@ -365,7 +365,7 @@ pre.json .b {
 /* ---------- config panel ---------- */
 
 .config {
-  max-width: 720px;
+  max-width: 880px;
   margin: 36px auto;
   padding: 0 28px;
 }
@@ -409,11 +409,12 @@ pre.json .b {
   padding-left: 24px;
 }
 
-/* one stacked label-over-control row */
+/* one row: label beside its control (fields are short, so this is compact) */
 .config .field-row {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  align-items: center;
+  gap: 10px;
 }
 
 .config .form-label {
