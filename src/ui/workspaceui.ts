@@ -12,7 +12,13 @@ export function openNewWorkspace(): void {
   const overlay = el('div', { className: 'modal-overlay' });
   const input = el('input', {
     className: 'input',
-    attrs: { type: 'text', placeholder: 'e.g. acme', autocomplete: 'off', spellcheck: 'false' },
+    attrs: {
+      type: 'text',
+      placeholder: 'subdomain',
+      autocomplete: 'off',
+      spellcheck: 'false',
+      style: 'text-align:center',
+    },
   }) as HTMLInputElement;
   const err = el('div', { className: 'field-note', attrs: { style: 'color:var(--level-error)' } });
   const close = (): void => overlay.remove();
