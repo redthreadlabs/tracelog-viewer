@@ -91,3 +91,28 @@ describe('evictionOrder', () => {
     expect(order.map((x) => x.id)).toEqual(['big', 'small']);
   });
 });
+
+import { clampByMemory } from './ledger';
+
+describe('clampByMemory', () => {
+  const files = [
+    { interval: '2026-06-09' },
+    { interval: '2026-06-11' }, // newest
+    { interval: '2026-06-10' },
+  ];
+  const perFile = [30, 40, 50]; // bytes, aligned to files
+
+  it('keeps the newest files that fit, in original order', () => {
+    // limit 100: newest (11)=40, then (10)=50 -> 90 fits, (09)=30 would be 120 -> stop
+    expect(clampByMemory(files, perFile, 100)).toEqual([1, 2]);
+  });
+
+  it('keeps everything when the whole view fits', () => {
+    expect(clampByMemory(files, perFile, 1000)).toEqual([0, 1, 2]);
+  });
+
+  it('always keeps at least the single most-recent file', () => {
+    // limit smaller than any one file: still keep the newest (index 1)
+    expect(clampByMemory(files, perFile, 1)).toEqual([1]);
+  });
+});

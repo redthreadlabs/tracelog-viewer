@@ -167,6 +167,58 @@ export async function bucketRatios(bucket: string): Promise<Ratios> {
 }
 
 /**
+ * Estimate the in-memory cost of a planned view, file by file: a known
+ * decompressed size from the ledger when we've fetched the file before,
+ * else compressed × the channel's measured ratio. Returns the total and the
+ * per-file breakdown (aligned to `files`) so the caller can clamp the view.
+ */
+export async function estimatePlan(
+  bucket: string,
+  files: { key: string; channel: string; compressed: number }[],
+): Promise<{ total: number; perFile: number[] }> {
+  const ledger = new Map((await ledgerRecords(bucket)).map((r) => [r.id, r]));
+  const ratios = deriveRatios([...ledger.values()]);
+  const perFile = files.map((f) =>
+    estimateDecompressed(
+      [
+        {
+          channel: f.channel,
+          compressed: f.compressed,
+          decompressed: ledger.get(bucket + SEP + f.key)?.decompressed,
+        },
+      ],
+      ratios,
+    ),
+  );
+  return { total: perFile.reduce((s, x) => s + x, 0), perFile };
+}
+
+/**
+ * Choose which files to keep so a view fits a memory budget: the most-recent
+ * files (later interval first) up to the limit, always keeping at least the
+ * single most-recent so the action loads *something*. Returns the kept
+ * indices into `files`, in original order. Pure — unit-testable.
+ */
+export function clampByMemory(
+  files: { interval: string }[],
+  perFile: number[],
+  limitBytes: number,
+): number[] {
+  const order = files
+    .map((f, i) => ({ i, interval: f.interval }))
+    .sort((a, b) => b.interval.localeCompare(a.interval));
+  const keep: number[] = [];
+  let total = 0;
+  for (const { i } of order) {
+    const est = perFile[i] ?? 0;
+    if (keep.length > 0 && total + est > limitBytes) break;
+    keep.push(i);
+    total += est;
+  }
+  return keep.sort((a, b) => a - b);
+}
+
+/**
  * Eviction order for cached files (pure): least-recently-*displayed* first;
  * ties broken by older interval first, then bigger file first. The front of
  * this list is dropped first when the cache is over budget.

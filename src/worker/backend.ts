@@ -41,7 +41,7 @@ import {
   clientEventTypes,
 } from '../data/clients';
 import { scannerStats } from '../data/scanner-traffic';
-import { recordListing, estimateDecompressed, bucketRatios } from '../data/ledger';
+import { recordListing, estimatePlan } from '../data/ledger';
 
 type Window = [number, number] | null;
 
@@ -193,10 +193,11 @@ const ops: Record<string, OpHandler> = {
     );
     return plan;
   },
-  estimateView: async (s, a) => {
-    const files = (a.files as { channel: string; compressed: number; decompressed?: number }[]) ?? [];
-    return estimateDecompressed(files, await bucketRatios(s.bucket.bucket));
-  },
+  estimateView: (s, a) =>
+    estimatePlan(
+      s.bucket.bucket,
+      (a.files as { key: string; channel: string; compressed: number }[]) ?? [],
+    ),
   executeScan: (s, a) => executeScan(s.store, s.bucket, a.plan as ScanPlan, s.cacheLimitBytes),
   clearStore: (s) => s.store.clear(),
   setLive: (s, a) => {

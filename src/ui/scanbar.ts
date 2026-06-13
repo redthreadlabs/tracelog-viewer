@@ -22,6 +22,11 @@ import { viewState, resetViewState } from '../state';
 import { fmtBytesRough } from './format';
 import { getParam, setParams, setView, parseWindowParam, windowParam, readHash } from './hashstate';
 import { renderBucketPicker } from './bucketpicker';
+import { profiles } from './profiles';
+import { clampByMemory } from '../data/ledger';
+import { openMemoryLimitModal } from './memorymodal';
+
+const MB = 1024 * 1024;
 
 interface ScanbarState {
   channels: Map<string, boolean>;
@@ -236,7 +241,7 @@ export function renderScanbar(container: HTMLElement): void {
       window.dispatchEvent(new HashChangeEvent('hashchange'));
       return;
     }
-    runScan();
+    void runScan();
   }
 
   /** Narrow (or clear) the viewed time window to match the selected range. */
@@ -258,12 +263,72 @@ export function renderScanbar(container: HTMLElement): void {
     void replan();
   }
 
-  function runScan(): void {
-    if (!state.plan || state.plan.files.length === 0) return;
-    loadedSignature = planSignature(state.plan);
+  /** Actually load a plan (no budget check — runScan gates before this). */
+  function executePlan(plan: ScanPlan): void {
+    loadedSignature = planSignature(plan);
     resetViewState(); // a new scan invalidates any brushed window / deep link
-    void storeClient.request('executeScan', { plan: state.plan });
+    void storeClient.request('executeScan', { plan });
     applyWindow();
+  }
+
+  /**
+   * Load the selected view, but first check its estimated in-memory size
+   * against the workspace's memory limit (SPEC §8). Over budget → the
+   * guardrail modal (raise the limit / clamp to newest that fits / cancel)
+   * instead of loading. No limit set → load straight away.
+   */
+  async function runScan(): Promise<void> {
+    const plan = state.plan;
+    if (!plan || plan.files.length === 0) return;
+
+    const limitMb = profiles.active()?.memoryLimitMb;
+    if (limitMb == null || limitMb <= 0) {
+      executePlan(plan);
+      return;
+    }
+    const limitBytes = limitMb * MB;
+
+    let est: { total: number; perFile: number[] };
+    try {
+      est = await storeClient.request('estimateView', {
+        files: plan.files.map((f) => ({ key: f.key, channel: f.channel, compressed: f.size })),
+      });
+    } catch {
+      executePlan(plan); // estimate unavailable — don't block the user
+      return;
+    }
+    if (est.total <= limitBytes) {
+      executePlan(plan);
+      return;
+    }
+
+    const keep = clampByMemory(plan.files, est.perFile, limitBytes);
+    const fitBytes = keep.reduce((sum, i) => sum + (est.perFile[i] ?? 0), 0);
+    openMemoryLimitModal({
+      estBytes: est.total,
+      limitBytes,
+      fileCount: plan.files.length,
+      fitCount: keep.length,
+      fitBytes,
+      onRaise: (newLimitMb) => {
+        const p = profiles.active();
+        if (p) profiles.save({ ...p, memoryLimitMb: newLimitMb });
+        executePlan(plan);
+      },
+      onClamp: () => {
+        const files = keep.map((i) => plan.files[i]);
+        executePlan({
+          files,
+          totalBytes: files.reduce((sum, f) => sum + f.size, 0),
+          hosts: [...new Set(files.map((f) => f.host))].sort(),
+          channels: [...new Set(files.map((f) => f.channel))].sort(),
+        });
+      },
+      // leave the loaded data as-is; forget the signature so re-selecting retries
+      onCancel: () => {
+        loadedSignature = null;
+      },
+    });
   }
 
   function currentPresetLabel(): string | null {
