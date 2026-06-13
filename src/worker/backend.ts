@@ -193,6 +193,10 @@ function sampleInstances(instances: Rec[]): { rows: Rec[]; sample?: SampleNote }
  * sub-hourly) — the caller falls back to bucketByTime over loaded records.
  */
 const CHART_HOUR_MS = 3_600_000;
+// Below this window span, the 1h metadata fallback isn't worth it — it'd be one
+// or two coarse bars over-extending the brush — so go straight to the finer
+// records-based bucket regardless of load state.
+const MIN_METADATA_FALLBACK_MS = 2 * CHART_HOUR_MS;
 
 /**
  * Whether every file overlapping the window is already loaded — so a sub-hour
@@ -350,8 +354,15 @@ const ops: Record<string, OpHandler> = {
     // the window's records finish loading. An explicit choice (bucketMs set) is
     // always honored — the user waits for it the old-fashioned way.
     if (bucketMs === null && window) {
-      const natural = chooseBucketMs(Math.max(window[1] - window[0], 1));
-      if (natural < CHART_HOUR_MS && !windowFullyLoaded(s, window)) bucketMs = CHART_HOUR_MS;
+      const span = Math.max(window[1] - window[0], 1);
+      const natural = chooseBucketMs(span);
+      if (
+        natural < CHART_HOUR_MS &&
+        span >= MIN_METADATA_FALLBACK_MS &&
+        !windowFullyLoaded(s, window)
+      ) {
+        bucketMs = CHART_HOUR_MS;
+      }
     }
 
     // The Volume chart is record COUNTS bucketed by time — exactly what the
