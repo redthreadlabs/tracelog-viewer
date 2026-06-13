@@ -77,14 +77,6 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
     label('Bucket'), bucket,
     label('Prefix'), prefix,
     el('div', { className: 'full' }, [
-      el('span', {
-        className: 'field-note',
-        text:
-          'Optional — set this only if your tracelog channels live under a key ' +
-          'prefix rather than the bucket root (e.g. logs/ for logs/server/…).',
-      }),
-    ]),
-    el('div', { className: 'full' }, [
       el('label', { className: 'remember' }, [
         isPublic,
         el('span', {
