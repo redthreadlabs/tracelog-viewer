@@ -561,17 +561,27 @@ or date rather than abandon tracelog entirely.
   to trust the hosted instance, or who forks. No cookies, ever — they are
   the one storage that could leak across subdomains (§4 already forbids
   them).
-- **Workspace switcher** (2026-06-12): the masthead pill is a switcher —
-  it lists the profiles saved at this origin (activate in place) and the
-  other workspaces (navigate to their subdomain). Profiles carry a
-  `subdomain` field, set at creation. Since origins are siloed, the one
-  shared thing is a directory of workspace *names* — kept in the apex
-  origin's localStorage and reached from any subdomain through a hidden
-  iframe + postMessage (`bridge.html` / `src/bridge.ts`, origin-checked to
-  the apex family). Names only: never credentials, never logs, and still
-  no cookies, so "the server knows nothing" holds. Hosts with no apex
-  (localhost, self-host single-domain) degrade to a local-only profile
-  switcher.
+- **Workspace switcher** (2026-06-12, navigation-based): the masthead pill
+  is a switcher — it lists the profiles saved at this origin (activate in
+  place) and the other workspaces (navigate to their subdomain). Since
+  origins are siloed, the one shared thing is a directory of workspace
+  *names*, kept in the **apex** origin's first-party localStorage.
+  Subdomains never reach into apex storage directly (no iframe — nothing
+  an ad-blocker or privacy mode can impede); they **navigate** to the
+  apex's relay route (`#/relay`, `data/workspaces.ts` `handleWorkspaceBoot`),
+  which does the read/write first-party and bounces straight back, carrying
+  a fresh snapshot in the return hash (`wsr=1` one-shot marker → cache +
+  set the synced flag, and guarantees no re-bounce loop). Each subdomain
+  keeps a local cached snapshot for instant switcher hops. Transits: a
+  **first visit** auto-syncs read-only (no record); **creating** a profile
+  records the workspace (apex-first for the switcher's New-workspace flow,
+  or save-time for a directly-visited subdomain); **deleting** the last
+  profile drops it; a manual **Sync** refreshes on demand. Names only:
+  never credentials, never logs, no cookies — "the server knows nothing"
+  holds, and the directory is inherently per-device. Profiles carry a
+  `subdomain` field (= the origin they live at). Hosts with no apex
+  (localhost, self-host single-domain) skip all of it and degrade to a
+  local-only profile switcher.
 - **Theme**: light **and** dark from day one, token-based (§7), defaulting
   to `prefers-color-scheme` with a manual toggle.
 - **Profiles for other services**: yes — config supports arbitrary

@@ -4,7 +4,7 @@
 import { el, clear } from './dom';
 import { profiles, type Profile } from './profiles';
 import { cacheWipeBucket } from '../data/cache';
-import { workspaces, workspaceContext } from '../data/workspaces';
+import { workspaceContext, dropCurrentWorkspace, recordCurrentWorkspaceIfNew } from '../data/workspaces';
 
 export function renderConfig(container: HTMLElement, onDone: () => void): void {
   clear(container);
@@ -54,6 +54,12 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
                 if (!profiles.list().some((other) => other.bucket === p.bucket)) {
                   void cacheWipeBucket(p.bucket);
                 }
+                // Last profile gone → this workspace leaves the directory.
+                // The bounce to the apex and back replaces this render.
+                if (profiles.list().length === 0 && workspaceContext().current) {
+                  dropCurrentWorkspace('/config');
+                  return;
+                }
                 renderConfig(container, onDone);
               },
             },
@@ -72,10 +78,15 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
   const secretKey = field('password', '');
   const sessionToken = field('password', '(optional)');
 
-  // the workspace this profile belongs to — defaults to the current
-  // subdomain, registered in the shared directory so the switcher finds it
+  // The workspace is *where you are* — this origin. You can't create a
+  // profile for another subdomain from here (its storage is siloed); use
+  // the switcher's "New workspace", which takes you there first.
   const ctx = workspaceContext();
-  const workspace = field('text', ctx.apexHost ? `name.${ctx.apexHost}` : 'a label', ctx.current);
+  const hereLabel = ctx.apexHost
+    ? ctx.current
+      ? `${ctx.current}.${ctx.apexHost}`
+      : `${ctx.apexHost} (home)`
+    : 'this device';
 
   const remember = el('input', { attrs: { type: 'checkbox' } });
   remember.checked = profiles.remembered;
@@ -87,16 +98,12 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
     label('Access key ID'), accessKey,
     label('Secret access key'), secretKey,
     label('Session token'), sessionToken,
-    label('Workspace'), workspace,
-    el('div', { className: 'full' }, [
-      el('span', {
-        className: 'field-note',
-        text:
-          'A workspace is a subdomain — ' +
-          (ctx.apexHost ? `e.g. acme.${ctx.apexHost}` : 'e.g. acme') +
-          '. Each keeps its own profiles and cache; the switcher up top hops ' +
-          'between the ones you’ve set up. Leave blank for the home workspace.',
-      }),
+    label('Workspace'),
+    el('div', { className: 'workspace-fixed' }, [
+      el('span', { className: 'mono', text: hereLabel }),
+      ctx.apexHost
+        ? el('span', { className: 'field-note', text: 'this profile is saved in this workspace' })
+        : el('span'),
     ]),
     el('div', { className: 'full' }, [
       el('label', { className: 'remember' }, [
@@ -119,7 +126,6 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
 
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
-    const sub = workspace.value.trim().replace(/^\.+|\.+$/g, '');
     const profile: Profile = {
       name: name.value.trim() || 'default',
       bucket: bucket.value.trim(),
@@ -127,14 +133,15 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
       accessKeyId: accessKey.value.trim(),
       secretAccessKey: secretKey.value.trim(),
       sessionToken: sessionToken.value.trim() || undefined,
-      subdomain: sub || undefined,
+      subdomain: ctx.current || undefined,
     };
     if (!profile.bucket || !profile.accessKeyId || !profile.secretAccessKey) return;
     profiles.setRemembered(remember.checked);
     profiles.save(profile);
-    // publish the workspace name to the shared directory (apex bridge), so
-    // it appears in the switcher from every subdomain
-    if (sub) void workspaces.add(sub);
+    // a workspace reached by direct navigation joins the directory now (the
+    // bounce to the apex and back replaces onDone); the create flow already
+    // recorded it, so that path skips this.
+    if (recordCurrentWorkspaceIfNew('/overview')) return;
     onDone();
   });
 

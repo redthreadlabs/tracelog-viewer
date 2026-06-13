@@ -13,7 +13,15 @@ import { readHash, setView, setParams, parseWindowParam, getParam } from './hash
 import { viewState, resetViewState } from '../state';
 import { storeClient } from '../data/storeclient';
 import type { Profile } from './profiles';
-import { workspaces, workspaceContext, workspaceUrl } from '../data/workspaces';
+import {
+  workspaceContext,
+  workspaceUrl,
+  handleWorkspaceBoot,
+  cachedWorkspaces,
+  createWorkspace,
+  syncWorkspaces,
+  validLabel,
+} from '../data/workspaces';
 import { renderPerfView } from './views/perfview';
 import { renderAbout } from './views/about';
 import { renderRecordsView } from './views/records';
@@ -44,6 +52,11 @@ function profileSignature(p: Profile | null): string | null {
 }
 
 export function startApp(root: HTMLElement): void {
+  // Workspace directory boot: absorb a relay return, serve a relay request
+  // if we're the apex, or auto-sync on a fresh subdomain. When it takes over
+  // (a navigation is in flight) we render nothing.
+  if (handleWorkspaceBoot()) return;
+
   initTheme();
 
   const header = el('header');
@@ -229,7 +242,7 @@ function workspaceSwitcher(active: Profile | null): HTMLElement {
     pop = null;
   };
 
-  async function open(): Promise<void> {
+  function open(): void {
     pop = el('div', { className: 'switcher-pop' });
     wrap.append(pop);
 
@@ -259,17 +272,27 @@ function workspaceSwitcher(active: Profile | null): HTMLElement {
       }),
     );
 
-    // other workspaces — navigate to their subdomain origins
+    // other workspaces — navigate to their subdomain origins (cached
+    // snapshot of the apex directory; refreshed on every apex transit)
     if (ctx.apexHost) {
-      const names = await workspaces.list();
-      const others = names.filter((n) => n !== here);
+      const others = cachedWorkspaces().filter((n) => n !== here);
       const block = el('div', { className: 'switcher-block' });
       block.append(el('div', { className: 'switcher-head', text: 'Workspaces' }));
-      if (here !== '') {
-        block.append(workspaceRow('home', '', close));
-      }
-      for (const n of others) block.append(workspaceRow(n, n, close));
-      if (others.length > 0 || here !== '') pop?.append(block);
+      if (here !== '') block.append(workspaceRow('home', ''));
+      for (const n of others) block.append(workspaceRow(n, n));
+      block.append(
+        el('button', {
+          className: 'switcher-row add',
+          text: '+ New workspace…',
+          on: { click: () => { close(); openNewWorkspace(); } },
+        }),
+        el('button', {
+          className: 'switcher-row add',
+          text: '↻ Sync workspaces',
+          on: { click: () => { close(); syncWorkspaces(readHash().view); } },
+        }),
+      );
+      pop.append(block);
     }
 
     // close on outside click
@@ -288,17 +311,73 @@ function workspaceSwitcher(active: Profile | null): HTMLElement {
     }, 0);
   }
 
-  pill.addEventListener('click', () => (pop ? close() : void open()));
+  function workspaceRow(labelText: string, navLabel: string): HTMLElement {
+    const row = el('button', {
+      className: navLabel === here ? 'switcher-row on' : 'switcher-row',
+      text: labelText || 'home',
+    });
+    row.addEventListener('click', () => {
+      close();
+      if (navLabel !== here) location.assign(workspaceUrl(navLabel));
+    });
+    return row;
+  }
+
+  pill.addEventListener('click', () => (pop ? close() : open()));
   return wrap;
 }
 
-function workspaceRow(labelText: string, navLabel: string, close: () => void): HTMLElement {
-  const row = el('button', { className: 'switcher-row', text: labelText });
-  row.addEventListener('click', () => {
-    close();
-    location.assign(workspaceUrl(navLabel));
+/**
+ * New-workspace modal: name the subdomain, then bounce through the apex
+ * (which records it) to that subdomain's config to enter credentials.
+ */
+function openNewWorkspace(): void {
+  const ctx = workspaceContext();
+  const overlay = el('div', { className: 'modal-overlay' });
+  const input = el('input', {
+    className: 'input',
+    attrs: { type: 'text', placeholder: 'e.g. acme', autocomplete: 'off', spellcheck: 'false' },
+  }) as HTMLInputElement;
+  const err = el('div', { className: 'field-note', attrs: { style: 'color:var(--level-error)' } });
+  const close = (): void => overlay.remove();
+
+  const submit = (): void => {
+    const label = input.value.trim().toLowerCase().replace(/^\.+|\.+$/g, '');
+    if (!validLabel(label)) {
+      err.textContent = 'Letters, numbers, and hyphens only.';
+      return;
+    }
+    createWorkspace(label); // → apex records it → lands on its config
+  };
+
+  const card = el('div', { className: 'modal-card about-panel' }, [
+    el('h2', { text: 'New workspace' }),
+    el('p', {
+      text:
+        `A workspace is a subdomain — your new one will live at ` +
+        `${ctx.apexHost ? `«name».${ctx.apexHost}` : '«name»'}. We’ll take you ` +
+        `there to add its credentials.`,
+    }),
+    el('div', { className: 'modal-row' }, [
+      input,
+      ctx.apexHost ? el('span', { className: 'modal-suffix', text: `.${ctx.apexHost}` }) : el('span'),
+    ]),
+    err,
+    el('div', { className: 'modal-actions' }, [
+      el('button', { className: 'btn', text: 'Cancel', on: { click: close } }),
+      el('button', { className: 'btn btn-primary', text: 'Continue', on: { click: submit } }),
+    ]),
+  ]);
+  overlay.append(card);
+  overlay.addEventListener('click', (ev) => {
+    if (ev.target === overlay) close();
   });
-  return row;
+  input.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') submit();
+    if (ev.key === 'Escape') close();
+  });
+  document.body.append(overlay);
+  input.focus();
 }
 
 /** The red thread: slight waves, one small loop — drawn once, full width. */

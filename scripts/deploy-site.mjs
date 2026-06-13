@@ -168,14 +168,11 @@ if (!has('skip-upload')) {
   step(`upload to s3://${BUCKET}`);
   aws(['s3', 'sync', 'dist/assets', `s3://${BUCKET}/assets`,
     '--cache-control', 'public,max-age=31536000,immutable', '--delete'], { json: false });
-  for (const html of ['index.html', 'bridge.html']) {
-    aws(['s3', 'cp', `dist/${html}`, `s3://${BUCKET}/${html}`,
-      '--cache-control', 'public,max-age=60', '--content-type', 'text/html; charset=utf-8'], { json: false });
-  }
+  aws(['s3', 'cp', 'dist/index.html', `s3://${BUCKET}/index.html`,
+    '--cache-control', 'public,max-age=60', '--content-type', 'text/html; charset=utf-8'], { json: false });
   if (DISTRIBUTION) {
-    aws(['cloudfront', 'create-invalidation', '--distribution-id', DISTRIBUTION,
-      '--paths', '/index.html', '/bridge.html'], { json: false });
+    aws(['cloudfront', 'create-invalidation', '--distribution-id', DISTRIBUTION, '--paths', '/index.html'], { json: false });
   }
-  console.log('  uploaded (immutable assets, fresh index.html + bridge.html)');
+  console.log('  uploaded (immutable assets, fresh index.html)');
 }
 console.log(`\ndone${DOMAIN ? ` — https://${DOMAIN}` : ''}`);

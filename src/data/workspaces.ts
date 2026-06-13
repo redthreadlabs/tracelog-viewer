@@ -1,25 +1,41 @@
 /**
- * Workspace directory (SPEC §4, §10). Each `*.tracelog.org` subdomain is a
- * separate browser origin with its own siloed profiles and cache — so no
- * origin can natively see which other workspaces exist. This shares ONE
- * thing across them: a list of workspace *names* (subdomain labels only —
- * never credentials, never logs), kept in the apex origin's localStorage
- * and reached from any subdomain through a hidden iframe + postMessage
- * (bridge.html). No cookies, no server: the apex page is static and the
- * bridge does no network work, so "the server knows nothing" still holds.
+ * Workspace directory (SPEC §4, §10) — navigation-based, no iframe.
  *
- * On hosts with no apex to bridge to (localhost, an IP, a bare domain), the
- * directory degrades to the current origin only — the switcher still lists
- * local profiles, just without cross-workspace hops.
+ * Each `*.tracelog.org` subdomain is a separate, siloed browser origin. The
+ * one thing shared across them is a directory of workspace *names*, kept in
+ * the APEX origin's first-party localStorage. Subdomains never reach into
+ * the apex's storage directly (no cross-origin iframe, nothing an ad-blocker
+ * or privacy mode can impede); instead they *navigate* to the apex's relay
+ * route, which does the read/write first-party and bounces straight back.
+ * Every subdomain keeps a local cached snapshot for instant, flicker-free
+ * switcher hops; it's refreshed on each apex transit (create, delete, the
+ * first-visit auto-sync, or an explicit sync).
+ *
+ * The directory is inherently per-device — localStorage isn't shared across
+ * machines and there is no server — so the only thing that ever mutates it
+ * is this browser creating or deleting a workspace.
  */
 
 export interface WorkspaceContext {
-  /** registrable apex, e.g. 'tracelog.org'; null when there's nothing to bridge */
+  /** registrable apex, e.g. 'tracelog.org'; null when there's no apex to use */
   apexHost: string | null;
   /** current subdomain label, e.g. 'duiduidui'; '' on the apex itself */
   current: string;
-  /** origin serving bridge.html, e.g. 'https://tracelog.org'; null = no bridge */
-  bridgeOrigin: string | null;
+  /** origin of the apex (relay + directory home); null = no apex */
+  apexOrigin: string | null;
+}
+
+/** apex directory (only valid while physically at the apex origin) */
+const DIRECTORY_KEY = 'tracelog:directory';
+/** per-origin cached snapshot of the directory (for the switcher) */
+const CACHE_KEY = 'tracelog:workspaces-cache';
+/** per-origin flag: this subdomain has done its first-visit sync */
+const SYNCED_KEY = 'tracelog:synced';
+
+/** Valid subdomain label (or dotted nesting); keeps relay params clean/safe. */
+const LABEL_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/i;
+export function validLabel(label: string): boolean {
+  return label.length > 0 && label.length <= 100 && LABEL_RE.test(label);
 }
 
 function isBareHost(host: string): boolean {
@@ -28,88 +44,199 @@ function isBareHost(host: string): boolean {
 
 export function workspaceContext(): WorkspaceContext {
   const host = location.hostname;
-  if (isBareHost(host)) return { apexHost: null, current: '', bridgeOrigin: null };
+  if (isBareHost(host)) return { apexHost: null, current: '', apexOrigin: null };
   const parts = host.split('.');
   const apexHost = parts.slice(-2).join('.');
   const current = parts.length > 2 ? parts.slice(0, -2).join('.') : '';
-  return { apexHost, current, bridgeOrigin: `${location.protocol}//${apexHost}` };
+  return { apexHost, current, apexOrigin: `${location.protocol}//${apexHost}` };
 }
 
-/** The full https URL a workspace label lives at (for navigation). */
+/** The https URL a workspace label lives at ('' = the apex/home). */
 export function workspaceUrl(label: string): string {
   const { apexHost } = workspaceContext();
-  const host = label ? `${label}.${apexHost}` : apexHost;
-  return `https://${host}/`;
+  return `https://${label ? `${label}.${apexHost}` : apexHost}/`;
 }
 
-type Pending = { resolve: (names: string[]) => void; timer: ReturnType<typeof setTimeout> };
+// --------------------------------------------------------- local snapshot
 
-class WorkspaceDirectory {
-  private frame: HTMLIFrameElement | null = null;
-  private ready: Promise<void> | null = null;
-  private pending = new Map<number, Pending>();
-  private nextId = 1;
-
-  private bridge(): string | null {
-    return workspaceContext().bridgeOrigin;
+function safeGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
   }
-
-  /** Lazily mount the apex bridge iframe; resolves when it has loaded. */
-  private ensureFrame(): Promise<void> | null {
-    const origin = this.bridge();
-    if (!origin) return null;
-    if (this.ready) return this.ready;
-    this.ready = new Promise((resolve) => {
-      const frame = document.createElement('iframe');
-      frame.setAttribute('aria-hidden', 'true');
-      frame.style.display = 'none';
-      frame.src = `${origin}/bridge.html`;
-      frame.onload = () => resolve();
-      frame.onerror = () => resolve(); // unreachable bridge → calls just time out
-      document.body.appendChild(frame);
-      this.frame = frame;
-      window.addEventListener('message', (ev) => this.onMessage(ev, origin));
-    });
-    return this.ready;
-  }
-
-  private onMessage(ev: MessageEvent, origin: string): void {
-    if (ev.origin !== origin) return;
-    const data = ev.data as { kind?: string; reqId?: number; names?: string[] };
-    if (data?.kind !== 'tl-dir-result' || typeof data.reqId !== 'number') return;
-    const waiter = this.pending.get(data.reqId);
-    if (!waiter) return;
-    clearTimeout(waiter.timer);
-    this.pending.delete(data.reqId);
-    waiter.resolve(Array.isArray(data.names) ? data.names : []);
-  }
-
-  private send(op: 'list' | 'add' | 'remove', name?: string): Promise<string[]> {
-    const frame = this.ensureFrame();
-    if (!frame) return Promise.resolve([]); // no apex → empty directory
-    return frame.then(
-      () =>
-        new Promise<string[]>((resolve) => {
-          const reqId = this.nextId++;
-          const timer = setTimeout(() => {
-            this.pending.delete(reqId);
-            resolve([]); // bridge silent → degrade to empty, never hang the UI
-          }, 2500);
-          this.pending.set(reqId, { resolve, timer });
-          this.frame?.contentWindow?.postMessage({ kind: 'tl-dir', op, name, reqId }, this.bridge()!);
-        }),
-    );
-  }
-
-  list(): Promise<string[]> {
-    return this.send('list');
-  }
-  add(name: string): Promise<string[]> {
-    return this.send('add', name);
-  }
-  remove(name: string): Promise<string[]> {
-    return this.send('remove', name);
+}
+function safeSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* storage disabled — degrade to re-syncing on next load */
   }
 }
 
-export const workspaces = new WorkspaceDirectory();
+/** This origin's cached directory snapshot, current workspace excluded. */
+export function cachedWorkspaces(): string[] {
+  const raw = safeGet(CACHE_KEY);
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw) as unknown;
+    return Array.isArray(arr) ? arr.filter((n): n is string => typeof n === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function cacheWorkspaces(names: string[]): void {
+  safeSet(CACHE_KEY, JSON.stringify([...new Set(names)].filter(Boolean).sort()));
+}
+
+export function isSynced(): boolean {
+  return safeGet(SYNCED_KEY) === '1';
+}
+
+// --------------------------------------------------------- apex directory
+// (only call these while at the apex origin — i.e. inside the relay)
+
+function directory(): string[] {
+  const raw = safeGet(DIRECTORY_KEY);
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw) as unknown;
+    return Array.isArray(arr) ? arr.filter((n): n is string => typeof n === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+function writeDirectory(names: string[]): void {
+  safeSet(DIRECTORY_KEY, JSON.stringify([...new Set(names)].filter(Boolean).sort().slice(0, 256)));
+}
+
+// ------------------------------------------------------------- the relay
+//
+// Boot order (handleRelayBoot): (1) absorb a relay RETURN, (2) if we ARE the
+// apex serving a relay request, do the op + bounce back, (3) first-visit
+// auto-sync. Returns true when it has taken over the page (a redirect is in
+// flight or about to be), so the app skips normal rendering.
+
+interface RelayParams {
+  op: 'sync' | 'add' | 'remove';
+  ws: string; // target label for add/remove ('' for sync)
+  from: string; // host that initiated (return destination for sync/remove)
+  view: string; // hash view to land on
+}
+
+function hashQuery(): URLSearchParams {
+  const h = location.hash.replace(/^#/, '');
+  const q = h.indexOf('?');
+  return new URLSearchParams(q === -1 ? '' : h.slice(q + 1));
+}
+
+function hashView(): string {
+  const h = location.hash.replace(/^#/, '');
+  const q = h.indexOf('?');
+  return (q === -1 ? h : h.slice(0, q)) || '/';
+}
+
+function interstitial(): void {
+  document.body.innerHTML =
+    '<div style="position:fixed;inset:0;display:flex;align-items:center;' +
+    'justify-content:center;font:14px system-ui;color:#7c7973">Setting up workspace…</div>';
+}
+
+/** Send the browser to the apex relay for an op, returning to `view` after. */
+function gotoRelay(op: RelayParams['op'], ws: string, view: string): void {
+  const { apexOrigin } = workspaceContext();
+  if (!apexOrigin) return;
+  const qs = new URLSearchParams({ op, ws, from: location.host, view });
+  interstitial();
+  location.assign(`${apexOrigin}/#/relay?${qs.toString()}`);
+}
+
+/**
+ * Run on boot and before normal routing. Returns true if it has taken over
+ * (a navigation is happening) and the app should not render its view.
+ */
+export function handleWorkspaceBoot(): boolean {
+  const ctx = workspaceContext();
+  if (!ctx.apexHost) return false; // localhost / self-host single-origin: no directory
+
+  const params = hashQuery();
+
+  // (1) Absorb a relay RETURN: cache the list, mark synced, strip the
+  //     markers, and let normal routing render the carried view. The `wsr`
+  //     one-shot marker also guarantees we never re-bounce on this load.
+  if (params.get('wsr') === '1') {
+    const list = (params.get('wsl') ?? '').split(',').filter(Boolean);
+    cacheWorkspaces(list);
+    safeSet(SYNCED_KEY, '1');
+    params.delete('wsr');
+    params.delete('wsl');
+    const view = hashView();
+    const rest = params.toString();
+    history.replaceState(null, '', `#${view}${rest ? `?${rest}` : ''}`);
+    return false; // proceed to render `view`
+  }
+
+  // (2) We ARE the apex, serving a relay request: do the op first-party,
+  //     then bounce back to the initiator with a fresh snapshot.
+  if (ctx.current === '' && hashView() === '/relay') {
+    const op = params.get('op');
+    const ws = params.get('ws') ?? '';
+    const from = params.get('from') ?? '';
+    const view = params.get('view') || '/overview';
+    if (op === 'add' && validLabel(ws)) writeDirectory([...directory(), ws]);
+    else if (op === 'remove' && validLabel(ws)) writeDirectory(directory().filter((n) => n !== ws));
+    const list = directory();
+    // destination: add → the new workspace; sync/remove → back to initiator
+    const destHost =
+      op === 'add' && validLabel(ws) ? `${ws}.${ctx.apexHost}` : from;
+    const sameSite = destHost === ctx.apexHost || destHost.endsWith(`.${ctx.apexHost}`);
+    if (!sameSite) {
+      // refuse to redirect off-site; just show home
+      history.replaceState(null, '', '#/about');
+      return false;
+    }
+    const back = new URLSearchParams({ wsl: list.join(','), wsr: '1' });
+    interstitial();
+    location.assign(`https://${destHost}/#${view}?${back.toString()}`);
+    return true;
+  }
+
+  // (3) First visit to a fresh subdomain → read-only auto-sync.
+  if (ctx.current !== '' && !isSynced()) {
+    gotoRelay('sync', '', hashView());
+    return true;
+  }
+
+  return false;
+}
+
+// ------------------------------------------------ actions the UI triggers
+
+/** Create a workspace: record it at the apex, then land on its config. */
+export function createWorkspace(label: string): void {
+  gotoRelay('add', label, '/config');
+}
+
+/**
+ * Record the current workspace in the directory if it isn't already there
+ * (a profile was just saved on a subdomain reached by direct navigation
+ * rather than the create flow). Returns true if a bounce is in flight.
+ */
+export function recordCurrentWorkspaceIfNew(returnView: string): boolean {
+  const { current } = workspaceContext();
+  if (!current || cachedWorkspaces().includes(current)) return false;
+  gotoRelay('add', current, returnView);
+  return true;
+}
+
+/** Drop the current workspace from the directory (its last profile is gone). */
+export function dropCurrentWorkspace(returnView: string): void {
+  const { current } = workspaceContext();
+  if (current) gotoRelay('remove', current, returnView);
+}
+
+/** Refresh this origin's cached snapshot from the apex (manual sync). */
+export function syncWorkspaces(returnView: string): void {
+  gotoRelay('sync', '', returnView);
+}

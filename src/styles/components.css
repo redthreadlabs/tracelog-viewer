@@ -1460,3 +1460,57 @@ th.sortable.on {
   color: var(--ink-faint);
   margin-top: -4px;
 }
+
+/* ---------- new-workspace modal ---------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5vmin;
+  background: rgba(20, 19, 18, 0.6);
+}
+
+.modal-card {
+  width: min(460px, 100%);
+  margin: 0;
+}
+
+.modal-card h2 {
+  font-size: 20px;
+  margin: 0 0 8px;
+}
+
+.modal-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 14px 0 4px;
+}
+
+.modal-row .input {
+  flex: 1;
+}
+
+.modal-suffix {
+  font-family: var(--font-data);
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+/* config: the workspace is fixed to the current origin, not an input */
+.workspace-fixed {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  justify-content: center;
+}
