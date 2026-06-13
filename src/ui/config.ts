@@ -72,12 +72,13 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
     lede.textContent = authed
       ? 'A workspace reads one tracelog bucket. Credentials go only to AWS as ' +
         'request signatures, never anywhere else — but they’re saved in this ' +
-        'browser’s localStorage, in plain text, along with the log files this ' +
-        'workspace caches. Anyone with access to this device can read them; ' +
-        '“Delete & Purge” wipes all of it.'
+        'browser’s localStorage, in plain text, alongside the actual log files ' +
+        'copied from your S3 bucket and cached in your browser’s IndexedDB. ' +
+        'Anyone with access to this device can read them; “Delete & Purge” ' +
+        'wipes all of it.'
       : 'A workspace reads one tracelog bucket. This one is public, so no ' +
-        'credentials are entered, stored, or sent — but the bucket location and ' +
-        'the log files this workspace caches are saved in this browser; ' +
+        'credentials are entered, stored, or sent — but the actual log files ' +
+        'copied from your S3 bucket are cached in your browser’s IndexedDB; ' +
         '“Delete & Purge” wipes them.';
   };
   authToggle.addEventListener('change', syncAuth);
