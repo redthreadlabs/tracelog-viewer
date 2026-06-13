@@ -10,6 +10,7 @@ import {
 } from '@aws-sdk/client-s3';
 import type { Profile } from '../ui/profiles';
 import { gunzip, isGzip } from '../data/gzip';
+import { sidecarKey, type SidecarMeta } from '@redthreadlabs/tracelog-schema';
 
 export interface ListedObject {
   key: string;
@@ -182,6 +183,24 @@ export class LogBucket {
       }
     }
     return this.getObjectBytes(key);
+  }
+
+  /**
+   * Fetch a finalized file's metadata sidecar (`<key>.meta.json`) — the
+   * factual size/record/histogram facts the agent wrote alongside it. Plain
+   * JSON (no Content-Encoding). Returns null on a miss (404) or parse error,
+   * so the caller falls back to ratio-based estimation.
+   */
+  async getSidecar(key: string): Promise<SidecarMeta | null> {
+    try {
+      const res = await this.s3.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: `${this.prefix}${sidecarKey(key)}` }),
+      );
+      if (!res.Body) return null;
+      return JSON.parse(await res.Body.transformToString()) as SidecarMeta;
+    } catch {
+      return null;
+    }
   }
 }
 

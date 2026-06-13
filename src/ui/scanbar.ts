@@ -297,9 +297,7 @@ export function renderScanbar(container: HTMLElement): void {
 
     let est: { total: number; perFile: number[] };
     try {
-      est = await storeClient.request('estimateView', {
-        files: plan.files.map((f) => ({ key: f.key, channel: f.channel, compressed: f.size })),
-      });
+      est = await storeClient.request('estimateView', { files: plan.files });
     } catch {
       executePlan(plan); // estimate unavailable — don't block the user
       return;

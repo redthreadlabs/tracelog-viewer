@@ -7,11 +7,50 @@ import type { ScanPlan } from '../s3/scanner';
 import type { ParsedKey } from '../s3/keys';
 import { parseFile } from './parse';
 import { cachedDecompressed, storeFetched, type MemBytes } from './blobs';
-import { recordFetched, enforceCacheLimit } from './ledger';
+import { recordFetched, enforceCacheLimit, recordSidecarsBatch, ledgerRecords } from './ledger';
+import { SEP } from './cache';
 import type { Store } from './store';
 import { perf } from './perf';
 
 const CONCURRENCY = 4;
+const SIDECAR_CONCURRENCY = 8;
+
+/**
+ * Populate the size ledger with FACTUAL data from finalized files' sidecars
+ * (decompressed bytes, record count, hourly histogram), so the memory-limit
+ * estimate is exact rather than ratio-based. Only probes files not already
+ * checked (sidecarChecked); a 404 marks the file sidecarless so it is never
+ * re-probed. Best-effort — a failure just leaves the file to be estimated.
+ */
+export async function hydrateSidecars(bucket: LogBucket, files: ParsedKey[]): Promise<void> {
+  const have = new Map((await ledgerRecords(bucket.bucket)).map((r) => [r.id, r]));
+  const need = files.filter(
+    (f) => !f.current && !have.get(bucket.bucket + SEP + f.key)?.sidecarChecked,
+  );
+  if (need.length === 0) return;
+
+  const entries: Parameters<typeof recordSidecarsBatch>[1] = [];
+  const queue = [...need];
+  async function worker(): Promise<void> {
+    for (;;) {
+      const f = queue.shift();
+      if (!f) return;
+      const meta = await bucket.getSidecar(f.key);
+      entries.push({
+        key: f.key,
+        channel: f.channel,
+        interval: f.interval,
+        size: f.size,
+        etag: f.etag,
+        meta,
+      });
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(SIDECAR_CONCURRENCY, need.length) }, () => worker()),
+  );
+  await recordSidecarsBatch(bucket.bucket, entries);
+}
 
 /** Fetch one file's bytes (hot LRU / IndexedDB first), parse it, and time both. */
 async function fetchAndParse(

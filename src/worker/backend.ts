@@ -18,7 +18,7 @@ import type { FileInfo, ScanProgress } from '../data/store';
 import { LogBucket } from '../s3/client';
 import type { Profile } from '../ui/profiles';
 import { planScan, type ScanPlan } from '../s3/scanner';
-import { executeScan, loadOneFile } from '../data/scan';
+import { executeScan, loadOneFile, hydrateSidecars } from '../data/scan';
 import { LiveUpdater } from '../data/live';
 import { perf, type PerfEntry } from '../data/perf';
 import { cacheKeys, cacheWipeBucket } from '../data/cache';
@@ -197,11 +197,16 @@ const ops: Record<string, OpHandler> = {
     );
     return plan;
   },
-  estimateView: (s, a) =>
-    estimatePlan(
+  estimateView: async (s, a) => {
+    const files = (a.files as ParsedKey[]) ?? [];
+    // pull sidecars into the ledger first, so the estimate is factual (exact
+    // decompressed bytes) rather than ratio-based wherever a sidecar exists
+    await hydrateSidecars(s.bucket, files);
+    return estimatePlan(
       s.bucket.bucket,
-      (a.files as { key: string; channel: string; compressed: number }[]) ?? [],
-    ),
+      files.map((f) => ({ key: f.key, channel: f.channel, compressed: f.size })),
+    );
+  },
   executeScan: (s, a) => executeScan(s.store, s.bucket, a.plan as ScanPlan, s.cacheLimitBytes, s.mem),
   clearStore: (s) => {
     s.store.clear();

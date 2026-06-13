@@ -11,6 +11,7 @@
  * cache-byte eviction never touches it; a full workspace purge clears both.
  */
 import { openDb, SIZES_STORE, SEP, bucketRange, cacheDeleteIds } from './cache';
+import type { SidecarMeta } from '@redthreadlabs/tracelog-schema';
 
 export interface SizeRecord {
   id: string; // `${bucket}\0${key}`
@@ -18,8 +19,14 @@ export interface SizeRecord {
   interval: string;
   /** compressed bytes, from the listing — always known */
   compressed: number;
-  /** decompressed bytes, once the file has actually been fetched */
+  /** decompressed bytes — FACTUAL from the file's sidecar, else measured on fetch */
   decompressed?: number;
+  /** record count, from the sidecar (factual, no fetch needed) */
+  records?: number;
+  /** hourly interval×kind histogram, from the sidecar (records can be back-dated) */
+  intervals?: Record<string, Record<string, number>>;
+  /** whether we've already looked for this file's sidecar (don't re-probe 404s) */
+  sidecarChecked?: boolean;
   etag?: string;
   /** epoch-ms this file's data was last loaded for a view (LRU recency) */
   displayedAt: number;
@@ -120,7 +127,50 @@ export async function recordListing(
       interval: f.interval,
       compressed: f.size || prev?.compressed || 0,
       decompressed: prev?.decompressed,
+      records: prev?.records,
+      intervals: prev?.intervals,
+      sidecarChecked: prev?.sidecarChecked,
       etag: f.etag ?? prev?.etag,
+      displayedAt: prev?.displayedAt ?? 0,
+      cached: prev?.cached ?? false,
+    });
+  }
+}
+
+/**
+ * Record FACTUAL sidecar data (decompressed bytes, record count, the hourly
+ * histogram) for a set of files — no fetch/parse of the log bodies needed.
+ * `meta: null` marks the file probed-but-sidecarless so we don't re-check it.
+ * Preserves each file's displayedAt/cached. One ledger read, then puts.
+ */
+export async function recordSidecarsBatch(
+  bucket: string,
+  entries: {
+    key: string;
+    channel: string;
+    interval: string;
+    size: number;
+    etag?: string;
+    meta: SidecarMeta | null;
+  }[],
+): Promise<void> {
+  if (entries.length === 0) return;
+  const db = await openDb();
+  if (!db) return;
+  const prevs = new Map((await ledgerRecords(bucket)).map((r) => [r.id, r]));
+  for (const e of entries) {
+    const id = bucket + SEP + e.key;
+    const prev = prevs.get(id);
+    put(db, {
+      id,
+      channel: e.channel,
+      interval: e.interval,
+      compressed: e.meta?.compressed || e.size || prev?.compressed || 0,
+      decompressed: e.meta ? e.meta.bytes : prev?.decompressed,
+      records: e.meta ? e.meta.records : prev?.records,
+      intervals: e.meta ? e.meta.intervals : prev?.intervals,
+      sidecarChecked: true,
+      etag: e.etag ?? prev?.etag,
       displayedAt: prev?.displayedAt ?? 0,
       cached: prev?.cached ?? false,
     });
@@ -137,12 +187,16 @@ export async function recordFetched(
 ): Promise<void> {
   const db = await openDb();
   if (!db) return;
+  const prev = (await ledgerRecords(bucket)).find((r) => r.id === bucket + SEP + file.key);
   put(db, {
     id: bucket + SEP + file.key,
     channel: file.channel,
     interval: file.interval,
     compressed: file.size,
     decompressed,
+    records: prev?.records,
+    intervals: prev?.intervals,
+    sidecarChecked: prev?.sidecarChecked,
     etag: file.etag,
     displayedAt: now,
     cached,
