@@ -27,7 +27,7 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
   const lede = el('p', { className: 'lede' });
   const wrap = el('div', { className: 'config' });
   wrap.append(
-    el('h2', { text: existing ? `Reconnect ${hereLabel}` : `Connect ${hereLabel}` }),
+    el('h2', { text: 'Connect Workspace' }),
     lede,
   );
 
