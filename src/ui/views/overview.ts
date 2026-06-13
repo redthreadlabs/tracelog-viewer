@@ -99,6 +99,7 @@ export function renderOverview(container: HTMLElement): () => void {
             click: () => {
               viewState.timeWindow = null;
               setParams({ w: null });
+              void storeClient.request('setWindow', { window: null });
               void render();
             },
           },
@@ -134,6 +135,9 @@ export function renderOverview(container: HTMLElement): () => void {
       onWindow: (w) => {
         viewState.timeWindow = w;
         setParams({ w: windowParam(w) });
+        // refocus the worker's loading on the brushed window (sub-hour zooms
+        // need records, so prioritize fetching the ones that fall in it)
+        void storeClient.request('setWindow', { window: w });
         void render();
       },
     });

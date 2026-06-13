@@ -4,7 +4,7 @@
  */
 import type { LogBucket } from '../s3/client';
 import type { ScanPlan } from '../s3/scanner';
-import type { ParsedKey } from '../s3/keys';
+import { type ParsedKey, overlapsRange } from '../s3/keys';
 import { parseFile } from './parse';
 import { cachedDecompressed, storeFetched, type MemBytes } from './blobs';
 import { recordFetched, enforceCacheLimit, recordSidecarsBatch, ledgerRecords } from './ledger';
@@ -96,6 +96,7 @@ export async function executeScan(
   plan: ScanPlan,
   cacheLimitBytes: number | null,
   mem: MemBytes,
+  getWindow: () => [number, number] | null = () => null,
 ): Promise<void> {
   store.clear();
   // a fresh view supersedes the old working set; the memory budget governs
@@ -111,13 +112,38 @@ export async function executeScan(
   });
 
   const doneScan = perf.begin('scan', `scan s3://${bucket.bucket}`);
-  const queue = [...plan.files];
+  // a sparse queue (entries nulled as taken) so we can pick by priority each
+  // iteration; the plan is newest-first, so the first match is the newest one
+  const queue: (ParsedKey | null)[] = [...plan.files];
   let failed: string | undefined;
   let parsedBytes = 0;
 
+  // Pick the next file to load: a file overlapping the user's current window
+  // first (read live, so brushing reprioritizes mid-scan), else plan order.
+  function takeNext(): ParsedKey | null {
+    const w = getWindow();
+    if (w) {
+      for (let i = 0; i < queue.length; i++) {
+        const f = queue[i];
+        if (f && overlapsRange(f, w[0], w[1])) {
+          queue[i] = null;
+          return f;
+        }
+      }
+    }
+    for (let i = 0; i < queue.length; i++) {
+      const f = queue[i];
+      if (f) {
+        queue[i] = null;
+        return f;
+      }
+    }
+    return null;
+  }
+
   async function worker(): Promise<void> {
     for (;;) {
-      const file = queue.shift();
+      const file = takeNext();
       if (!file || failed) return;
       try {
         // Finalized files are immutable: ETag-checked cache hits skip S3

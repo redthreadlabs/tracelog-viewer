@@ -277,7 +277,9 @@ export function renderScanbar(container: HTMLElement): void {
   function executePlan(plan: ScanPlan): void {
     loadedSignature = planSignature(plan);
     resetViewState(); // a new scan invalidates any brushed window / deep link
-    void storeClient.request('executeScan', { plan });
+    // hand the worker the active window so it loads overlapping files first
+    const window = state.wholeDays ? null : [state.startMs, state.endMs];
+    void storeClient.request('executeScan', { plan, window });
     applyWindow();
   }
 

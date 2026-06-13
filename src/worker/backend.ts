@@ -102,6 +102,9 @@ class Session {
   /** the current selection's files (set by planScan) — drives metadata-served
    *  charts and window-prioritized loading without re-listing */
   currentPlan: ParsedKey[] = [];
+  /** the user's focused time window (brush) — the scan loads overlapping files
+   *  first; updated live via setWindow so brushing reprioritizes mid-scan */
+  currentWindow: Window = null;
 
   constructor(profile: Profile) {
     this.bucket = new LogBucket(profile);
@@ -234,7 +237,22 @@ const ops: Record<string, OpHandler> = {
       files.map((f) => ({ key: f.key, channel: f.channel, compressed: f.size })),
     );
   },
-  executeScan: (s, a) => executeScan(s.store, s.bucket, a.plan as ScanPlan, s.cacheLimitBytes, s.mem),
+  executeScan: (s, a) => {
+    if ('window' in a) s.currentWindow = (a.window as Window) ?? null;
+    return executeScan(
+      s.store,
+      s.bucket,
+      a.plan as ScanPlan,
+      s.cacheLimitBytes,
+      s.mem,
+      () => s.currentWindow,
+    );
+  },
+  /** Update the focused window so an in-progress scan reprioritizes to load
+   *  files overlapping it first (the user brushed/zoomed). */
+  setWindow: (s, a) => {
+    s.currentWindow = (a.window as Window) ?? null;
+  },
   clearStore: (s) => {
     s.store.clear();
     s.mem.clear();
