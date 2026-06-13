@@ -19,7 +19,7 @@ import type { ScanPlan } from '../s3/scanner';
 import { intervalSpan } from '../s3/keys';
 import { storeClient } from '../data/storeclient';
 import { viewState, resetViewState } from '../state';
-import { fmtBytes, fmtCount } from './format';
+import { fmtBytes, fmtBytesRough } from './format';
 import { getParam, setParams, setView, parseWindowParam, windowParam, readHash } from './hashstate';
 import { renderBucketPicker } from './bucketpicker';
 
@@ -98,12 +98,10 @@ const BUCKETED_VIEWS = new Set(['/overview', '/metrics']);
 // Re-rendering the scanbar (e.g. on profile change) must drop the previous
 // instance's listeners and timers.
 let activeHashHandler: (() => void) | null = null;
-let activeHeapTimer: ReturnType<typeof setInterval> | null = null;
 let activeClientListeners: (() => void) | null = null;
 
 export function renderScanbar(container: HTMLElement): void {
   if (activeHashHandler) window.removeEventListener('hashchange', activeHashHandler);
-  if (activeHeapTimer) clearInterval(activeHeapTimer);
   activeClientListeners?.();
 
   // initial range: a shared URL's precise window wins; else its day params;
@@ -556,30 +554,13 @@ export function renderScanbar(container: HTMLElement): void {
     const snap = storeClient.snapshot;
     if (snap.recordCount === 0 && snap.files.length === 0) return;
     clearEl(budget);
-    // the worker holds the store, so its heap is the meaningful one (polled
-    // below); elsewhere, fall back to parsed bytes
+    // the worker can't self-measure its heap (no performance.memory there),
+    // so report the decompressed bytes it's holding — a real proxy for it
     const inMemory = snap.files.reduce((s, f) => s + f.sizeUncompressed, 0);
     budget.append(
-      storePill(
-        workerHeap !== null && workerHeap !== undefined
-          ? `HEAP: ${fmtBytes(workerHeap)}`
-          : `MEM: ${fmtCount(snap.recordCount)} records · ${fmtBytes(inMemory)}`,
-        'inspect the in-memory store (files, sizes, eviction)',
-      ),
+      storePill(`MEM: ${fmtBytesRough(inMemory)}`, 'inspect the in-memory store (files, sizes, eviction)'),
     );
   }
-
-  // poll the *worker's* heap (where the store lives); it drifts with GC,
-  // not just with data events
-  let workerHeap: number | null | undefined;
-  const pollHeap = (): void => {
-    void storeClient.request<number | null>('heap').then((h) => {
-      workerHeap = h;
-      updateLoadedText();
-    });
-  };
-  pollHeap();
-  activeHeapTimer = setInterval(pollHeap, 2000);
 
   function clearEl(node: HTMLElement): void {
     while (node.firstChild) node.removeChild(node.firstChild);

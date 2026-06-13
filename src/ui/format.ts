@@ -59,6 +59,14 @@ export function fmtBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
+/** bytes → whole-number units (`1 GB` / `412 KB`) — for at-a-glance readouts */
+export function fmtBytesRough(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) return `${Math.round(bytes / (1024 * 1024 * 1024))} GB`;
+  if (bytes >= 1024 * 1024) return `${Math.round(bytes / (1024 * 1024))} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} B`;
+}
+
 /** counts with comma grouping: 12,345 */
 export function fmtCount(n: number): string {
   return n.toLocaleString('en-US');
