@@ -301,11 +301,6 @@ export function purgeAndLeave(label: string): void {
   location.assign(`${apexOrigin}/#/about?${qs.toString()}`);
 }
 
-/** Refresh this origin's cached snapshot from the apex (manual sync). */
-export function syncWorkspaces(returnView: string): void {
-  gotoRelay('sync', '', returnView);
-}
-
 /**
  * Hop to another workspace via the apex, so the destination always arrives
  * with a fresh directory snapshot (no more "doesn't know about B until I

@@ -19,7 +19,6 @@ import {
   handleWorkspaceBoot,
   knownWorkspaces,
   isApexHome,
-  syncWorkspaces,
 } from '../data/workspaces';
 import { openNewWorkspace } from './workspaceui';
 import { renderPerfView } from './views/perfview';
@@ -272,18 +271,8 @@ function workspaceSwitcher(active: Profile | null): HTMLElement {
     pop = el('div', { className: 'switcher-pop' });
     wrap.append(pop);
 
-    // this workspace's single connection — link to config to set or edit it
+    // (1) this workspace's connection — edit or set it up
     if (!apex) {
-      pop.append(el('div', { className: 'switcher-head', text: here || 'this device' }));
-      if (active) {
-        const row = el('button', {
-          className: 'switcher-row on',
-          text: 'connected',
-        });
-        row.append(el('span', { className: 'switcher-sub', text: `s3://${active.bucket}` }));
-        row.addEventListener('click', () => { close(); setView('/overview'); });
-        pop.append(row);
-      }
       pop.append(
         el('button', {
           className: 'switcher-row add',
@@ -293,11 +282,10 @@ function workspaceSwitcher(active: Profile | null): HTMLElement {
       );
     }
 
-    // other workspaces (subdomains). On the apex this is the whole menu.
+    // (2) divider + (3) links to the other workspaces + (4) New workspace
     if (ctx.apexHost) {
       const others = knownWorkspaces().filter((n) => n !== here);
       const block = el('div', { className: apex ? '' : 'switcher-block' });
-      block.append(el('div', { className: 'switcher-head', text: 'Workspaces' }));
       for (const n of others) block.append(workspaceRow(n));
       block.append(
         el('button', {
@@ -306,17 +294,6 @@ function workspaceSwitcher(active: Profile | null): HTMLElement {
           on: { click: () => { close(); openNewWorkspace(); } },
         }),
       );
-      // the apex reads the directory first-party (always fresh); only a
-      // subdomain, working off a cached snapshot, needs a manual sync
-      if (!apex) {
-        block.append(
-          el('button', {
-            className: 'switcher-row add',
-            text: '↻ Sync workspaces',
-            on: { click: () => { close(); syncWorkspaces(readHash().view); } },
-          }),
-        );
-      }
       pop.append(block);
     }
 
