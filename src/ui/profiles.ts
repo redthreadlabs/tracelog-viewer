@@ -19,6 +19,10 @@ export interface Profile {
   sessionToken?: string;
   /** the workspace (subdomain) this profile belongs to; '' = single-origin */
   subdomain?: string;
+  /** cap on the in-memory working set, MB; undefined = no limit */
+  memoryLimitMb?: number;
+  /** cap on the IndexedDB log-file cache, MB; undefined = no limit */
+  cacheLimitMb?: number;
 }
 
 const KEY = 'tracelog-viewer:profile';

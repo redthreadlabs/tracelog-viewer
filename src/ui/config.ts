@@ -40,6 +40,14 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
   const secretKey = revealField('', existing?.secretAccessKey ?? '');
   const sessionToken = revealField('(optional)', existing?.sessionToken ?? '');
 
+  // limits, in MB — defaulted on a new connection, editable, blank = none.
+  // (existing connection with the field cleared = no limit, hence the
+  // null-coalescing only applies its default when there's no profile yet.)
+  const limitValue = (mb: number | undefined, dflt: number): string =>
+    existing ? (mb != null ? String(mb) : '') : String(dflt);
+  const memLimit = field('text', 'blank = no limit', limitValue(existing?.memoryLimitMb, 256));
+  const cacheLimit = field('text', 'blank = no limit', limitValue(existing?.cacheLimitMb, 1024));
+
   // feedback line for purge (and any flash passed into this render)
   const purgeMsg = el('div', { className: 'field-note', attrs: { style: 'text-align:right' } });
 
@@ -97,6 +105,16 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
     label('Authentication'), authSwitch,
     authBlock,
     publicHint,
+    label('Memory limit'), withUnit(memLimit, 'MB'),
+    label('Cache limit'), withUnit(cacheLimit, 'MB'),
+    el('div', { className: 'full' }, [
+      el('span', {
+        className: 'field-note',
+        text:
+          'Caps the working set held in memory and the log files cached on disk ' +
+          '(IndexedDB). Leave either blank for no limit.',
+      }),
+    ]),
     el('div', { className: 'full actions' }, [
       el('button', {
         className: 'btn btn-danger',
@@ -128,6 +146,8 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
       secretAccessKey: pub ? '' : secretKey.input.value.trim(),
       sessionToken: pub ? undefined : sessionToken.input.value.trim() || undefined,
       subdomain: ctx.current || undefined,
+      memoryLimitMb: parseLimit(memLimit.value),
+      cacheLimitMb: parseLimit(cacheLimit.value),
     };
     if (!profile.bucket) return;
     if (!pub && (!profile.accessKeyId || !profile.secretAccessKey)) return;
@@ -174,6 +194,17 @@ function field(type: string, placeholder: string, value = ''): HTMLInputElement 
   });
   input.value = value;
   return input;
+}
+
+/** Wrap an input with a trailing unit chip (e.g. "MB"). */
+function withUnit(input: HTMLInputElement, unit: string): HTMLElement {
+  return el('div', { className: 'unit-field' }, [input, el('span', { className: 'unit', text: unit })]);
+}
+
+/** Parse a limit input: a positive number of MB, or undefined (no limit). */
+function parseLimit(raw: string): number | undefined {
+  const n = parseFloat(raw.trim());
+  return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
 const EYE =

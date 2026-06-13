@@ -1644,3 +1644,19 @@ th.sortable.on {
   font-size: 13px;
   text-align: center;
 }
+
+/* config: input with a trailing unit chip (limits) */
+.unit-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.unit-field .input {
+  flex: 1;
+}
+
+.unit-field .unit {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
