@@ -302,6 +302,7 @@ function normalize(
     id: nextId++,
     kind,
     ts: usToMs(body.timestamp),
+    tzOffset: typeof body.tz_offset === 'number' && isFinite(body.tz_offset) ? body.tz_offset : undefined,
     channel: file.channel,
     host: file.host,
     sourceKey: file.key,

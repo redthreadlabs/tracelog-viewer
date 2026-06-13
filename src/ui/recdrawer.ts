@@ -75,6 +75,11 @@ export function renderRecDrawer(
   };
   metaRow('kind', rec.kind);
   metaRow('time', `${fmtDateTime(rec.ts)} ${zoneLabel()}`);
+  // client events carry the device's own UTC offset: show the local wall-clock
+  // time where the event actually happened
+  if (rec.tzOffset != null) {
+    metaRow('client time', `${localWallClock(rec.ts, rec.tzOffset)} (UTC${fmtOffset(rec.tzOffset)})`);
+  }
   metaRow('channel', rec.channel);
   metaRow('host', rec.host);
   metaRow('service', rec.meta.serviceVersion && `${rec.meta.serviceName} ${rec.meta.serviceVersion}`);
@@ -96,6 +101,22 @@ export function renderRecDrawer(
     if (errorBlock) body.append(errorBlock);
     body.append(prettyJson(raw));
   });
+}
+
+/** Wall-clock time at a given UTC offset (minutes east), as 'YYYY-MM-DD HH:MM:SS'. */
+function localWallClock(tsMs: number, offsetMin: number): string {
+  const d = new Date(tsMs + offsetMin * 60_000);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} ` +
+    `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`
+  );
+}
+
+/** Minutes east of UTC → '+HH:MM' / '-HH:MM'. */
+function fmtOffset(min: number): string {
+  const a = Math.abs(min);
+  return `${min < 0 ? '-' : '+'}${String(Math.floor(a / 60)).padStart(2, '0')}:${String(a % 60).padStart(2, '0')}`;
 }
 
 /**

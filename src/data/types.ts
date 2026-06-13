@@ -67,6 +67,8 @@ export interface Rec {
   appVersion?: string;
   device?: string;
   os?: string;
+  /** minutes east of UTC at record time (client events): local = UTC + tzOffset */
+  tzOffset?: number;
   /** transactions with HTTP request context: path, user agent, client IP */
   path?: string;
   agent?: string;
