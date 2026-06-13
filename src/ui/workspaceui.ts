@@ -40,12 +40,16 @@ export function openNewWorkspace(): void {
     }),
     el('p', {
       className: 'field-note',
+      text:
+        'Nothing is provisioned: no DNS record is created, no cloud service ' +
+        'is involved, no account is registered anywhere.',
+    }),
+    el('p', {
+      className: 'field-note',
     }, [
       el('span', {
         text:
-          'Nothing is provisioned: no DNS record is created, no cloud service ' +
-          'is involved, no account is registered anywhere. This site serves the ' +
-          'exact same pages to every subdomain, but your ',
+          'This site serves the exact same pages to every subdomain, but your ',
       }),
       el('em', { text: 'browser' }),
       el('span', {
