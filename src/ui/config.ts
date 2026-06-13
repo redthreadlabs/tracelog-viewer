@@ -32,6 +32,7 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
 
   // --- connection form (prefilled when editing an existing connection) ---
   const bucket = field('text', 'my-service-logs', existing?.bucket ?? '');
+  const prefix = field('text', 'logs/  (optional)', existing?.prefix ?? '');
   const region = field('text', 'us-east-1', existing?.region ?? 'us-east-1');
   const accessKey = field('text', 'AKIA…', existing?.accessKeyId ?? '');
   const secretKey = field('password', '', existing?.secretAccessKey ?? '');
@@ -42,6 +43,15 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
 
   const form = el('form', {}, [
     label('Bucket'), bucket,
+    label('Prefix'), prefix,
+    el('div', { className: 'full' }, [
+      el('span', {
+        className: 'field-note',
+        text:
+          'Optional — set this only if your tracelog channels live under a key ' +
+          'prefix rather than the bucket root (e.g. logs/ for logs/server/…).',
+      }),
+    ]),
     label('Region'), region,
     label('Access key ID'), accessKey,
     label('Secret access key'), secretKey,
@@ -97,6 +107,7 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
     ev.preventDefault();
     const profile: Profile = {
       bucket: bucket.value.trim(),
+      prefix: prefix.value.trim() || undefined,
       region: region.value.trim() || 'us-east-1',
       accessKeyId: accessKey.value.trim(),
       secretAccessKey: secretKey.value.trim(),

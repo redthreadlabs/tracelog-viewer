@@ -9,6 +9,8 @@
 export interface Profile {
   region: string;
   bucket: string;
+  /** optional key prefix under which the tracelog channels live (e.g. `logs/`) */
+  prefix?: string;
   accessKeyId: string;
   secretAccessKey: string;
   sessionToken?: string;

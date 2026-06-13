@@ -569,6 +569,14 @@ or date rather than abandon tracelog entirely.
   cloud service, no account; the wildcard subdomain already resolves for
   everyone, and a workspace is just a separate corner of this one browser
   (the new-workspace modal says so).
+- **Optional bucket prefix** (2026-06-13): a connection may set a key
+  prefix (e.g. `logs/`) when the tracelog channels live below the bucket
+  root rather than at it. Encapsulated entirely in `LogBucket` — it's
+  prepended to every list/fetch and stripped from returned keys, so
+  parseKey, the store, the scanner, and the cache keep working with
+  logical `channel/interval/host` keys. Whatever the user types
+  (leading/trailing/internal slashes, blank) is canonicalized by
+  `normalizePrefix` to `''` or `a/b/`.
 - **One connection per workspace** (2026-06-12): there is no profile
   *name* — the subdomain is the namespace, so a workspace connects to one
   bucket. Want a second namespace? Make a second workspace

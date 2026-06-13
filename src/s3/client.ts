@@ -17,12 +17,26 @@ export interface ListedObject {
   etag?: string;
 }
 
+/**
+ * Normalize whatever the user typed into '' or a canonical `a/b/` form:
+ * collapse any run of slashes, drop leading/trailing ones, append exactly
+ * one. So `logs`, `/logs`, `logs/`, `//logs//`, ` logs ` → `logs/`, and
+ * `logs/prod`, `/logs//prod/` → `logs/prod/`. Empty/blank → '' (bucket root).
+ */
+export function normalizePrefix(p?: string): string {
+  const t = (p ?? '').trim().replace(/\/+/g, '/').replace(/^\/|\/$/g, '');
+  return t ? `${t}/` : '';
+}
+
 export class LogBucket {
   private s3: S3Client;
   readonly bucket: string;
+  /** S3 key prefix the channels live under ('' = bucket root); fully internal */
+  private readonly prefix: string;
 
   constructor(profile: Profile) {
     this.bucket = profile.bucket;
+    this.prefix = normalizePrefix(profile.prefix);
     this.s3 = new S3Client({
       region: profile.region,
       credentials: {
@@ -33,28 +47,33 @@ export class LogBucket {
     });
   }
 
-  /** Top-level prefixes == channels (SPEC §3.2 recipe 1). */
+  /**
+   * Top-level prefixes == channels (SPEC §3.2 recipe 1). With a bucket
+   * prefix, channels live one level below it; we strip the prefix so callers
+   * always see logical keys (`channel/interval/host…`).
+   */
   async listChannels(): Promise<string[]> {
     const res = await this.s3.send(
-      new ListObjectsV2Command({ Bucket: this.bucket, Delimiter: '/' }),
+      new ListObjectsV2Command({ Bucket: this.bucket, Prefix: this.prefix, Delimiter: '/' }),
     );
     return (res.CommonPrefixes ?? [])
-      .map((p) => p.Prefix?.replace(/\/$/, '') ?? '')
+      .map((p) => (p.Prefix ?? '').slice(this.prefix.length).replace(/\/$/, ''))
       .filter(Boolean);
   }
 
   /**
    * One paginated listing per channel for a date range (SPEC §3.2 recipe 2):
    * StartAfter positions before the first day; reading stops as soon as keys
-   * sort past `{channel}/{endDate}~` (`~` sorts after every interval char).
+   * sort past `{endDate}~` (`~` sorts after every interval char). The bucket
+   * prefix is applied to the S3 request and stripped from returned keys.
    */
   async listChannelRange(
     channel: string,
     startDate: string,
     endDate: string,
   ): Promise<ListedObject[]> {
-    const prefix = `${channel}/`;
-    const stopAt = `${channel}/${endDate}~`;
+    const prefix = `${this.prefix}${channel}/`;
+    const stopAt = `${this.prefix}${channel}/${endDate}~`;
     const out: ListedObject[] = [];
     let token: string | undefined;
 
@@ -63,14 +82,14 @@ export class LogBucket {
         new ListObjectsV2Command({
           Bucket: this.bucket,
           Prefix: prefix,
-          StartAfter: token ? undefined : `${channel}/${startDate}`,
+          StartAfter: token ? undefined : `${this.prefix}${channel}/${startDate}`,
           ContinuationToken: token,
         }),
       );
       for (const obj of res.Contents ?? []) {
         if (!obj.Key) continue;
         if (obj.Key > stopAt) return out;
-        out.push(toListed(obj));
+        out.push(toListed(obj, this.prefix));
       }
       token = res.IsTruncated ? res.NextContinuationToken : undefined;
     } while (token);
@@ -87,7 +106,7 @@ export class LogBucket {
    */
   async getObjectBytes(key: string): Promise<Uint8Array> {
     const res = await this.s3.send(
-      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+      new GetObjectCommand({ Bucket: this.bucket, Key: `${this.prefix}${key}` }),
     );
     if (!res.Body) return new Uint8Array(0);
     let bytes = await res.Body.transformToByteArray();
@@ -106,9 +125,9 @@ async function gunzip(bytes: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(buf);
 }
 
-function toListed(obj: _Object): ListedObject {
+function toListed(obj: _Object, prefix: string): ListedObject {
   return {
-    key: obj.Key ?? '',
+    key: (obj.Key ?? '').slice(prefix.length), // strip bucket prefix → logical key
     size: obj.Size ?? 0,
     lastModified: obj.LastModified,
     etag: obj.ETag,
