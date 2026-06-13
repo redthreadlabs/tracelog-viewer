@@ -23,16 +23,12 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
   const hereLabel = ctx.current && ctx.apexHost ? `${ctx.current}.${ctx.apexHost}` : 'this device';
   const existing = profiles.active();
 
+  // the lede carries the disclosure + warning, updated by the public toggle
+  const lede = el('p', { className: 'lede' });
   const wrap = el('div', { className: 'config' });
   wrap.append(
     el('h2', { text: existing ? `Reconnect ${hereLabel}` : `Connect ${hereLabel}` }),
-    el('p', {
-      className: 'lede',
-      text:
-        'A workspace reads one tracelog bucket. Credentials are sent only to AWS ' +
-        'as request signatures — never anywhere else — and are kept only in this ' +
-        'tab’s memory unless you opt to remember them below.',
-    }),
+    lede,
   );
 
   // --- connection form (prefilled when editing an existing connection) ---
@@ -46,9 +42,6 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
   const isPublic = el('input', { attrs: { type: 'checkbox' } }) as HTMLInputElement;
   isPublic.checked = existing?.public ?? false;
 
-  const remember = el('input', { attrs: { type: 'checkbox' } });
-  remember.checked = profiles.remembered;
-
   // auth fields live in their own block (display:contents so the label/field
   // pairs still align in the form grid) so the public toggle can hide them
   const authBlock = el('div', { className: 'config-auth' }, [
@@ -56,14 +49,19 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
     label('Secret access key'), secretKey.wrap,
     label('Session token'), sessionToken.wrap,
   ]);
-  const rememberNote = el('span');
+  // an honest disclosure, not an opt-in: the connection is always saved to
+  // this browser so the workspace survives reloads and subdomain hops
   const syncAuthVisibility = (): void => {
     authBlock.style.display = isPublic.checked ? 'none' : 'contents';
-    rememberNote.textContent = isPublic.checked
-      ? 'Remember on this device — saves this connection (no credentials are involved) to this browser.'
-      : 'Remember on this device — stores these credentials in this browser’s ' +
-        'localStorage, in plain text. Leave off to keep them only in this tab’s ' +
-        'memory, gone when you close it.';
+    lede.textContent = isPublic.checked
+      ? 'A workspace reads one tracelog bucket. This one is public, so no ' +
+        'credentials are entered, stored, or sent — only the bucket location ' +
+        'is saved in this browser.'
+      : 'A workspace reads one tracelog bucket. Credentials are sent only to AWS ' +
+        'as request signatures, never anywhere else — but they are saved in ' +
+        'this browser’s localStorage, in plain text, so the workspace stays ' +
+        'connected across reloads. Anyone with access to this device can read ' +
+        'them; “Purge” below removes everything.';
   };
   isPublic.addEventListener('change', syncAuthVisibility);
 
@@ -97,9 +95,6 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
       ]),
     ]),
     authBlock,
-    el('div', { className: 'full' }, [
-      el('label', { className: 'remember' }, [remember, rememberNote]),
-    ]),
     el('div', { className: 'full actions' }, [
       el('button', {
         className: 'btn btn-primary',
@@ -126,7 +121,6 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
     };
     if (!profile.bucket) return;
     if (!pub && (!profile.accessKeyId || !profile.secretAccessKey)) return;
-    profiles.setRemembered(remember.checked);
     profiles.save(profile);
     // a workspace reached by direct navigation joins the directory now (the
     // bounce to the apex and back replaces onDone); the create flow already

@@ -1,8 +1,9 @@
 /**
  * The connection for this workspace (SPEC §4). One profile per origin: the
  * subdomain *is* the namespace, so there's no separate profile name — you
- * connect a workspace to one bucket. The profile lives in memory by default;
- * the explicit "remember on this device" opt-in persists it to localStorage.
+ * connect a workspace to one bucket. The profile is persisted to this
+ * origin's localStorage so the workspace stays connected across reloads and
+ * subdomain hops (the config panel warns about this and offers a purge).
  * Credentials are never sent anywhere except to AWS via SigV4.
  */
 
@@ -27,21 +28,18 @@ const OLD_ACTIVE_KEY = 'tracelog-viewer:active-profile';
 
 class ProfileStore extends EventTarget {
   private profile: Profile | null = null;
-  remembered: boolean;
 
   constructor() {
     super();
     const raw = localStorage.getItem(KEY);
     if (raw) {
-      this.remembered = true;
       try {
         this.profile = JSON.parse(raw) as Profile;
       } catch {
-        this.remembered = false;
+        /* malformed — leave disconnected */
       }
       return;
     }
-    this.remembered = false;
     this.migrateOldFormat();
   }
 
@@ -56,7 +54,6 @@ class ProfileStore extends EventTarget {
       if (chosen) {
         delete chosen.name;
         this.profile = chosen;
-        this.remembered = true;
         this.persist();
       }
     } catch {
@@ -72,7 +69,7 @@ class ProfileStore extends EventTarget {
 
   save(profile: Profile): void {
     this.profile = profile;
-    this.persistIfRemembered();
+    this.persist();
     this.dispatchEvent(new Event('change'));
   }
 
@@ -84,22 +81,6 @@ class ProfileStore extends EventTarget {
       /* storage disabled */
     }
     this.dispatchEvent(new Event('change'));
-  }
-
-  setRemembered(remember: boolean): void {
-    this.remembered = remember;
-    if (remember) this.persistIfRemembered();
-    else
-      try {
-        localStorage.removeItem(KEY);
-      } catch {
-        /* storage disabled */
-      }
-    this.dispatchEvent(new Event('change'));
-  }
-
-  private persistIfRemembered(): void {
-    if (this.remembered) this.persist();
   }
 
   private persist(): void {
