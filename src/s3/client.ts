@@ -73,6 +73,37 @@ export class LogBucket {
   }
 
   /**
+   * The most recent interval present across the given channels, e.g.
+   * `2026-06-11` (daily) or `2026-06-11T14` (hourly). Cheap: it lists the
+   * interval *prefixes* via the delimiter, not the files inside them, and
+   * intervals sort chronologically, so the max is the latest. Returns null
+   * when none of the channels hold any data.
+   */
+  async latestInterval(channels: string[]): Promise<string | null> {
+    let latest: string | null = null;
+    for (const channel of channels) {
+      const base = `${this.prefix}${channel}/`;
+      let token: string | undefined;
+      do {
+        const res = await this.s3.send(
+          new ListObjectsV2Command({
+            Bucket: this.bucket,
+            Prefix: base,
+            Delimiter: '/',
+            ContinuationToken: token,
+          }),
+        );
+        for (const cp of res.CommonPrefixes ?? []) {
+          const interval = (cp.Prefix ?? '').slice(base.length).replace(/\/$/, '');
+          if (interval && (latest === null || interval > latest)) latest = interval;
+        }
+        token = res.IsTruncated ? res.NextContinuationToken : undefined;
+      } while (token);
+    }
+    return latest;
+  }
+
+  /**
    * One paginated listing per channel for a date range (SPEC §3.2 recipe 2):
    * StartAfter positions before the first day; reading stops as soon as keys
    * sort past `{endDate}~` (`~` sorts after every interval char). The bucket

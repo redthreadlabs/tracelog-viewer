@@ -16,6 +16,7 @@
  */
 import { el, clear } from './dom';
 import type { ScanPlan } from '../s3/scanner';
+import { intervalSpan } from '../s3/keys';
 import { storeClient } from '../data/storeclient';
 import { heapNow } from '../data/perf';
 import { viewState, resetViewState } from '../state';
@@ -107,10 +108,13 @@ export function renderScanbar(container: HTMLElement): void {
   activeClientListeners?.();
 
   // initial range: a shared URL's precise window wins; else its day params;
-  // else today.
+  // else today (a placeholder until we auto-detect the latest interval).
   const sharedWindow = parseWindowParam(getParam('w'));
   const fromDay = getParam('from');
   const toDay = getParam('to');
+  // a fresh arrival pins no range — that's when we auto-detect the latest
+  // interval in the bucket rather than defaulting to a possibly-empty "today"
+  const rangePinned = !!(getParam('w') || fromDay || toDay);
   const state: ScanbarState = sharedWindow
     ? {
         channels: new Map(),
@@ -146,12 +150,26 @@ export function renderScanbar(container: HTMLElement): void {
 
   storeClient
     .request<string[]>('listChannels')
-    .then((channels) => {
+    .then(async (channels) => {
       // a shared URL's ch=a,b narrows the default all-on selection; an
       // absent param means all-on, and ch= (empty → []) means none
       const fromUrl = getParam('ch')?.split(',').filter(Boolean);
       for (const ch of channels) {
         state.channels.set(ch, !fromUrl || fromUrl.includes(ch));
+      }
+      // fresh arrival: land on the most recent interval that has data, not
+      // a possibly-empty "today"
+      if (!rangePinned) {
+        const selected = selectedChannels();
+        const latest = selected.length
+          ? await storeClient.request<string | null>('latestInterval', { channels: selected })
+          : null;
+        const span = latest ? intervalSpan(latest) : null;
+        if (span) {
+          state.startMs = span[0];
+          state.endMs = Math.min(span[1] - 1, Date.now());
+          state.wholeDays = !latest!.includes('T'); // daily interval → whole-day range
+        }
       }
       void replan();
     })

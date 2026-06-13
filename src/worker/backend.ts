@@ -174,6 +174,7 @@ const ops: Record<string, OpHandler> = {
 
   // ---- scanbar ----
   listChannels: (s) => s.bucket.listChannels(),
+  latestInterval: (s, a) => s.bucket.latestInterval(a.channels as string[]),
   planScan: (s, a) =>
     planScan(s.bucket, a.channels as string[], a.startMs as number, a.endMs as number),
   executeScan: (s, a) => executeScan(s.store, s.bucket, a.plan as ScanPlan),
