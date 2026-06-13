@@ -124,9 +124,26 @@ export function startApp(root: HTMLElement): void {
     header.append(masthead, threadRule());
   }
 
+  // the scanbar (channel/range filters) belongs to the log-data views only —
+  // not the config form, the About page, the apex landing, or the
+  // viewer-internals pages (which are about the app, not the logs)
+  function shouldShowScanbar(): boolean {
+    if (!profiles.active() || isApexHome()) return false;
+    const bareUrl = !location.hash || location.hash === '#' || location.hash === '#/';
+    const view = bareUrl ? '/overview' : readHash().view;
+    return view !== '/config' && view !== '/about' && !view.startsWith('/internals/');
+  }
+
+  // the scanbar instance persists across navigation — we just show or hide its
+  // host, so moving between views never tears it down or re-loads its data
+  function applyScanbarVisibility(): void {
+    scanbarHost.style.display = shouldShowScanbar() ? '' : 'none';
+  }
+
   function renderScanbarIfConnected(): void {
     clear(scanbarHost);
     if (profiles.active()) renderScanbar(scanbarHost);
+    applyScanbarVisibility();
   }
 
   // Seeded at boot so the initial connect() of a remembered profile does NOT
@@ -160,6 +177,7 @@ export function startApp(root: HTMLElement): void {
     teardown = null;
     clear(main);
     renderHeader(); // keep nav active-state in sync
+    applyScanbarVisibility(); // view-tier only: the scanbar shows on data views
 
     // The apex is the public landing + directory keeper, never a workspace:
     // no profiles or data live here, so it only ever shows About. (The relay

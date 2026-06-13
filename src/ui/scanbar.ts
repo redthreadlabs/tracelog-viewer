@@ -105,9 +105,16 @@ const BUCKETED_VIEWS = new Set(['/overview', '/metrics']);
 let activeHashHandler: (() => void) | null = null;
 let activeClientListeners: (() => void) | null = null;
 
-export function renderScanbar(container: HTMLElement): void {
+/** Drop the live scanbar's listeners (re-render, or leaving the data views). */
+export function teardownScanbar(): void {
   if (activeHashHandler) window.removeEventListener('hashchange', activeHashHandler);
+  activeHashHandler = null;
   activeClientListeners?.();
+  activeClientListeners = null;
+}
+
+export function renderScanbar(container: HTMLElement): void {
+  teardownScanbar();
 
   // initial range: a shared URL's precise window wins; else its day params;
   // else today (a placeholder until we auto-detect the latest interval).
