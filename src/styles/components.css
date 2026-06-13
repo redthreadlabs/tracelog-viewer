@@ -1397,12 +1397,12 @@ th.sortable.on {
   min-width: 240px;
   max-width: 320px;
   padding: 6px;
-  background: var(--surface-raised);
+  /* canvas-scoped (not in the panel token list), so this matches the page */
+  background: var(--bg);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
   color: var(--ink);
-  color-scheme: light;
 }
 
 .switcher-head {
