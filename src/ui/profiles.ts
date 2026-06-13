@@ -12,6 +12,8 @@ export interface Profile {
   accessKeyId: string;
   secretAccessKey: string;
   sessionToken?: string;
+  /** the workspace (subdomain) this profile belongs to; '' = the apex/home */
+  subdomain?: string;
 }
 
 const STORAGE_KEY = 'tracelog-viewer:profiles';

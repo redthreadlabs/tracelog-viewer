@@ -13,6 +13,7 @@ import { readHash, setView, setParams, parseWindowParam, getParam } from './hash
 import { viewState, resetViewState } from '../state';
 import { storeClient } from '../data/storeclient';
 import type { Profile } from './profiles';
+import { workspaces, workspaceContext, workspaceUrl } from '../data/workspaces';
 import { renderPerfView } from './views/perfview';
 import { renderAbout } from './views/about';
 import { renderRecordsView } from './views/records';
@@ -77,18 +78,7 @@ export function startApp(root: HTMLElement): void {
       nav,
       el('span', { className: 'masthead-spacer' }),
       el('div', { className: 'masthead-controls' }, [
-        active
-          ? el('button', {
-              className: 'chip',
-              title: `s3://${active.bucket} · ${active.region}`,
-              text: active.name,
-              on: { click: () => setView('/config') },
-            })
-          : el('button', {
-              className: 'chip',
-              text: 'connect…',
-              on: { click: () => setView('/config') },
-            }),
+        workspaceSwitcher(active),
         el('button', {
           className: isUtcMode() ? 'toggle on' : 'toggle',
           text: 'UTC',
@@ -209,6 +199,106 @@ export function startApp(root: HTMLElement): void {
 
   connect();
   route();
+}
+
+/**
+ * The masthead pill is a workspace switcher: it shows the current workspace
+ * and active profile, and its menu hops between workspaces (each a separate
+ * subdomain origin, discovered through the apex directory) and between the
+ * profiles saved here. On hosts with no apex (localhost, self-host) it
+ * degrades to a profile switcher — no cross-workspace rows.
+ */
+function workspaceSwitcher(active: Profile | null): HTMLElement {
+  const ctx = workspaceContext();
+  const here = ctx.current; // '' = home/apex
+  // on a real workspace host, lead with the workspace; otherwise just the profile
+  const prefix = ctx.apexHost ? `${here || 'home'} · ` : '';
+  const pillText = active ? `${prefix}${active.name}` : `${prefix}connect…`;
+
+  const wrap = el('div', { className: 'switcher' });
+  const pill = el('button', {
+    className: 'chip',
+    text: pillText,
+    title: active ? `s3://${active.bucket} · ${active.region}` : 'connect a profile',
+  });
+  wrap.append(pill);
+
+  let pop: HTMLElement | null = null;
+  const close = (): void => {
+    pop?.remove();
+    pop = null;
+  };
+
+  async function open(): Promise<void> {
+    pop = el('div', { className: 'switcher-pop' });
+    wrap.append(pop);
+
+    // profiles saved at THIS origin — activate in place
+    const local = profiles.list();
+    if (local.length > 0) {
+      pop.append(el('div', { className: 'switcher-head', text: here || 'home' }));
+      for (const p of local) {
+        const row = el('button', {
+          className: p.name === active?.name ? 'switcher-row on' : 'switcher-row',
+          text: p.name,
+        });
+        row.append(el('span', { className: 'switcher-sub', text: `s3://${p.bucket}` }));
+        row.addEventListener('click', () => {
+          close();
+          profiles.setActive(p.name);
+          setView('/overview');
+        });
+        pop.append(row);
+      }
+    }
+    pop.append(
+      el('button', {
+        className: 'switcher-row add',
+        text: local.length > 0 ? '+ Add a profile here' : 'Connect a profile…',
+        on: { click: () => { close(); setView('/config'); } },
+      }),
+    );
+
+    // other workspaces — navigate to their subdomain origins
+    if (ctx.apexHost) {
+      const names = await workspaces.list();
+      const others = names.filter((n) => n !== here);
+      const block = el('div', { className: 'switcher-block' });
+      block.append(el('div', { className: 'switcher-head', text: 'Workspaces' }));
+      if (here !== '') {
+        block.append(workspaceRow('home', '', close));
+      }
+      for (const n of others) block.append(workspaceRow(n, n, close));
+      if (others.length > 0 || here !== '') pop?.append(block);
+    }
+
+    // close on outside click
+    setTimeout(() => {
+      const onDown = (ev: MouseEvent): void => {
+        if (!pop) {
+          document.removeEventListener('mousedown', onDown);
+          return;
+        }
+        if (!wrap.contains(ev.target as Node)) {
+          document.removeEventListener('mousedown', onDown);
+          close();
+        }
+      };
+      document.addEventListener('mousedown', onDown);
+    }, 0);
+  }
+
+  pill.addEventListener('click', () => (pop ? close() : void open()));
+  return wrap;
+}
+
+function workspaceRow(labelText: string, navLabel: string, close: () => void): HTMLElement {
+  const row = el('button', { className: 'switcher-row', text: labelText });
+  row.addEventListener('click', () => {
+    close();
+    location.assign(workspaceUrl(navLabel));
+  });
+  return row;
 }
 
 /** The red thread: slight waves, one small loop — drawn once, full width. */

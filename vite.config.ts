@@ -10,6 +10,11 @@ export default defineConfig({
   build: {
     target: 'es2022',
     sourcemap: true,
+    rollupOptions: {
+      // bridge.html is the apex workspace-directory keeper (src/bridge.ts),
+      // loaded in a hidden iframe by every subdomain
+      input: { main: 'index.html', bridge: 'bridge.html' },
+    },
   },
   server: {
     port: 5173,

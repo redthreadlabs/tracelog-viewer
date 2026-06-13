@@ -561,6 +561,17 @@ or date rather than abandon tracelog entirely.
   to trust the hosted instance, or who forks. No cookies, ever — they are
   the one storage that could leak across subdomains (§4 already forbids
   them).
+- **Workspace switcher** (2026-06-12): the masthead pill is a switcher —
+  it lists the profiles saved at this origin (activate in place) and the
+  other workspaces (navigate to their subdomain). Profiles carry a
+  `subdomain` field, set at creation. Since origins are siloed, the one
+  shared thing is a directory of workspace *names* — kept in the apex
+  origin's localStorage and reached from any subdomain through a hidden
+  iframe + postMessage (`bridge.html` / `src/bridge.ts`, origin-checked to
+  the apex family). Names only: never credentials, never logs, and still
+  no cookies, so "the server knows nothing" holds. Hosts with no apex
+  (localhost, self-host single-domain) degrade to a local-only profile
+  switcher.
 - **Theme**: light **and** dark from day one, token-based (§7), defaulting
   to `prefers-color-scheme` with a manual toggle.
 - **Profiles for other services**: yes — config supports arbitrary

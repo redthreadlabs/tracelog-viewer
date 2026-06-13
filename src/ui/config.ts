@@ -4,6 +4,7 @@
 import { el, clear } from './dom';
 import { profiles, type Profile } from './profiles';
 import { cacheWipeBucket } from '../data/cache';
+import { workspaces, workspaceContext } from '../data/workspaces';
 
 export function renderConfig(container: HTMLElement, onDone: () => void): void {
   clear(container);
@@ -71,6 +72,11 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
   const secretKey = field('password', '');
   const sessionToken = field('password', '(optional)');
 
+  // the workspace this profile belongs to — defaults to the current
+  // subdomain, registered in the shared directory so the switcher finds it
+  const ctx = workspaceContext();
+  const workspace = field('text', ctx.apexHost ? `name.${ctx.apexHost}` : 'a label', ctx.current);
+
   const remember = el('input', { attrs: { type: 'checkbox' } });
   remember.checked = profiles.remembered;
 
@@ -81,6 +87,17 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
     label('Access key ID'), accessKey,
     label('Secret access key'), secretKey,
     label('Session token'), sessionToken,
+    label('Workspace'), workspace,
+    el('div', { className: 'full' }, [
+      el('span', {
+        className: 'field-note',
+        text:
+          'A workspace is a subdomain — ' +
+          (ctx.apexHost ? `e.g. acme.${ctx.apexHost}` : 'e.g. acme') +
+          '. Each keeps its own profiles and cache; the switcher up top hops ' +
+          'between the ones you’ve set up. Leave blank for the home workspace.',
+      }),
+    ]),
     el('div', { className: 'full' }, [
       el('label', { className: 'remember' }, [
         remember,
@@ -102,6 +119,7 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
 
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
+    const sub = workspace.value.trim().replace(/^\.+|\.+$/g, '');
     const profile: Profile = {
       name: name.value.trim() || 'default',
       bucket: bucket.value.trim(),
@@ -109,10 +127,14 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
       accessKeyId: accessKey.value.trim(),
       secretAccessKey: secretKey.value.trim(),
       sessionToken: sessionToken.value.trim() || undefined,
+      subdomain: sub || undefined,
     };
     if (!profile.bucket || !profile.accessKeyId || !profile.secretAccessKey) return;
     profiles.setRemembered(remember.checked);
     profiles.save(profile);
+    // publish the workspace name to the shared directory (apex bridge), so
+    // it appears in the switcher from every subdomain
+    if (sub) void workspaces.add(sub);
     onDone();
   });
 
