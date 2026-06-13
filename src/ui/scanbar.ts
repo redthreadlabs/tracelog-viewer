@@ -558,7 +558,7 @@ export function renderScanbar(container: HTMLElement): void {
     // so report the decompressed bytes it's holding — a real proxy for it
     const inMemory = snap.files.reduce((s, f) => s + f.sizeUncompressed, 0);
     budget.append(
-      storePill(`MEM: ${fmtBytesRough(inMemory)}`, 'inspect the in-memory store (files, sizes, eviction)'),
+      storePill(`LOADED: ${fmtBytesRough(inMemory)}`, 'inspect the in-memory store (files, sizes, eviction)'),
     );
   }
 
