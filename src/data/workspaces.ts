@@ -184,19 +184,22 @@ function applyApexOp(op: string, ws: string, from: string, apexHost: string, vie
  * From the apex itself we're already first-party — so do it inline and go
  * straight to the destination (navigating to our own `#/relay` would be a
  * hash-only change that never reloads, so the relay would never run).
+ *
+ * `from` is the host to return to after the op — this origin by default,
+ * or another workspace's host when hopping between workspaces.
  */
-function gotoRelay(op: RelayParams['op'], ws: string, view: string): void {
+function gotoRelay(op: RelayParams['op'], ws: string, view: string, from = location.host): void {
   const ctx = workspaceContext();
   if (!ctx.apexOrigin || !ctx.apexHost) return;
   if (ctx.current === '') {
-    const dest = applyApexOp(op, ws, location.host, ctx.apexHost, view);
+    const dest = applyApexOp(op, ws, from, ctx.apexHost, view);
     if (dest) {
       interstitial();
       location.assign(dest);
     }
     return;
   }
-  const qs = new URLSearchParams({ op, ws, from: location.host, view });
+  const qs = new URLSearchParams({ op, ws, from, view });
   interstitial();
   location.assign(`${ctx.apexOrigin}/#/relay?${qs.toString()}`);
 }
@@ -282,6 +285,17 @@ export function dropCurrentWorkspace(returnView: string): void {
 /** Refresh this origin's cached snapshot from the apex (manual sync). */
 export function syncWorkspaces(returnView: string): void {
   gotoRelay('sync', '', returnView);
+}
+
+/**
+ * Hop to another workspace via the apex, so the destination always arrives
+ * with a fresh directory snapshot (no more "doesn't know about B until I
+ * Sync"). The apex reads the directory and returns to the target host.
+ */
+export function hopToWorkspace(label: string, view = '/overview'): void {
+  const { apexHost } = workspaceContext();
+  if (!apexHost) return;
+  gotoRelay('sync', '', view, `${label}.${apexHost}`);
 }
 
 /** Forget this origin's directory cache + synced flag (part of a full purge). */

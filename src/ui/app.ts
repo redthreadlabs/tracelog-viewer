@@ -15,7 +15,7 @@ import { storeClient } from '../data/storeclient';
 import type { Profile } from './profiles';
 import {
   workspaceContext,
-  workspaceUrl,
+  hopToWorkspace,
   handleWorkspaceBoot,
   knownWorkspaces,
   isApexHome,
@@ -263,7 +263,7 @@ function workspaceSwitcher(active: Profile | null): HTMLElement {
     });
     row.addEventListener('click', () => {
       close();
-      if (label !== here) location.assign(workspaceUrl(label));
+      if (label !== here) hopToWorkspace(label);
     });
     return row;
   }
