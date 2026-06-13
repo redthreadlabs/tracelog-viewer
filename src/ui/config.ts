@@ -69,8 +69,9 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
       ? 'A workspace reads one tracelog bucket. Credentials are sent only to AWS ' +
         'as request signatures, never anywhere else — but they are saved in ' +
         'this browser’s localStorage, in plain text, so the workspace stays ' +
-        'connected across reloads. Anyone with access to this device can read ' +
-        'them; “Purge” below removes everything.'
+        'connected across reloads. Anyone with access to this device can read them' +
+        // the Purge button only exists once a connection has been saved
+        (existing ? '; “Purge” below removes everything.' : '.')
       : 'A workspace reads one tracelog bucket. This one is public, so no ' +
         'credentials are entered, stored, or sent — only the bucket location ' +
         'is saved in this browser.';
