@@ -21,6 +21,7 @@ export function renderOverview(container: HTMLElement): () => void {
   let token = 0;
   let groups: TxnGroup[] = []; // last fetch — re-sorts don't re-query
   let chartShown = false; // true once a chart (records or metadata) is rendered
+  let lastFromMetadata = false; // whether the last chart came from sidecar metadata
 
   const chartSection = el('section', { className: 'chart-section' });
   const chartHead = el('div', { className: 'section-head' });
@@ -29,6 +30,21 @@ export function renderOverview(container: HTMLElement): () => void {
 
   const tableSection = el('section', { className: 'txn-section' });
   container.append(chartSection, tableSection);
+
+  // corner spinners shown while each widget is still populating: the chart's
+  // only while it's loading from records (a metadata chart is already complete),
+  // the table's whenever a scan is feeding it
+  const chartSpin = el('div', { className: 'corner-spinner' });
+  const tableSpin = el('div', { className: 'corner-spinner' });
+  chartSpin.style.display = 'none';
+  tableSpin.style.display = 'none';
+  function updateSpinners(): void {
+    const running = storeClient.snapshot.progress.running;
+    if (!chartSpin.isConnected) chartSection.append(chartSpin);
+    if (!tableSpin.isConnected) tableSection.append(tableSpin);
+    chartSpin.style.display = chartShown && running && !lastFromMetadata ? 'block' : 'none';
+    tableSpin.style.display = chartShown && running ? 'block' : 'none';
+  }
 
   // the page's bones render before any data arrives (worker round trip)
   chartHead.append(el('span', { className: 'label', text: 'Volume' }));
@@ -61,9 +77,11 @@ export function renderOverview(container: HTMLElement): () => void {
     if (res.bucketed.buckets.length === 0 && storeClient.snapshot.recordCount === 0) {
       chartShown = false;
       renderEmpty();
+      updateSpinners();
       return;
     }
     chartShown = true;
+    lastFromMetadata = res.fromMetadata;
 
     // --- chart head: window label + reset ---
     clear(chartHead);
@@ -121,6 +139,7 @@ export function renderOverview(container: HTMLElement): () => void {
     });
 
     renderTable();
+    updateSpinners();
     doneRender({ records: storeClient.snapshot.recordCount });
   }
 
@@ -268,6 +287,7 @@ export function renderOverview(container: HTMLElement): () => void {
     // don't wipe a shown chart while records trickle in; only the genuinely
     // empty pre-chart state tracks loading progress
     if (!chartShown && storeClient.snapshot.recordCount === 0) renderEmpty();
+    updateSpinners();
   };
   storeClient.addEventListener('data', onData);
   storeClient.addEventListener('plan', onPlan);

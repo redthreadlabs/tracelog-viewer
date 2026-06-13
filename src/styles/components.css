@@ -629,6 +629,32 @@ pre.json .b {
 
 .chart-section {
   padding: 14px 28px 4px;
+  position: relative;
+}
+
+.txn-section {
+  position: relative;
+}
+
+/* a small spinner in a chart/table corner while it's still populating */
+.corner-spinner {
+  position: absolute;
+  top: 12px;
+  right: 34px;
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--thread);
+  border-radius: 50%;
+  animation: corner-spin 0.7s linear infinite;
+  z-index: 6;
+  pointer-events: none;
+}
+
+@keyframes corner-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .section-head {
