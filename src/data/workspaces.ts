@@ -163,13 +163,42 @@ function interstitial(): void {
     'justify-content:center;font:14px system-ui;color:#7c7973">Setting up workspace…</div>';
 }
 
-/** Send the browser to the apex relay for an op, returning to `view` after. */
+/**
+ * Apply a directory op (we must be at the apex, first-party) and return the
+ * URL to land on next — the new subdomain for `add`, or back to `from` for
+ * `sync`/`remove` — carrying a fresh snapshot. null if the destination
+ * isn't same-site (don't redirect off-site).
+ */
+function applyApexOp(op: string, ws: string, from: string, apexHost: string, view: string): string | null {
+  if (op === 'add' && validLabel(ws)) writeDirectory([...directory(), ws]);
+  else if (op === 'remove' && validLabel(ws)) writeDirectory(directory().filter((n) => n !== ws));
+  const destHost = op === 'add' && validLabel(ws) ? `${ws}.${apexHost}` : from;
+  if (destHost !== apexHost && !destHost.endsWith(`.${apexHost}`)) return null;
+  const back = new URLSearchParams({ wsl: directory().join(','), wsr: '1' });
+  return `https://${destHost}/#${view}?${back.toString()}`;
+}
+
+/**
+ * Run a directory op via the apex. From a subdomain we navigate (cross-
+ * origin) to the apex relay, which re-runs this logic first-party on load.
+ * From the apex itself we're already first-party — so do it inline and go
+ * straight to the destination (navigating to our own `#/relay` would be a
+ * hash-only change that never reloads, so the relay would never run).
+ */
 function gotoRelay(op: RelayParams['op'], ws: string, view: string): void {
-  const { apexOrigin } = workspaceContext();
-  if (!apexOrigin) return;
+  const ctx = workspaceContext();
+  if (!ctx.apexOrigin || !ctx.apexHost) return;
+  if (ctx.current === '') {
+    const dest = applyApexOp(op, ws, location.host, ctx.apexHost, view);
+    if (dest) {
+      interstitial();
+      location.assign(dest);
+    }
+    return;
+  }
   const qs = new URLSearchParams({ op, ws, from: location.host, view });
   interstitial();
-  location.assign(`${apexOrigin}/#/relay?${qs.toString()}`);
+  location.assign(`${ctx.apexOrigin}/#/relay?${qs.toString()}`);
 }
 
 /**
@@ -198,27 +227,21 @@ export function handleWorkspaceBoot(): boolean {
   }
 
   // (2) We ARE the apex, serving a relay request: do the op first-party,
-  //     then bounce back to the initiator with a fresh snapshot.
+  //     then bounce to the destination with a fresh snapshot.
   if (ctx.current === '' && hashView() === '/relay') {
-    const op = params.get('op');
-    const ws = params.get('ws') ?? '';
-    const from = params.get('from') ?? '';
-    const view = params.get('view') || '/overview';
-    if (op === 'add' && validLabel(ws)) writeDirectory([...directory(), ws]);
-    else if (op === 'remove' && validLabel(ws)) writeDirectory(directory().filter((n) => n !== ws));
-    const list = directory();
-    // destination: add → the new workspace; sync/remove → back to initiator
-    const destHost =
-      op === 'add' && validLabel(ws) ? `${ws}.${ctx.apexHost}` : from;
-    const sameSite = destHost === ctx.apexHost || destHost.endsWith(`.${ctx.apexHost}`);
-    if (!sameSite) {
-      // refuse to redirect off-site; just show home
-      history.replaceState(null, '', '#/about');
+    const dest = applyApexOp(
+      params.get('op') ?? '',
+      params.get('ws') ?? '',
+      params.get('from') ?? '',
+      ctx.apexHost,
+      params.get('view') || '/overview',
+    );
+    if (!dest) {
+      history.replaceState(null, '', '#/about'); // off-site dest: refuse, show home
       return false;
     }
-    const back = new URLSearchParams({ wsl: list.join(','), wsr: '1' });
     interstitial();
-    location.assign(`https://${destHost}/#${view}?${back.toString()}`);
+    location.assign(dest);
     return true;
   }
 
