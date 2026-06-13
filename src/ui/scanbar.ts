@@ -223,6 +223,9 @@ export function renderScanbar(container: HTMLElement): void {
       state.error = err instanceof Error ? err.message : String(err);
     }
     state.planning = false;
+    // the worker now knows the selection's files — let metadata-served views
+    // (the overview Volume chart) render before any records are loaded
+    if (state.plan) storeClient.dispatchEvent(new Event('plan'));
     maybeAutoLoad();
     render();
   }

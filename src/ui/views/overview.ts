@@ -20,6 +20,7 @@ export function renderOverview(container: HTMLElement): () => void {
   let lastGeneration = -1;
   let token = 0;
   let groups: TxnGroup[] = []; // last fetch — re-sorts don't re-query
+  let chartShown = false; // true once a chart (records or metadata) is rendered
 
   const chartSection = el('section', { className: 'chart-section' });
   const chartHead = el('div', { className: 'section-head' });
@@ -41,22 +42,28 @@ export function renderOverview(container: HTMLElement): () => void {
   async function render(): Promise<void> {
     lastGeneration = storeClient.snapshot.generation;
 
-    if (storeClient.snapshot.recordCount === 0) {
-      renderEmpty();
-      return;
-    }
-
     const t = ++token;
     const doneRender = perf.begin('render', '/overview');
     const window = viewState.timeWindow;
     const res = await storeClient.request<{
       bucketed: BucketResult;
+      fromMetadata: boolean;
       groups: TxnGroup[];
       inWindow: number;
       markers: unknown;
     }>('overviewData', { window, bucketMs: chosenBucketMs() });
     if (t !== token || !container.isConnected) return;
     groups = res.groups;
+
+    // The Volume chart can be served from sidecar metadata (full volume, no
+    // records loaded). Only show the empty state when there's genuinely
+    // nothing — no chart buckets AND no loaded records.
+    if (res.bucketed.buckets.length === 0 && storeClient.snapshot.recordCount === 0) {
+      chartShown = false;
+      renderEmpty();
+      return;
+    }
+    chartShown = true;
 
     // --- chart head: window label + reset ---
     clear(chartHead);
@@ -90,6 +97,9 @@ export function renderOverview(container: HTMLElement): () => void {
     chartHead.append(el('span', { className: 'masthead-spacer' }));
 
     const data = res.bucketed;
+    // when the chart is metadata-served the store may hold fewer (or no)
+    // records than the chart depicts, so count from the buckets themselves
+    const total = res.fromMetadata ? data.buckets.reduce((s, b) => s + b.total, 0) : res.inWindow;
     chartHead.append(
       el('span', {
         className: 'budget faint',
@@ -97,7 +107,7 @@ export function renderOverview(container: HTMLElement): () => void {
       }),
       el('span', {
         className: 'budget',
-        text: `${fmtCount(res.inWindow)} records`,
+        text: `${fmtCount(total)} records${res.fromMetadata ? ' · from metadata' : ''}`,
       }),
     );
 
@@ -251,10 +261,16 @@ export function renderOverview(container: HTMLElement): () => void {
   const onData = () => {
     if (storeClient.snapshot.generation !== lastGeneration) void render();
   };
+  // the scanbar fires 'plan' once the selection's files are known — that's when
+  // the metadata-served chart can render, before (or without) any records
+  const onPlan = () => void render();
   const onProgress = () => {
-    if (storeClient.snapshot.recordCount === 0) renderEmpty();
+    // don't wipe a shown chart while records trickle in; only the genuinely
+    // empty pre-chart state tracks loading progress
+    if (!chartShown && storeClient.snapshot.recordCount === 0) renderEmpty();
   };
   storeClient.addEventListener('data', onData);
+  storeClient.addEventListener('plan', onPlan);
   storeClient.addEventListener('progress', onProgress);
 
   const onResize = () => void render();
@@ -265,6 +281,7 @@ export function renderOverview(container: HTMLElement): () => void {
   return () => {
     token++;
     storeClient.removeEventListener('data', onData);
+    storeClient.removeEventListener('plan', onPlan);
     storeClient.removeEventListener('progress', onProgress);
     window.removeEventListener('resize', onResize);
   };

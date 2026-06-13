@@ -100,6 +100,81 @@ export function bucketByTime(
   return { buckets, bucketMs, domain: [start, end] };
 }
 
+const HOUR_MS = 3_600_000;
+
+/** Parse a sidecar hour label 'YYYY-MM-DDTHH' to epoch-ms (UTC), or null. */
+function hourLabelToMs(label: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})$/.exec(label);
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4]) : null;
+}
+
+/**
+ * Build the volume chart from sidecar histograms instead of records. The
+ * histograms are hourly (`{ 'YYYY-MM-DDTHH': { kind: count } }`), so this is
+ * EXACT for any bucket ≥ 1h (the ≥1h `BUCKET_STEPS_MS` are clean hour
+ * multiples). Returns null when the resolved bucket would be sub-hourly — the
+ * caller must then fall back to bucketByTime over loaded records. Pure.
+ */
+export function bucketBySidecar(
+  histograms: Record<string, Record<string, number>>[],
+  window: [number, number] | null,
+  chosenBucketMs: number | null = null,
+): BucketResult | null {
+  // sum every file's hourly histogram into one hour → kind-counts map
+  const byHour = new Map<number, Partial<Record<RecordKind, number>>>();
+  let min = Infinity;
+  let max = -Infinity;
+  for (const hist of histograms) {
+    for (const label in hist) {
+      const t = hourLabelToMs(label);
+      if (t === null) continue;
+      if (window && (t >= window[1] || t + HOUR_MS <= window[0])) continue; // hour fully outside
+      if (t < min) min = t;
+      if (t > max) max = t;
+      let counts = byHour.get(t);
+      if (!counts) {
+        counts = {};
+        byHour.set(t, counts);
+      }
+      const kinds = hist[label];
+      for (const k in kinds) {
+        counts[k as RecordKind] = (counts[k as RecordKind] ?? 0) + kinds[k];
+      }
+    }
+  }
+  if (window) {
+    min = window[0];
+    max = window[1];
+  }
+  if (!isFinite(min) || !isFinite(max) || max < min) {
+    return { buckets: [], bucketMs: HOUR_MS, domain: [0, 0] };
+  }
+
+  const bucketMs = resolveBucketMs(Math.max(max - min, 1), chosenBucketMs);
+  if (bucketMs < HOUR_MS) return null; // sub-hourly: hourly histograms can't resolve it
+
+  const start = Math.floor(min / bucketMs) * bucketMs;
+  const end = Math.floor(max / bucketMs) * bucketMs + bucketMs;
+  const n = Math.round((end - start) / bucketMs);
+  const buckets: TimeBucket[] = Array.from({ length: n }, (_, i) => ({
+    t0: start + i * bucketMs,
+    counts: {},
+    total: 0,
+  }));
+
+  for (const [t, counts] of byHour) {
+    if (t < start || t >= end) continue;
+    const bucket = buckets[Math.floor((t - start) / bucketMs)];
+    for (const k in counts) {
+      const v = counts[k as RecordKind] ?? 0;
+      bucket.counts[k as RecordKind] = (bucket.counts[k as RecordKind] ?? 0) + v;
+      bucket.total += v;
+    }
+  }
+
+  return { buckets, bucketMs, domain: [start, end] };
+}
+
 export type ResultFamily = 'ok' | 'warn' | 'bad' | 'other';
 
 /** Classify a transaction's result/outcome into a coarse family. */

@@ -28,6 +28,7 @@ import { nthLine } from '../data/parse';
 import type { Rec, RecordKind } from '../data/types';
 import {
   bucketByTime,
+  bucketBySidecar,
   groupTransactions,
   transactionStats,
   resultFamily,
@@ -98,6 +99,9 @@ class Session {
   cacheLimitBytes: number | null;
   /** hot decompressed-byte cache, bounded by the workspace memory limit */
   mem: MemBytes;
+  /** the current selection's files (set by planScan) — drives metadata-served
+   *  charts and window-prioritized loading without re-listing */
+  currentPlan: ParsedKey[] = [];
 
   constructor(profile: Profile) {
     this.bucket = new LogBucket(profile);
@@ -179,6 +183,28 @@ function sampleInstances(instances: Rec[]): { rows: Rec[]; sample?: SampleNote }
   return { rows, sample: { drawn: rows.length, total: instances.length, okStep } };
 }
 
+/**
+ * Build the volume chart from the current selection's sidecar histograms.
+ * Returns null when it can't (no plan/sidecars, or the resolved bucket is
+ * sub-hourly) — the caller falls back to bucketByTime over loaded records.
+ */
+async function metadataVolume(
+  s: Session,
+  window: Window,
+  bucketMs: number | null,
+): Promise<ReturnType<typeof bucketBySidecar>> {
+  if (s.currentPlan.length === 0) return null;
+  await hydrateSidecars(s.bucket, s.currentPlan); // one-time per file; cheap after
+  const byId = new Map((await ledgerRecords(s.bucket.bucket)).map((r) => [r.id, r]));
+  const hists: Record<string, Record<string, number>>[] = [];
+  for (const f of s.currentPlan) {
+    const h = byId.get(s.bucket.bucket + SEP + f.key)?.intervals;
+    if (h) hists.push(h);
+  }
+  if (hists.length === 0) return null;
+  return bucketBySidecar(hists, window, bucketMs);
+}
+
 type OpHandler = (session: Session, args: Record<string, unknown>) => Promise<unknown> | unknown;
 
 const ops: Record<string, OpHandler> = {
@@ -189,6 +215,7 @@ const ops: Record<string, OpHandler> = {
   latestInterval: (s, a) => s.bucket.latestInterval(a.channels as string[]),
   planScan: async (s, a) => {
     const plan = await planScan(s.bucket, a.channels as string[], a.startMs as number, a.endMs as number);
+    s.currentPlan = plan.files; // the active selection — for metadata charts + load priority
     // ledger: remember the compressed size of every file in range, even
     // those we never fetch — so we can reason about cost later
     void recordListing(
@@ -277,11 +304,23 @@ const ops: Record<string, OpHandler> = {
   },
 
   // ---- views ----
-  overviewData: (s, a) => {
+  overviewData: async (s, a) => {
     const window = a.window as Window;
+    const bucketMs = a.bucketMs as number | null;
     const txns = s.store.kindRecords('transaction');
+
+    // The Volume chart is record COUNTS bucketed by time — exactly what the
+    // sidecar histograms hold (hourly). So for any bucket ≥1h serve it from
+    // metadata: instant, complete (all selected files), and works even when
+    // the records aren't loaded (or are too big to load). Sub-hour buckets
+    // fall back to the records path. The transaction table stays records-based.
+    let bucketed = await metadataVolume(s, window, bucketMs);
+    const fromMetadata = bucketed !== null;
+    if (!bucketed) bucketed = bucketByTime(s.store.records, window, bucketMs);
+
     return {
-      bucketed: bucketByTime(s.store.records, window, a.bucketMs as number | null),
+      bucketed,
+      fromMetadata,
       groups: groupTransactions(txns, window),
       inWindow: (() => {
         const [lo, hi] = windowBounds(s.store.records, window);

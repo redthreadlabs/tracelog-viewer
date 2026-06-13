@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   bucketByTime,
+  bucketBySidecar,
   chooseBucketMs,
   groupTransactions,
   sortTxnGroups,
@@ -9,6 +10,48 @@ import {
   logHistogram,
 } from './aggregate';
 import type { Rec } from './types';
+
+describe('bucketBySidecar', () => {
+  // two files' hourly histograms on 2026-06-11
+  const hists: Record<string, Record<string, number>>[] = [
+    { '2026-06-11T00': { transaction: 10, span: 20 }, '2026-06-11T01': { transaction: 5 } },
+    { '2026-06-11T00': { transaction: 3 }, '2026-06-11T05': { error: 2 } },
+  ];
+
+  it('sums histograms into 1h buckets (exact, no records needed)', () => {
+    const res = bucketBySidecar(hists, null, 3_600_000)!;
+    expect(res).not.toBeNull();
+    expect(res.bucketMs).toBe(3_600_000);
+    // hour 00 across both files: txn 13, span 20 → total 33
+    const h0 = res.buckets.find((b) => b.t0 === Date.UTC(2026, 5, 11, 0))!;
+    expect(h0.counts.transaction).toBe(13);
+    expect(h0.counts.span).toBe(20);
+    expect(h0.total).toBe(33);
+    const h5 = res.buckets.find((b) => b.t0 === Date.UTC(2026, 5, 11, 5))!;
+    expect(h5.counts.error).toBe(2);
+  });
+
+  it('aggregates hours into a coarser ≥1h bucket', () => {
+    const res = bucketBySidecar(hists, null, 6 * 3_600_000)!;
+    expect(res.bucketMs).toBe(6 * 3_600_000);
+    // all hours 00–05 fall in one 6h bucket: txn 18, span 20, error 2 → 40
+    expect(res.buckets[0].total).toBe(40);
+  });
+
+  it('returns null when the resolved bucket would be sub-hourly', () => {
+    // a narrow window forces a small bucket → histograms can't resolve it
+    const w: [number, number] = [Date.UTC(2026, 5, 11, 0), Date.UTC(2026, 5, 11, 0, 15)];
+    expect(bucketBySidecar(hists, w, null)).toBeNull();
+  });
+
+  it('filters out hours outside the window', () => {
+    const w: [number, number] = [Date.UTC(2026, 5, 11, 0), Date.UTC(2026, 5, 11, 2)];
+    const res = bucketBySidecar(hists, w, 3_600_000)!;
+    expect(res.domain[0]).toBe(Date.UTC(2026, 5, 11, 0)); // domain anchored at the window start
+    // hour 05's error is outside the window → excluded
+    expect(res.buckets.some((b) => b.counts.error)).toBe(false);
+  });
+});
 
 function rec(partial: Partial<Rec>): Rec {
   return {
