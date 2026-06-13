@@ -70,16 +70,16 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
     authBlock.style.display = authed ? 'contents' : 'none';
     publicHint.style.display = authed ? 'none' : 'block';
     lede.textContent = authed
-      ? 'A workspace reads one tracelog bucket. Credentials go only to AWS, as ' +
-        'request signatures — never anywhere else. But they’re saved in this ' +
-        'browser’s localStorage, in plain text. So are the actual log files ' +
-        'copied from your S3 bucket, cached in your browser’s IndexedDB. Anyone ' +
-        'with access to this device can read it all. “Delete & Purge” wipes ' +
-        'everything.'
-      : 'A workspace reads one tracelog bucket. This one is public, so no ' +
-        'credentials are entered, stored, or sent. But the actual log files ' +
-        'copied from your S3 bucket are cached in your browser’s IndexedDB. ' +
-        '“Delete & Purge” wipes them.';
+      ? 'A workspace reads a single tracelog bucket. Your credentials are used ' +
+        'only to sign requests to AWS, and go nowhere else — but to stay ' +
+        'connected, this workspace keeps them as plain text in your browser’s ' +
+        'localStorage. The log files themselves are copied from your S3 bucket ' +
+        'and cached in your browser’s IndexedDB. Anyone with access to this ' +
+        'device can read all of it, so use Delete & Purge to wipe it clean.'
+      : 'A workspace reads a single tracelog bucket. This one is public, so ' +
+        'there are no credentials to enter, store, or send. The log files are ' +
+        'still copied from your S3 bucket and cached in your browser’s ' +
+        'IndexedDB, though — Delete & Purge clears them.';
   };
   authToggle.addEventListener('change', syncAuth);
 
