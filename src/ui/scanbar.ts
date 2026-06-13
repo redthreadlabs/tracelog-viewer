@@ -19,7 +19,7 @@ import type { ScanPlan } from '../s3/scanner';
 import { intervalSpan } from '../s3/keys';
 import { storeClient } from '../data/storeclient';
 import { viewState, resetViewState } from '../state';
-import { fmtBytes, fmtBytesRough } from './format';
+import { fmtBytesRough } from './format';
 import { getParam, setParams, setView, parseWindowParam, windowParam, readHash } from './hashstate';
 import { renderBucketPicker } from './bucketpicker';
 
@@ -545,7 +545,7 @@ export function renderScanbar(container: HTMLElement): void {
       clearEl(budget);
       budget.append(
         storePill(
-          total > 0 ? `loading ${fmtBytes(bytesDone)} of ${fmtBytes(total)}…` : 'loading…',
+          total > 0 ? `LOADING: ${fmtBytesRough(bytesDone)} of ${fmtBytesRough(total)}` : 'LOADING…',
           'loading — inspect progress in the store inspector',
         ),
       );
