@@ -21,16 +21,27 @@ export function openNewWorkspace(): void {
     },
   }) as HTMLInputElement;
   const err = el('div', { className: 'field-note', attrs: { style: 'color:var(--level-error)' } });
+  const cont = el('button', { className: 'btn btn-primary', text: 'Continue' }) as HTMLButtonElement;
   const close = (): void => overlay.remove();
 
+  const normalized = (): string => input.value.trim().toLowerCase().replace(/^\.+|\.+$/g, '');
+
+  /** Live feedback: flag stray characters as typed; gate Continue on validity. */
+  const validate = (): void => {
+    const raw = input.value.trim();
+    // only nag about disallowed *characters* while typing — structural
+    // issues (empty, leading/trailing hyphen) just keep Continue disabled
+    err.textContent = /[^a-z0-9.-]/i.test(raw) ? 'Letters, numbers, and hyphens only.' : '';
+    cont.disabled = !validLabel(normalized());
+  };
+
   const submit = (): void => {
-    const label = input.value.trim().toLowerCase().replace(/^\.+|\.+$/g, '');
-    if (!validLabel(label)) {
-      err.textContent = 'Letters, numbers, and hyphens only.';
-      return;
-    }
+    const label = normalized();
+    if (!validLabel(label)) return;
     createWorkspace(label); // → apex records it → lands on its config
   };
+
+  input.addEventListener('input', validate);
 
   const card = el('div', { className: 'modal-card about-panel' }, [
     el('h2', {
@@ -68,9 +79,10 @@ export function openNewWorkspace(): void {
     ]),
     el('div', { className: 'modal-actions' }, [
       el('button', { className: 'btn', text: 'Cancel', on: { click: close } }),
-      el('button', { className: 'btn btn-primary', text: 'Continue', on: { click: submit } }),
+      cont,
     ]),
   ]);
+  cont.addEventListener('click', submit);
   overlay.append(card);
   overlay.addEventListener('click', (ev) => {
     if (ev.target === overlay) close();
@@ -80,5 +92,6 @@ export function openNewWorkspace(): void {
     if (ev.key === 'Escape') close();
   });
   document.body.append(overlay);
+  validate(); // start with Continue disabled until a valid label is entered
   input.focus();
 }
