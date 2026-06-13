@@ -1,12 +1,7 @@
-export type RecordKind = 'transaction' | 'span' | 'error' | 'event' | 'metricset';
-
-export const RECORD_KINDS: RecordKind[] = [
-  'transaction',
-  'span',
-  'error',
-  'event',
-  'metricset',
-];
+// Record kinds are part of the shared contract (tracelog-schema).
+import type { RecordKind } from '@redthreadlabs/tracelog-schema';
+export { RECORD_KINDS } from '@redthreadlabs/tracelog-schema';
+export type { RecordKind };
 
 /** The per-file context established by metadata lines (SPEC §3.3). */
 export interface FileMeta {
