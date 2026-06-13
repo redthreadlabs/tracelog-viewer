@@ -33,8 +33,11 @@ export function openNewWorkspace(): void {
   };
 
   const card = el('div', { className: 'modal-card about-panel' }, [
-    el('h2', { text: 'New workspace' }),
-    el('div', { className: 'modal-row' }, [
+    el('h2', {
+      text: 'New Workspace',
+      attrs: { style: 'text-align:center;font-style:italic' },
+    }),
+    el('div', { className: 'modal-row', attrs: { style: 'margin:22px 0' } }, [
       input,
       ctx.apexHost ? el('span', { className: 'modal-suffix', text: `.${ctx.apexHost}` }) : el('span'),
     ]),
