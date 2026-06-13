@@ -71,7 +71,7 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
     publicHint.style.display = authed ? 'none' : 'block';
     lede.textContent = authed
       ? 'A workspace reads a single tracelog bucket. Your credentials are used ' +
-        'only to sign requests to AWS, and go nowhere else — but to stay ' +
+        'only to sign requests to AWS, and go nowhere else. But to stay ' +
         'connected, this workspace keeps them as plain text in your browser’s ' +
         'localStorage. The log files themselves are copied from your S3 bucket ' +
         'and cached in your browser’s IndexedDB. Anyone with access to this ' +
@@ -79,7 +79,7 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
       : 'A workspace reads a single tracelog bucket. This one is public, so ' +
         'there are no credentials to enter, store, or send. The log files are ' +
         'still copied from your S3 bucket and cached in your browser’s ' +
-        'IndexedDB, though — Delete & Purge clears them.';
+        'IndexedDB. Delete & Purge clears them.';
   };
   authToggle.addEventListener('change', syncAuth);
 
@@ -104,7 +104,6 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
         attrs: { type: 'button', title: 'wipe this workspace’s connection and cached files' },
         on: { click: () => purge() },
       }),
-      el('span', { className: 'masthead-spacer' }),
       el('button', {
         className: 'btn btn-primary',
         text: existing ? 'Save' : 'Save & connect',
