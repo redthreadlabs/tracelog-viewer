@@ -45,6 +45,23 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
     existing ? (mb != null ? String(mb) : '') : String(dflt);
   const memLimit = field('text', 'blank = no limit', limitValue(existing?.memoryLimitMb, 256));
   const cacheLimit = field('text', 'blank = no limit', limitValue(existing?.cacheLimitMb, 1024));
+  const memErr = el('div', { className: 'field-error' });
+  const cacheErr = el('div', { className: 'field-error' });
+
+  // Save gates on the two limit fields being valid (blank, or a positive
+  // number). Friendly: flag the bad field inline, disable Save until fixed.
+  const saveBtn = el('button', {
+    className: 'btn btn-primary',
+    text: existing ? 'Save' : 'Save & connect',
+    attrs: { type: 'submit' },
+  }) as HTMLButtonElement;
+  const validate = (): void => {
+    memErr.textContent = limitError(memLimit.value);
+    cacheErr.textContent = limitError(cacheLimit.value);
+    saveBtn.disabled = !!(memErr.textContent || cacheErr.textContent);
+  };
+  memLimit.addEventListener('input', validate);
+  cacheLimit.addEventListener('input', validate);
 
   // feedback line for purge (and any flash passed into this render)
   const purgeMsg = el('div', { className: 'field-note', attrs: { style: 'text-align:right' } });
@@ -128,8 +145,8 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
         row('Region', region),
         row('Bucket', bucket),
         row('Prefix', prefix),
-        row('Memory limit', withUnit(memLimit, 'MB')),
-        row('Cache limit', withUnit(cacheLimit, 'MB')),
+        row('Memory limit', withNote(withUnit(memLimit, 'MB'), memErr)),
+        row('Cache limit', withNote(withUnit(cacheLimit, 'MB'), cacheErr)),
       ]),
       // right column: how to authenticate to it
       el('div', { className: 'config-col' }, [
@@ -145,19 +162,18 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
         attrs: { type: 'button', title: 'wipe this workspace’s connection and cached files' },
         on: { click: () => purge() },
       }),
-      el('button', {
-        className: 'btn btn-primary',
-        text: existing ? 'Save' : 'Save & connect',
-        attrs: { type: 'submit' },
-      }),
+      saveBtn,
     ]),
     purgeMsg,
   ]);
   syncAuth();
+  validate();
   if (flash) purgeMsg.textContent = flash;
 
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
+    validate();
+    if (saveBtn.disabled) return; // invalid limit field — Save is gated
     const pub = !authToggle.checked;
     const profile: Profile = {
       region: region.value.trim() || 'us-east-1',
@@ -234,10 +250,31 @@ function withUnit(input: HTMLInputElement, unit: string): HTMLElement {
   return el('div', { className: 'unit-field' }, [input, el('span', { className: 'unit', text: unit })]);
 }
 
+/** Stack a control over its (initially empty) inline error note. */
+function withNote(control: HTMLElement, note: HTMLElement): HTMLElement {
+  return el('div', { className: 'field-cell' }, [control, note]);
+}
+
+/** A clean positive number, or blank — anything else is rejected (stricter
+ *  than parseLimit's parseFloat, which would silently accept "100abc"). */
+const LIMIT_RE = /^\d+(\.\d+)?$/;
+
+/** Validation message for a limit field, or '' when it's acceptable. */
+function limitError(raw: string): string {
+  const t = raw.trim();
+  if (t === '') return ''; // blank = no limit
+  if (!LIMIT_RE.test(t) || parseFloat(t) <= 0) {
+    return 'Enter a positive number, or leave blank for no limit.';
+  }
+  return '';
+}
+
 /** Parse a limit input: a positive number of MB, or undefined (no limit). */
 function parseLimit(raw: string): number | undefined {
-  const n = parseFloat(raw.trim());
-  return Number.isFinite(n) && n > 0 ? n : undefined;
+  const t = raw.trim();
+  if (t === '' || !LIMIT_RE.test(t)) return undefined;
+  const n = parseFloat(t);
+  return n > 0 ? n : undefined;
 }
 
 const EYE =

@@ -427,6 +427,24 @@ pre.json .b {
   color: var(--ink-soft);
 }
 
+/* a control stacked over its inline validation note */
+.config .field-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.config .field-error {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--level-error);
+}
+
+/* no note text → take up no space (no stray gap under the field) */
+.config .field-error:empty {
+  display: none;
+}
+
 /* the auth column header: label beside its toggle */
 .config .auth-head {
   display: flex;
