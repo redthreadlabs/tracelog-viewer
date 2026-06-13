@@ -26,10 +26,12 @@ const ROLLUP_DIMS: { key: RollupDim; label: string }[] = [
 
 interface RollupGroup {
   keyParts: string[];
-  files: number;
-  records: number;
-  compressed: number;
-  parsed: number;
+  files: number; // all files in the group (from the listing)
+  loaded: number; // files currently in memory (records > 0)
+  records: number; // records from the loaded files
+  compressed: number; // sum over ALL files (listing size, always known)
+  loadedCompressed: number; // sum over loaded files — for the measured ratio
+  loadedParsed: number; // sum over loaded files — for the measured ratio
   cached: number;
 }
 
@@ -237,7 +239,7 @@ export function renderStoreView(container: HTMLElement): () => void {
             (available === null
               ? 'listing the bucket…'
               : rollupActive
-                ? 'rolled up — compressed is the full S3 size; records & parsed count only loaded files'
+                ? 'rolled up — files/compressed/decompressed cover all files (decompressed estimated); loaded & records are what is in memory'
                 : 'newest first — ⌂ = cached locally (free to load); live snapshots are never cached'),
         }),
       ]),
@@ -481,14 +483,27 @@ export function renderStoreView(container: HTMLElement): () => void {
       const id = parts.join(' ');
       let g = map.get(id);
       if (!g) {
-        g = { keyParts: parts, files: 0, records: 0, compressed: 0, parsed: 0, cached: 0 };
+        g = {
+          keyParts: parts,
+          files: 0,
+          loaded: 0,
+          records: 0,
+          compressed: 0,
+          loadedCompressed: 0,
+          loadedParsed: 0,
+          cached: 0,
+        };
         map.set(id, g);
       }
       g.files++;
-      g.records += r.total;
       g.compressed += r.parsed.size;
-      g.parsed += r.sizeUncompressed;
       if (r.cached) g.cached++;
+      if (r.total > 0) {
+        g.loaded++;
+        g.records += r.total;
+        g.loadedCompressed += r.parsed.size;
+        g.loadedParsed += r.sizeUncompressed;
+      }
     }
     // newest interval first; channel/host ascending
     return [...map.values()].sort((a, b) => {
@@ -505,18 +520,40 @@ export function renderStoreView(container: HTMLElement): () => void {
 
   function rollupTable(rows: FileRow[], dims: RollupDim[]): HTMLElement {
     const groups = buildRollups(rows, dims);
+    // one measured compression ratio across everything loaded, as the fallback
+    // for groups with nothing loaded yet (matches the size-ledger's overall ratio)
+    const gC = groups.reduce((s, g) => s + g.loadedCompressed, 0);
+    const gP = groups.reduce((s, g) => s + g.loadedParsed, 0);
+    const globalRatio = gC > 0 ? gP / gC : 10;
+    // estimated full decompressed bytes for a group (all files), using the
+    // group's own measured ratio when it has loaded files, else the global one
+    const estDecomp = (g: RollupGroup): number =>
+      g.compressed * (g.loadedCompressed > 0 ? g.loadedParsed / g.loadedCompressed : globalRatio);
+
     const num = (text: string) =>
       el('td', { className: 'num', text, attrs: { style: 'text-align:right' } });
+    const decomp = (g: RollupGroup) =>
+      el('td', {
+        className: g.loadedCompressed > 0 ? 'num' : 'num faint',
+        text: `~${fmtBytes(estDecomp(g))}`,
+        title:
+          g.loadedCompressed > 0
+            ? 'estimated full size from this group’s measured compression ratio'
+            : 'estimated at the default 10× (nothing loaded here yet to measure)',
+        attrs: { style: 'text-align:right' },
+      });
+
     const table = el('table', { className: 'records txn-table' });
     table.append(
       el('thead', {}, [
         el('tr', {}, [
           ...dims.map((d) => th(d, '')),
-          th('files', 'width:70px;text-align:right'),
+          th('files', 'width:60px;text-align:right'),
+          th('compressed', 'width:100px;text-align:right'),
+          th('decompressed', 'width:110px;text-align:right'),
+          th('loaded', 'width:60px;text-align:right'),
           th('records', 'width:90px;text-align:right'),
-          th('compressed', 'width:110px;text-align:right'),
-          th('parsed', 'width:90px;text-align:right'),
-          th('cached', 'width:80px;text-align:right'),
+          th('cached', 'width:70px;text-align:right'),
         ]),
       ]),
     );
@@ -526,9 +563,10 @@ export function renderStoreView(container: HTMLElement): () => void {
         el('tr', {}, [
           ...g.keyParts.map((v) => el('td', { className: 'mono', text: v })),
           num(fmtCount(g.files)),
-          num(g.records > 0 ? fmtCount(g.records) : '—'),
           num(fmtBytes(g.compressed)),
-          num(g.parsed > 0 ? fmtBytes(g.parsed) : ''),
+          decomp(g),
+          num(g.loaded > 0 ? fmtCount(g.loaded) : '—'),
+          num(g.records > 0 ? fmtCount(g.records) : '—'),
           num(`${fmtCount(g.cached)}/${fmtCount(g.files)}`),
         ]),
       );
@@ -539,21 +577,23 @@ export function renderStoreView(container: HTMLElement): () => void {
       const t = groups.reduce(
         (a, g) => ({
           files: a.files + g.files,
-          records: a.records + g.records,
           compressed: a.compressed + g.compressed,
-          parsed: a.parsed + g.parsed,
+          decomp: a.decomp + estDecomp(g),
+          loaded: a.loaded + g.loaded,
+          records: a.records + g.records,
           cached: a.cached + g.cached,
         }),
-        { files: 0, records: 0, compressed: 0, parsed: 0, cached: 0 },
+        { files: 0, compressed: 0, decomp: 0, loaded: 0, records: 0, cached: 0 },
       );
       table.append(
         el('tfoot', {}, [
           el('tr', { className: 'rollup-total' }, [
             el('td', { className: 'label', text: 'all', attrs: { colspan: String(dims.length) } }),
             num(fmtCount(t.files)),
-            num(t.records > 0 ? fmtCount(t.records) : '—'),
             num(fmtBytes(t.compressed)),
-            num(t.parsed > 0 ? fmtBytes(t.parsed) : ''),
+            num(`~${fmtBytes(t.decomp)}`),
+            num(t.loaded > 0 ? fmtCount(t.loaded) : '—'),
+            num(t.records > 0 ? fmtCount(t.records) : '—'),
             num(fmtCount(t.cached)),
           ]),
         ]),
