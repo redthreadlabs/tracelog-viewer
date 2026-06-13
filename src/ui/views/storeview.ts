@@ -16,6 +16,23 @@ import { fmtBytes, fmtCount, fmtDateTime, fmtHumane, zoneLabel } from '../format
 
 const PAGE_SIZE = 50;
 
+/** Dimensions the file listing can be rolled up by (in display/column order). */
+type RollupDim = 'interval' | 'channel' | 'host';
+const ROLLUP_DIMS: { key: RollupDim; label: string }[] = [
+  { key: 'interval', label: 'by interval' },
+  { key: 'channel', label: 'by channel' },
+  { key: 'host', label: 'by host' },
+];
+
+interface RollupGroup {
+  keyParts: string[];
+  files: number;
+  records: number;
+  compressed: number;
+  parsed: number;
+  cached: number;
+}
+
 const KIND_DESCRIPTIONS: Record<RecordKind, string> = {
   transaction: 'top-level units of work (requests, jobs)',
   span: 'timed operations within a transaction (db, http, …)',
@@ -57,6 +74,10 @@ export function renderStoreView(container: HTMLElement): () => void {
   let listError: string | null = null;
   let page = 0;
   const inFlight = new Set<string>();
+  // file-listing rollups: a [Rollups] toggle reveals by-interval/channel/host
+  // checkboxes; any checked dimension switches the listing to aggregated totals
+  let rollupsOpen = false;
+  const rollupDims = new Set<RollupDim>();
 
   async function loadAvailability(): Promise<void> {
     try {
@@ -201,10 +222,13 @@ export function renderStoreView(container: HTMLElement): () => void {
       ]),
     );
 
-    // --- file inventory ---
+    // --- file inventory (optionally rolled up by interval/channel/host) ---
+    const activeDims = ROLLUP_DIMS.filter((d) => rollupDims.has(d.key)).map((d) => d.key);
+    const rollupActive = rollupsOpen && activeDims.length > 0;
     body.append(
       el('div', { className: 'section-head' }, [
         el('span', { className: 'label', text: 'Files in S3' }),
+        rollupButton(),
         el('span', { className: 'masthead-spacer' }),
         el('span', {
           className: 'budget faint',
@@ -212,16 +236,28 @@ export function renderStoreView(container: HTMLElement): () => void {
             listError ??
             (available === null
               ? 'listing the bucket…'
-              : 'newest first — ⌂ = cached locally (free to load); live snapshots are never cached'),
+              : rollupActive
+                ? 'rolled up — compressed is the full S3 size; records & parsed count only loaded files'
+                : 'newest first — ⌂ = cached locally (free to load); live snapshots are never cached'),
         }),
       ]),
     );
+    if (rollupsOpen) body.append(rollupControls());
 
     if (rows.length === 0) {
       body.append(
         el('div', { className: 'empty' }, [
           el('div', { className: 'fleuron', text: '❧' }),
           el('h3', { text: available === null ? 'Listing…' : 'The bucket is empty' }),
+        ]),
+      );
+      return;
+    }
+
+    if (rollupActive) {
+      body.append(
+        el('div', { className: 'txn-wrap', attrs: { style: 'flex:none' } }, [
+          rollupTable(rows, activeDims),
         ]),
       );
       return;
@@ -402,6 +438,128 @@ export function renderStoreView(container: HTMLElement): () => void {
       bar.append(seg);
     }
     return bar;
+  }
+
+  // ---------------------------------------------------------------- rollups
+  function rollupButton(): HTMLElement {
+    return el('button', {
+      className: rollupsOpen ? 'btn btn-quiet on' : 'btn btn-quiet',
+      text: 'Rollups',
+      title: 'aggregate the file listing by interval, channel, and/or host',
+      on: {
+        click: () => {
+          rollupsOpen = !rollupsOpen;
+          render();
+        },
+      },
+    });
+  }
+
+  function rollupControls(): HTMLElement {
+    const wrap = el('div', { className: 'rollup-controls' });
+    for (const d of ROLLUP_DIMS) {
+      const cb = el('input', { attrs: { type: 'checkbox' } }) as HTMLInputElement;
+      cb.checked = rollupDims.has(d.key);
+      cb.addEventListener('change', () => {
+        if (cb.checked) rollupDims.add(d.key);
+        else rollupDims.delete(d.key);
+        render();
+      });
+      wrap.append(el('label', { className: 'rollup-check' }, [cb, el('span', { text: d.label })]));
+    }
+    return wrap;
+  }
+
+  function dimValue(p: ParsedKey, d: RollupDim): string {
+    return d === 'interval' ? p.interval : d === 'channel' ? p.channel : p.host;
+  }
+
+  function buildRollups(rows: FileRow[], dims: RollupDim[]): RollupGroup[] {
+    const map = new Map<string, RollupGroup>();
+    for (const r of rows) {
+      const parts = dims.map((d) => dimValue(r.parsed, d));
+      const id = parts.join(' ');
+      let g = map.get(id);
+      if (!g) {
+        g = { keyParts: parts, files: 0, records: 0, compressed: 0, parsed: 0, cached: 0 };
+        map.set(id, g);
+      }
+      g.files++;
+      g.records += r.total;
+      g.compressed += r.parsed.size;
+      g.parsed += r.sizeUncompressed;
+      if (r.cached) g.cached++;
+    }
+    // newest interval first; channel/host ascending
+    return [...map.values()].sort((a, b) => {
+      for (let i = 0; i < dims.length; i++) {
+        const cmp =
+          dims[i] === 'interval'
+            ? b.keyParts[i].localeCompare(a.keyParts[i])
+            : a.keyParts[i].localeCompare(b.keyParts[i]);
+        if (cmp) return cmp;
+      }
+      return 0;
+    });
+  }
+
+  function rollupTable(rows: FileRow[], dims: RollupDim[]): HTMLElement {
+    const groups = buildRollups(rows, dims);
+    const num = (text: string) =>
+      el('td', { className: 'num', text, attrs: { style: 'text-align:right' } });
+    const table = el('table', { className: 'records txn-table' });
+    table.append(
+      el('thead', {}, [
+        el('tr', {}, [
+          ...dims.map((d) => th(d, '')),
+          th('files', 'width:70px;text-align:right'),
+          th('records', 'width:90px;text-align:right'),
+          th('compressed', 'width:110px;text-align:right'),
+          th('parsed', 'width:90px;text-align:right'),
+          th('cached', 'width:80px;text-align:right'),
+        ]),
+      ]),
+    );
+    const tbody = el('tbody');
+    for (const g of groups) {
+      tbody.append(
+        el('tr', {}, [
+          ...g.keyParts.map((v) => el('td', { className: 'mono', text: v })),
+          num(fmtCount(g.files)),
+          num(g.records > 0 ? fmtCount(g.records) : '—'),
+          num(fmtBytes(g.compressed)),
+          num(g.parsed > 0 ? fmtBytes(g.parsed) : ''),
+          num(`${fmtCount(g.cached)}/${fmtCount(g.files)}`),
+        ]),
+      );
+    }
+    table.append(tbody);
+
+    if (groups.length > 1) {
+      const t = groups.reduce(
+        (a, g) => ({
+          files: a.files + g.files,
+          records: a.records + g.records,
+          compressed: a.compressed + g.compressed,
+          parsed: a.parsed + g.parsed,
+          cached: a.cached + g.cached,
+        }),
+        { files: 0, records: 0, compressed: 0, parsed: 0, cached: 0 },
+      );
+      table.append(
+        el('tfoot', {}, [
+          el('tr', { className: 'rollup-total' }, [
+            el('td', { className: 'label', text: 'all', attrs: { colspan: String(dims.length) } }),
+            num(fmtCount(t.files)),
+            num(t.records > 0 ? fmtCount(t.records) : '—'),
+            num(fmtBytes(t.compressed)),
+            num(t.parsed > 0 ? fmtBytes(t.parsed) : ''),
+            num(fmtCount(t.cached)),
+          ]),
+        ]),
+      );
+    }
+    return table;
   }
 
   const onData = () => void refreshKindCounts();
