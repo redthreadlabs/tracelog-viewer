@@ -75,21 +75,38 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
     const authed = authToggle.checked;
     authBlock.style.display = authed ? 'flex' : 'none';
     publicHint.style.display = authed ? 'none' : 'block';
-    const intro = authed
-      ? 'A workspace reads a single tracelog bucket. Your credentials are used ' +
-        'only to sign requests to AWS. But to stay ' +
-        'connected, this workspace keeps them as plain text in your browser’s ' +
-        'localStorage. The log files themselves are copied from your S3 bucket ' +
-        'and cached in your browser’s IndexedDB. Anyone with access to this ' +
-        'device can read all of it, so use Delete & Purge to wipe it clean.'
-      : 'A workspace reads a single tracelog bucket. This one is public, so ' +
-        'there are no credentials to enter, store, or send. The log files are ' +
-        'still copied from your S3 bucket and cached in your browser’s ' +
-        'IndexedDB. Delete & Purge clears them.';
-    lede.textContent =
-      intro +
-      ' The memory and cache limits cap the working set held in memory and the ' +
-      'log files cached on disk; leave either blank for no limit.';
+    clear(lede);
+    if (authed) {
+      lede.append(
+        'A workspace reads a single tracelog bucket. Your credentials are used ' +
+          'only to sign requests to AWS. But to stay connected, this workspace ' +
+          'keeps them as plain text in your browser’s ',
+        em('localStorage'),
+        '. The log files themselves are copied from your S3 bucket and cached ' +
+          'in your browser’s ',
+        em('IndexedDB'),
+        '. Anyone with access to this device can read all of it, so use ',
+        em('Delete & Purge'),
+        ' to wipe it clean.',
+      );
+    } else {
+      lede.append(
+        'A workspace reads a single tracelog bucket. This one is ',
+        em('public'),
+        ', so there are no credentials to enter, store, or send. The log files ' +
+          'are still copied from your S3 bucket and cached in your browser’s ',
+        em('IndexedDB'),
+        '. ',
+        em('Delete & Purge'),
+        ' clears them.',
+      );
+    }
+    lede.append(
+      ' The ',
+      em('memory and cache limits'),
+      ' cap the working set held in memory and the log files cached on disk. ' +
+        'Leave either blank for no limit.',
+    );
   };
   authToggle.addEventListener('change', syncAuth);
 
@@ -196,6 +213,11 @@ function label(text: string): HTMLElement {
 /** One stacked column row: a label above its control. */
 function row(labelText: string, control: HTMLElement): HTMLElement {
   return el('div', { className: 'field-row' }, [label(labelText), control]);
+}
+
+/** A semibold-emphasized phrase for the lede prose. */
+function em(text: string): HTMLElement {
+  return el('strong', { className: 'em', text });
 }
 
 function field(type: string, placeholder: string, value = ''): HTMLInputElement {

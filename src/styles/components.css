@@ -383,6 +383,11 @@ pre.json .b {
   font-size: 13.5px;
 }
 
+.config .lede .em {
+  font-weight: 600;
+  color: var(--ink);
+}
+
 .config form {
   background: var(--surface);
   border-radius: var(--radius-lg);
