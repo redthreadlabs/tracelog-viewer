@@ -36,7 +36,7 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
   const region = field('text', 'us-east-1', existing?.region ?? 'us-east-1');
   const accessKey = revealField('AKIA…', existing?.accessKeyId ?? '');
   const secretKey = revealField('', existing?.secretAccessKey ?? '');
-  const sessionToken = field('password', '(optional)', existing?.sessionToken ?? '');
+  const sessionToken = revealField('(optional)', existing?.sessionToken ?? '');
 
   const remember = el('input', { attrs: { type: 'checkbox' } });
   remember.checked = profiles.remembered;
@@ -55,7 +55,7 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
     label('Region'), region,
     label('Access key ID'), accessKey.wrap,
     label('Secret access key'), secretKey.wrap,
-    label('Session token'), sessionToken,
+    label('Session token'), sessionToken.wrap,
     label('Workspace'),
     el('div', { className: 'workspace-fixed' }, [
       el('span', { className: 'mono', text: hereLabel }),
@@ -111,7 +111,7 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
       region: region.value.trim() || 'us-east-1',
       accessKeyId: accessKey.input.value.trim(),
       secretAccessKey: secretKey.input.value.trim(),
-      sessionToken: sessionToken.value.trim() || undefined,
+      sessionToken: sessionToken.input.value.trim() || undefined,
       subdomain: ctx.current || undefined,
     };
     if (!profile.bucket || !profile.accessKeyId || !profile.secretAccessKey) return;
