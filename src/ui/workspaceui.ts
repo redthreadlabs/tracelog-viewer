@@ -28,12 +28,6 @@ export function openNewWorkspace(): void {
 
   const card = el('div', { className: 'modal-card about-panel' }, [
     el('h2', { text: 'New workspace' }),
-    el('p', {
-      text:
-        'A workspace is a subdomain — your new one will live at ' +
-        `${ctx.apexHost ? `«name».${ctx.apexHost}` : '«name»'}. We’ll take you ` +
-        'there to add its credentials.',
-    }),
     el('div', { className: 'modal-row' }, [
       input,
       ctx.apexHost ? el('span', { className: 'modal-suffix', text: `.${ctx.apexHost}` }) : el('span'),
@@ -42,6 +36,10 @@ export function openNewWorkspace(): void {
     el('p', {
       className: 'field-note',
       attrs: { style: 'margin-top:10px' },
+      text: 'A workspace is just a subdomain. It can literally be anything you want.',
+    }),
+    el('p', {
+      className: 'field-note',
     }, [
       el('span', {
         text:
