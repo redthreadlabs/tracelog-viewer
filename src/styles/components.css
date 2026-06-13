@@ -1269,6 +1269,23 @@ th.sortable.on {
   color-scheme: light;
 }
 
+.about-panel h1 {
+  font-size: 36px;
+  line-height: 1.2;
+  margin: 0 0 14px;
+  text-align: center;
+  font-style: italic;
+}
+
+.about-sub {
+  font-size: 16.5px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  margin: 0 0 26px;
+  text-align: center;
+  font-style: italic;
+}
+
 .about-panel h2 {
   font-size: 19px;
   margin: 0 0 10px;
@@ -1302,4 +1319,64 @@ th.sortable.on {
   font: 12px var(--font-data);
   overflow-x: auto;
   color: var(--ink);
+}
+
+.about-credit {
+  text-align: center;
+  font-size: 13px;
+  color: var(--ink-faint);
+  padding: 4px 0 8px;
+}
+
+.about-credit a {
+  color: #fff;
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, #fff 40%, transparent);
+}
+
+/* ---------- about hero + lightbox ---------- */
+.about-hero {
+  margin: 0 0 22px;
+  cursor: zoom-in;
+}
+
+.about-hero img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow);
+}
+
+.about-hero figcaption {
+  margin-top: 7px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4vmin;
+  background: rgba(20, 19, 18, 0.86);
+  cursor: zoom-out;
+  animation: lightbox-in 120ms ease-out;
+}
+
+.lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: var(--radius);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+}
+
+@keyframes lightbox-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }

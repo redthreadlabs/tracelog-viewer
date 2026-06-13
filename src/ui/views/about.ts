@@ -5,6 +5,7 @@
  */
 import { el } from '../dom';
 import { setView } from '../hashstate';
+import heroUrl from '../../assets/overview.jpg';
 
 const REPOS = [
   ['tracelog', 'the agent — a fork of the Elastic APM Node.js agent that writes gzipped JSONL to S3 instead of an APM server'],
@@ -22,40 +23,133 @@ const CORS_SNIPPET = `{
   }]
 }`;
 
+/** A scaled-down hero that opens a click-anywhere-to-close lightbox. */
+function heroImage(): { figure: HTMLElement; teardown: () => void } {
+  const figure = el('figure', { className: 'about-hero' }, [
+    el('img', {
+      attrs: { src: heroUrl, alt: 'The tracelog viewer’s Overview: a volume chart over a transactions table', loading: 'eager' },
+    }),
+    el('figcaption', { text: 'The Overview dashboard — tap to enlarge' }),
+  ]);
+
+  let lightbox: HTMLElement | null = null;
+  const close = (): void => {
+    lightbox?.remove();
+    lightbox = null;
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (ev: KeyboardEvent): void => {
+    if (ev.key === 'Escape') close();
+  };
+  figure.addEventListener('click', () => {
+    if (lightbox) return;
+    lightbox = el('div', { className: 'lightbox' }, [
+      el('img', { attrs: { src: heroUrl, alt: 'The tracelog viewer’s Overview, enlarged' } }),
+    ]);
+    lightbox.addEventListener('click', close);
+    document.addEventListener('keydown', onKey);
+    document.body.append(lightbox);
+  });
+  return { figure, teardown: close };
+}
+
 export function renderAbout(container: HTMLElement): () => void {
   const wrap = el('div', { className: 'about' });
+  const hero = heroImage();
 
   const intro = el('div', { className: 'about-panel' }, [
-    el('h2', { text: 'Observability, essentially free' }),
-    el('p', {
-      text:
-        'Tracelog is an on-ramp: Elastic-quality auto-instrumentation for a young ' +
-        'service, with S3-grade operational complexity. The agent — a fork of the ' +
-        'open-source Elastic APM Node.js agent — captures transactions, spans, ' +
-        'errors, metrics, and custom events, and writes them as gzipped JSONL ' +
-        'files to an S3 bucket you own. No cluster, no ingest pipeline, no per-GB ' +
-        'pricing. This site is the other half: a viewer that lists, fetches, ' +
-        'decompresses, parses, and charts those files entirely in your browser.',
+    el('h1', { text: 'Welcome to Tracelog' }),
+    el('div', {
+      className: 'about-sub',
+      text: 'See what your services are doing, without running a monitoring stack.',
     }),
+    hero.figure,
     el('p', {
       text:
-        'Your credentials stay in this tab and are sent only to AWS as request ' +
-        'signatures. There is no backend anywhere: the page is static files, your ' +
-        'logs live in your bucket, and the browser is the query engine — ' +
-        'comfortably to a million records on an ordinary laptop. When a service ' +
-        'outgrows that, the records are Elastic-shaped NDJSON: graduating to a ' +
-        'real stack later is a feature, not a rewrite.',
+        'You shipped a service, and now you want to know what it\u2019s up to: ' +
+        'which requests are slow, what broke overnight, what your users actually ' +
+        'do. Usually that means signing up for an observability platform \u2014 ' +
+        'starting on the free tier, naturally \u2014 and before you know it, ' +
+        'you\u2019re spending real money on dashboards.',
     }),
     el('p', {}, [
-      el('span', { text: 'Workspaces are free: any subdomain — ' }),
-      el('em', { text: 'yourservice' }),
       el('span', {
         text:
-          '.tracelog.org — serves this same page with its own isolated profiles ' +
-          'and cache, because browsers partition storage by origin. The server ' +
-          'knows nothing.',
+          'Tracelog is the dirt-simple alternative, and the whole system is free ' +
+          'and open source. A small tracing client watches your service and ' +
+          'appends everything it sees \u2014 requests, database calls, errors, ' +
+          'metrics, your own custom events \u2014 to compressed log files ',
+      }),
+      el('strong', { attrs: { style: 'font-style:italic' }, text: 'in an S3 bucket that you own' }),
+      el('span', {
+        text:
+          '. That\u2019s the entire pipeline. There\u2019s no server to run, ' +
+          'nothing to subscribe to, and a month of logs costs pennies to store.',
       }),
     ]),
+    el('p', {}, [
+      el('span', {
+        text:
+          'This site is the other half: it reads those files straight from your ' +
+          'bucket and turns them into charts, traces, and searchable logs \u2014 ' +
+          'entirely in your browser. Your AWS credentials never leave this tab; ' +
+          'the page only ever talks to AWS. If your service eventually outgrows ' +
+          'this way of working, the log files are the same shape Elastic uses, ' +
+          'so moving to a full stack later is an afternoon, not a rewrite. ' +
+          'Bucket already set up? ',
+      }),
+      el('a', {
+        text: 'Connect a profile',
+        attrs: { href: '#/config' },
+        on: {
+          click: (ev: Event) => {
+            ev.preventDefault();
+            setView('/config');
+          },
+        },
+      }),
+      el('span', { text: ' and start exploring.' }),
+    ]),
+    el('p', {
+      text:
+        'And the browser is a more capable query engine than you might think: ' +
+        'a working set of more than a million records is comfortable on an ' +
+        'ordinary laptop, and up to ten million is still reasonable. Since you ' +
+        'only ever load the time range you\u2019re looking at, that\u2019s the ' +
+        'only limit that matters. Say you like to observe a week at a time: as ' +
+        'long as your services write fewer than ten million records per week, ' +
+        'you can keep comprehensive APM dashboards over your entire history \u2014 ' +
+        'retention is just S3 storage, which is to say effectively infinite, ' +
+        'and effectively free.',
+    }),
+    el('p', {}, [
+      el('span', { text: 'One more trick: any subdomain here \u2014 ' }),
+      el('a', {
+        text: 'yourservice.tracelog.org',
+        attrs: {
+          href: 'https://yourservice.tracelog.org',
+          target: '_blank',
+          rel: 'noopener',
+          style: 'font-style:italic;font-weight:700',
+        },
+      }),
+      el('span', {
+        text:
+          ' \u2014 is its own siloed workspace. Browsers keep ' +
+          'storage apart per site, so each subdomain gets a separate set of ' +
+          'saved profiles and its own locally-cached data, for free. Use it to ' +
+          'keep separate realms for different families of services you watch: ' +
+          'bookmark each one, and its configs and cache stay put. It’s just ' +
+          'a browser trick, but it’s a good one!',
+      }),
+    ]),
+    el('p', {
+      text:
+        'There\u2019s no subscription and no upgrades. This isn\u2019t a service ' +
+        '\u2014 it\u2019s a static webpage, completely under your own control. ' +
+        'And if you\u2019d rather not load it from here at all, you can self-host ' +
+        'the very same page on your own infra, also for free.',
+    }),
   ]);
 
   const repos = el('div', { className: 'about-panel' }, [
@@ -133,7 +227,16 @@ export function renderAbout(container: HTMLElement): () => void {
     ]),
   ]);
 
-  wrap.append(intro, repos, setup);
+  const credit = el('div', { className: 'about-credit' }, [
+    el('span', { text: 'Made by ' }),
+    el('a', {
+      text: 'Red Thread Labs LLC',
+      attrs: { href: 'https://redthre.ad', target: '_blank', rel: 'noopener' },
+    }),
+    el('span', { text: '.' }),
+  ]);
+
+  wrap.append(intro, repos, setup, credit);
   container.append(wrap);
-  return () => {};
+  return () => hero.teardown();
 }
