@@ -77,7 +77,7 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
     const authed = authToggle.checked;
     authBlock.style.display = authed ? 'flex' : 'none';
     publicHint.style.display = authed ? 'none' : 'block';
-    lede.textContent = authed
+    const intro = authed
       ? 'A workspace reads a single tracelog bucket. Your credentials are used ' +
         'only to sign requests to AWS, and go nowhere else. But to stay ' +
         'connected, this workspace keeps them as plain text in your browser’s ' +
@@ -88,6 +88,10 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
         'there are no credentials to enter, store, or send. The log files are ' +
         'still copied from your S3 bucket and cached in your browser’s ' +
         'IndexedDB. Delete & Purge clears them.';
+    lede.textContent =
+      intro +
+      ' The memory and cache limits cap the working set held in memory and the ' +
+      'log files cached on disk; leave either blank for no limit.';
   };
   authToggle.addEventListener('change', syncAuth);
 
@@ -109,12 +113,6 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
         row('Prefix', prefix),
         row('Memory limit', withUnit(memLimit, 'MB')),
         row('Cache limit', withUnit(cacheLimit, 'MB')),
-        el('span', {
-          className: 'field-note',
-          text:
-            'Caps the working set held in memory and the log files cached on disk ' +
-            '(IndexedDB). Leave either blank for no limit.',
-        }),
       ]),
       // right column: how to authenticate to it
       el('div', { className: 'config-col' }, [
