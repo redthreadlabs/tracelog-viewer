@@ -14,14 +14,30 @@
  * same way real channels are. All days are in the past → every file is
  * finalized (no `_current`), which also exercises the IndexedDB cache.
  *
- * Upload (content headers must match what tracelog itself sets):
+ * Each log object gets a `<logkey>.meta.json` sidecar (SPEC §8): the exact
+ * uncompressed size, record count, and an hourly interval×kind histogram —
+ * built with @redthreadlabs/tracelog-schema's MetaAccumulator. A slice of
+ * events is back-dated to a previous day (simulating a client that buffered
+ * offline and flushed late), so the sidecars show real interval drift —
+ * a file's nominal day containing records from earlier days.
+ *
+ * Upload — TWO syncs, because the headers differ (sidecars are plain JSON,
+ * never gzip-encoded):
  *   AWS_PROFILE=... aws s3 sync /tmp/tracelog-fleet s3://tracelog-test \
- *     --content-encoding gzip --content-type application/x-ndjson
+ *     --exclude "*.meta.json" --content-encoding gzip --content-type application/x-ndjson
+ *   AWS_PROFILE=... aws s3 sync /tmp/tracelog-fleet s3://tracelog-test \
+ *     --exclude "*" --include "*.meta.json" --content-type application/json
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { createRequire } from 'node:module';
+
+// The sidecar histogram is built with the SAME canonical code the agent uses,
+// so the sample data's metadata matches the real contract exactly.
+const require = createRequire(import.meta.url);
+const { MetaAccumulator, sidecarKey } = require('@redthreadlabs/tracelog-schema');
 
 // ---------------------------------------------------------------- CLI args
 
@@ -149,6 +165,16 @@ const DEVICES = [
   { model: 'SM-S938B', brand: 'Samsung', os: 'Android', osv: '15' },
   { model: 'iPad Air', brand: 'Apple', os: 'iOS', osv: '18.5' },
 ];
+// Client locale ↔ per-event tz_offset (minutes east of UTC), as the client
+// SDK now records. A spread of offsets exercises local-time display.
+const LOCALE_TZ = [
+  { locale: 'en-US', tz: -300 }, // ET
+  { locale: 'en-US', tz: -420 }, // MT
+  { locale: 'en-US', tz: -480 }, // PT
+  { locale: 'zh-Hans-CN', tz: 480 },
+  { locale: 'es-MX', tz: -360 },
+  { locale: 'de-DE', tz: 60 },
+];
 const ERROR_SHAPES = [
   { type: 'ConnectionError', msg: 'connection timed out after 30000 ms', code: undefined },
   { type: 'TypeError', msg: "Cannot read properties of undefined (reading 'orderId')", code: undefined },
@@ -180,7 +206,7 @@ function metadataLine(host, version) {
   return JSON.stringify({ metadata: {
     service: {
       name: 'fleet-api', version, environment: 'production',
-      agent: { name: 'tracelog', version: '1.9.0' },
+      agent: { name: 'tracelog', version: '1.10.0' },
     },
     process: { pid: 1234, title: 'node', argv: ['/usr/bin/node', '/srv/fleet/server.js'] },
     system: { hostname: host, architecture: 'x64', platform: 'linux' },
@@ -277,8 +303,11 @@ function makeEvent(t, tsMs, version, users) {
     : (r < 0.94 ? 'info' : 'warn');
   const tsUs = Math.round(tsMs * 1000);
   const dev = t.pick(DEVICES);
+  const loc = t.pick(LOCALE_TZ);
   return { ts: tsUs, line: JSON.stringify({ event: {
     type: ev.type, timestamp: tsUs, level,
+    // per-event UTC offset, as the client SDK records and the server forwards
+    tz_offset: loc.tz,
     ...(ev.type === 'log'
       ? { message: t.pick(['cache warmed', 'queue drained', 'retrying db connect', 'slow request observed', 'config reloaded']) }
       : {}),
@@ -291,7 +320,7 @@ function makeEvent(t, tsMs, version, users) {
       name: 'fleet-app', version,
       os: { name: dev.os, version: dev.osv },
       device: { model: dev.model, brand: dev.brand, type: dev.model.includes('iPad') ? 'tablet' : 'phone' },
-      locale: t.pick(['en-US', 'zh-Hans-CN', 'es-MX', 'de-DE']),
+      locale: loc.locale,
     } }),
     params: { page: t.pick(['home', 'search', 'product', 'checkout', 'account', 'settings']),
       ...(ev.type === 'purchase' && { items: t.int(1, 8), total: Math.round(t.rng() * 24000 + 500) / 100 }),
@@ -346,7 +375,7 @@ function makeMetricsets(t, tsMs, topRoutes) {
 
 // ------------------------------------------------------------- file writing
 
-function writeHostDay(dir, host, lines) {
+function writeHostDay(dir, host, interval, lines) {
   // split into _seq files at MAX_FILE_BYTES uncompressed (§3.1 grammar)
   const files = [];
   let buf = [];
@@ -358,6 +387,11 @@ function writeHostDay(dir, host, lines) {
     const raw = Buffer.from(buf.join('\n') + '\n');
     const gz = gzipSync(raw, { level: 6 });
     writeFileSync(join(dir, name), gz);
+    // sidecar: derive the histogram from the exact bytes, like the agent does
+    const acc = new MetaAccumulator();
+    acc.addChunk(raw.toString('utf8'));
+    acc.flushPartial();
+    writeFileSync(join(dir, sidecarKey(name)), JSON.stringify(acc.toMeta(interval, raw.length, gz.length)));
     files.push({ name, raw: raw.length, gz: gz.length, lines: buf.length });
     seq += 1;
     buf = [];
@@ -415,7 +449,11 @@ for (const tier of TIERS) {
         while (inHour < hourShare && made < traffic) {
           const tsMs = hourStart + t.rng() * 3600_000;
           if (t.rng() < 0.33) {
-            recs.push(makeEvent(t, tsMs, version, users));
+            // ~5% of events are a buffered client flushing late: the event was
+            // recorded 1–2 days ago but lands in *this* day's file, so the
+            // sidecar shows interval drift (a day's file holding older records).
+            const evMs = t.rng() < 0.05 ? tsMs - t.int(1, 2) * 86400_000 : tsMs;
+            recs.push(makeEvent(t, evMs, version, users));
             inHour += 1; made += 1;
           } else {
             let acc = t.rng() * ROUTE_W;
@@ -435,7 +473,7 @@ for (const tier of TIERS) {
       }
       const dir = join(OUT, tier.channel, day);
       mkdirSync(dir, { recursive: true });
-      for (const f of writeHostDay(dir, host, lines)) {
+      for (const f of writeHostDay(dir, host, day, lines)) {
         tierTotals.files += 1;
         tierTotals.raw += f.raw;
         tierTotals.gz += f.gz;
