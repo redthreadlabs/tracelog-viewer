@@ -66,6 +66,7 @@
  * Panels: the near-white cards. Anything in this selector list (and its
  * descendants) flips to dark-ink-on-white with the screenshot's link red.
  */
+.about-panel,
 .chart-host,
 .records-wrap,
 .pagerbar,
@@ -154,6 +155,7 @@
   --grain-opacity: 0.5;
 }
 
+[data-theme='dark'] .about-panel,
 [data-theme='dark'] .chart-host,
 [data-theme='dark'] .records-wrap,
 [data-theme='dark'] .pagerbar,

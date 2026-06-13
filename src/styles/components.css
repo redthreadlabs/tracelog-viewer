@@ -1249,3 +1249,57 @@ th.sortable.on {
   opacity: 0.45;
   cursor: default;
 }
+
+
+/* ---------- about page ---------- */
+.about {
+  max-width: 780px;
+  width: 100%;
+  margin: 22px auto 0;
+  padding: 0 24px 56px;
+}
+
+.about-panel {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 26px 32px 28px;
+  margin-bottom: 20px;
+  color: var(--ink);
+  color-scheme: light;
+}
+
+.about-panel h2 {
+  font-size: 19px;
+  margin: 0 0 10px;
+}
+
+.about-panel p,
+.about-panel li {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--ink-soft);
+  margin: 0 0 10px;
+}
+
+.about-panel a {
+  color: var(--thread);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--thread) 35%, transparent);
+}
+
+.about-panel ol,
+.about-panel ul {
+  padding-left: 22px;
+  margin: 0 0 10px;
+}
+
+.about-panel pre {
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font: 12px var(--font-data);
+  overflow-x: auto;
+  color: var(--ink);
+}

@@ -14,6 +14,7 @@ import { viewState, resetViewState } from '../state';
 import { storeClient } from '../data/storeclient';
 import type { Profile } from './profiles';
 import { renderPerfView } from './views/perfview';
+import { renderAbout } from './views/about';
 import { renderRecordsView } from './views/records';
 import { renderEventsView } from './views/events';
 import { renderMetricsView } from './views/metrics';
@@ -25,6 +26,7 @@ import { renderTraceView } from './views/trace';
 import { renderTransactionView } from './views/transaction';
 
 const NAV: { view: string; label: string }[] = [
+  { view: '/about', label: 'About' },
   { view: '/overview', label: 'Overview' },
   { view: '/events', label: 'Events' },
   { view: '/metrics', label: 'Metrics' },
@@ -54,7 +56,11 @@ export function startApp(root: HTMLElement): void {
     clear(header);
     const active = profiles.active();
 
-    const currentView = readHash().view;
+    // mirror route()'s bare-URL delegation so the nav highlights correctly
+    const bare = !location.hash || location.hash === '#' || location.hash === '#/';
+    const currentView = bare
+      ? profiles.active() ? '/overview' : '/about'
+      : readHash().view;
     const nav = el('nav', { className: 'masthead-nav' });
     for (const item of NAV) {
       nav.append(
@@ -68,7 +74,6 @@ export function startApp(root: HTMLElement): void {
 
     const masthead = el('div', { className: 'masthead' }, [
       el('span', { className: 'masthead-title', text: 'Tracelog' }),
-      el('span', { className: 'masthead-sub', text: 'Viewer' }),
       nav,
       el('span', { className: 'masthead-spacer' }),
       el('div', { className: 'masthead-controls' }, [
@@ -152,7 +157,16 @@ export function startApp(root: HTMLElement): void {
     clear(main);
     renderHeader(); // keep nav active-state in sync
 
-    const view = readHash().view;
+    // a bare URL delegates: newcomers land on About, returning users on data
+    const bareUrl = !location.hash || location.hash === '#' || location.hash === '#/';
+    const view = bareUrl
+      ? profiles.active() ? '/overview' : '/about'
+      : readHash().view;
+    // About is the one public page; everything else needs a profile first
+    if (view === '/about') {
+      teardown = renderAbout(main);
+      return;
+    }
     if (!profiles.active() || view === '/config') {
       renderConfig(main, () => {
         connect();
