@@ -20,7 +20,7 @@ import type { Profile } from '../ui/profiles';
 import { planScan, type ScanPlan } from '../s3/scanner';
 import { executeScan, loadOneFile } from '../data/scan';
 import { LiveUpdater } from '../data/live';
-import { perf, type PerfEntry } from '../data/perf';
+import { perf, heapNow, type PerfEntry } from '../data/perf';
 import { cacheKeys, cacheGetAny, cacheWipeBucket } from '../data/cache';
 import { parseKey, dedupeCurrents, type ParsedKey } from '../s3/keys';
 import { nthLine } from '../data/parse';
@@ -171,6 +171,10 @@ type OpHandler = (session: Session, args: Record<string, unknown>) => Promise<un
 
 const ops: Record<string, OpHandler> = {
   snapshot: (s) => s.snapshot(),
+
+  // the worker's own JS heap — where the store and parsing live, so this is
+  // the number that matters (undefined off Chromium / where unavailable)
+  heap: () => heapNow() ?? null,
 
   // ---- scanbar ----
   listChannels: (s) => s.bucket.listChannels(),

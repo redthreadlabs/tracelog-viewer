@@ -18,7 +18,6 @@ import { el, clear } from './dom';
 import type { ScanPlan } from '../s3/scanner';
 import { intervalSpan } from '../s3/keys';
 import { storeClient } from '../data/storeclient';
-import { heapNow } from '../data/perf';
 import { viewState, resetViewState } from '../state';
 import { fmtBytes, fmtCount } from './format';
 import { getParam, setParams, setView, parseWindowParam, windowParam, readHash } from './hashstate';
@@ -557,21 +556,30 @@ export function renderScanbar(container: HTMLElement): void {
     const snap = storeClient.snapshot;
     if (snap.recordCount === 0 && snap.files.length === 0) return;
     clearEl(budget);
-    // the tab's real heap (Chromium); elsewhere, fall back to parsed bytes
-    const heap = heapNow();
+    // the worker holds the store, so its heap is the meaningful one (polled
+    // below); elsewhere, fall back to parsed bytes
     const inMemory = snap.files.reduce((s, f) => s + f.sizeUncompressed, 0);
     budget.append(
       storePill(
-        heap !== undefined
-          ? `HEAP: ${fmtBytes(heap)}`
+        workerHeap !== null && workerHeap !== undefined
+          ? `HEAP: ${fmtBytes(workerHeap)}`
           : `MEM: ${fmtCount(snap.recordCount)} records · ${fmtBytes(inMemory)}`,
         'inspect the in-memory store (files, sizes, eviction)',
       ),
     );
   }
 
-  // the heap reading drifts with GC, not just with data events
-  activeHeapTimer = setInterval(updateLoadedText, 2000);
+  // poll the *worker's* heap (where the store lives); it drifts with GC,
+  // not just with data events
+  let workerHeap: number | null | undefined;
+  const pollHeap = (): void => {
+    void storeClient.request<number | null>('heap').then((h) => {
+      workerHeap = h;
+      updateLoadedText();
+    });
+  };
+  pollHeap();
+  activeHeapTimer = setInterval(pollHeap, 2000);
 
   function clearEl(node: HTMLElement): void {
     while (node.firstChild) node.removeChild(node.firstChild);
