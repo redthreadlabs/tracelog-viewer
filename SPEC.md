@@ -569,9 +569,14 @@ or date rather than abandon tracelog entirely.
   cloud service, no account; the wildcard subdomain already resolves for
   everyone, and a workspace is just a separate corner of this one browser
   (the new-workspace modal says so).
+- **One connection per workspace** (2026-06-12): there is no profile
+  *name* — the subdomain is the namespace, so a workspace connects to one
+  bucket. Want a second namespace? Make a second workspace
+  (`acme-staging`). profiles.ts is a single-profile-per-origin store
+  (migrates the old multi-profile array to its active/first entry).
 - **Workspace switcher** (2026-06-12, navigation-based): the masthead pill
-  is a switcher — it lists the profiles saved at this origin (activate in
-  place) and the other workspaces (navigate to their subdomain). Since
+  shows the current workspace; its menu edits this workspace's connection
+  and hops to the other workspaces (navigate to their subdomain). Since
   origins are siloed, the one shared thing is a directory of workspace
   *names*, kept in the **apex** origin's first-party localStorage.
   Subdomains never reach into apex storage directly (no iframe — nothing

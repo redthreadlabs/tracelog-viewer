@@ -226,10 +226,11 @@ export function startApp(root: HTMLElement): void {
 
 /**
  * The masthead pill is a workspace switcher. A workspace is always a
- * subdomain — there is no apex/home workspace. Three contexts:
+ * subdomain, with one connection (bucket) — there is no separate profile
+ * name, and no apex/home workspace. Three contexts:
  *  • apex: the launcher — pick an existing workspace or make a new one;
- *  • subdomain: this workspace's profiles + a jump to the others;
- *  • localhost/self-host single-origin: just local profiles.
+ *  • subdomain: this workspace's connection + a jump to the others;
+ *  • localhost/self-host single-origin: just this origin's connection.
  */
 function workspaceSwitcher(active: Profile | null): HTMLElement {
   const ctx = workspaceContext();
@@ -238,8 +239,8 @@ function workspaceSwitcher(active: Profile | null): HTMLElement {
   const pillText = apex
     ? 'Workspaces'
     : ctx.apexHost
-      ? `${here} · ${active ? active.name : 'connect…'}`
-      : active ? active.name : 'connect…';
+      ? active ? here : `${here} · connect…`
+      : active ? (active.bucket || 'connected') : 'connect…';
 
   const wrap = el('div', { className: 'switcher' });
   const pill = el('button', {
@@ -271,29 +272,22 @@ function workspaceSwitcher(active: Profile | null): HTMLElement {
     pop = el('div', { className: 'switcher-pop' });
     wrap.append(pop);
 
-    // a subdomain's own profiles — activate in place
+    // this workspace's single connection — link to config to set or edit it
     if (!apex) {
-      const local = profiles.list();
-      if (local.length > 0) {
-        pop.append(el('div', { className: 'switcher-head', text: here || 'this device' }));
-        for (const p of local) {
-          const row = el('button', {
-            className: p.name === active?.name ? 'switcher-row on' : 'switcher-row',
-            text: p.name,
-          });
-          row.append(el('span', { className: 'switcher-sub', text: `s3://${p.bucket}` }));
-          row.addEventListener('click', () => {
-            close();
-            profiles.setActive(p.name);
-            setView('/overview');
-          });
-          pop.append(row);
-        }
+      pop.append(el('div', { className: 'switcher-head', text: here || 'this device' }));
+      if (active) {
+        const row = el('button', {
+          className: 'switcher-row on',
+          text: 'connected',
+        });
+        row.append(el('span', { className: 'switcher-sub', text: `s3://${active.bucket}` }));
+        row.addEventListener('click', () => { close(); setView('/overview'); });
+        pop.append(row);
       }
       pop.append(
         el('button', {
           className: 'switcher-row add',
-          text: local.length > 0 ? '+ Add a profile here' : 'Connect a profile…',
+          text: active ? 'Edit connection…' : 'Connect this workspace…',
           on: { click: () => { close(); setView('/config'); } },
         }),
       );

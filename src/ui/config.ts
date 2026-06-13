@@ -1,5 +1,8 @@
 /**
- * Credentials / profiles panel (SPEC §6.0, §4).
+ * Connect this workspace (SPEC §6.0, §4). One workspace, one bucket: the
+ * subdomain is the namespace, so there's no profile name — just credentials
+ * for the bucket this workspace reads. The form prefills from an existing
+ * connection (editing), and Disconnect drops it.
  */
 import { el, clear } from './dom';
 import { profiles, type Profile } from './profiles';
@@ -9,95 +12,35 @@ import { workspaceContext, dropCurrentWorkspace, recordCurrentWorkspaceIfNew } f
 export function renderConfig(container: HTMLElement, onDone: () => void): void {
   clear(container);
 
-  const wrap = el('div', { className: 'config' });
-  wrap.append(
-    el('h2', { text: 'Profiles' }),
-    el('p', {
-      className: 'lede',
-      text:
-        'A profile is a read-only key for one tracelog bucket. Credentials stay in ' +
-        'this tab’s memory and are sent only to AWS, as request signatures — ' +
-        'never anywhere else.',
-    }),
-  );
-
-  // --- existing profiles ---
-  const existing = profiles.list();
-  if (existing.length > 0) {
-    const list = el('ul', { className: 'profile-list' });
-    for (const p of existing) {
-      const isActive = profiles.active()?.name === p.name;
-      list.append(
-        el('li', {}, [
-          el('span', { className: 'name', text: p.name }),
-          el('span', { className: 'detail', text: `s3://${p.bucket} · ${p.region}` }),
-          el('button', {
-            className: isActive ? 'btn btn-primary' : 'btn',
-            text: isActive ? 'active' : 'use',
-            on: {
-              click: () => {
-                profiles.setActive(p.name);
-                onDone();
-              },
-            },
-          }),
-          el('button', {
-            className: 'btn-quiet btn',
-            text: '✕',
-            title: 'delete profile',
-            on: {
-              click: () => {
-                profiles.remove(p.name);
-                // Deleting credentials reads as "done with this world": drop
-                // the bucket's cached files too — unless another profile
-                // still points at the same bucket.
-                if (!profiles.list().some((other) => other.bucket === p.bucket)) {
-                  void cacheWipeBucket(p.bucket);
-                }
-                // Last profile gone → this workspace leaves the directory.
-                // The bounce to the apex and back replaces this render.
-                if (profiles.list().length === 0 && workspaceContext().current) {
-                  dropCurrentWorkspace('/config');
-                  return;
-                }
-                renderConfig(container, onDone);
-              },
-            },
-          }),
-        ]),
-      );
-    }
-    wrap.append(list, el('div', { attrs: { style: 'height:26px' } }));
-  }
-
-  // The workspace is *where you are* — this origin. You can't create a
-  // profile for another subdomain from here (its storage is siloed); use
-  // the switcher's "New workspace", which takes you there first.
   // config only renders on a subdomain (the apex isn't a workspace) or on
   // localhost/self-host single-origin
   const ctx = workspaceContext();
   const hereLabel = ctx.current && ctx.apexHost ? `${ctx.current}.${ctx.apexHost}` : 'this device';
+  const existing = profiles.active();
 
-  // --- new profile form ---
-  // most people want the profile named after the workspace, so prefill it
-  const name = field('text', 'prod', ctx.current || '');
-  const bucket = field('text', 'my-service-logs');
-  const region = field('text', 'us-east-1', 'us-east-1');
-  const accessKey = field('text', 'AKIA…');
-  const secretKey = field('password', '');
-  const sessionToken = field('password', '(optional)');
+  const wrap = el('div', { className: 'config' });
+  wrap.append(
+    el('h2', { text: existing ? `Reconnect ${hereLabel}` : `Connect ${hereLabel}` }),
+    el('p', {
+      className: 'lede',
+      text:
+        'A workspace reads one tracelog bucket with a read-only key. Credentials ' +
+        'stay in this tab’s memory and are sent only to AWS, as request ' +
+        'signatures — never anywhere else.',
+    }),
+  );
+
+  // --- connection form (prefilled when editing an existing connection) ---
+  const bucket = field('text', 'my-service-logs', existing?.bucket ?? '');
+  const region = field('text', 'us-east-1', existing?.region ?? 'us-east-1');
+  const accessKey = field('text', 'AKIA…', existing?.accessKeyId ?? '');
+  const secretKey = field('password', '', existing?.secretAccessKey ?? '');
+  const sessionToken = field('password', '(optional)', existing?.sessionToken ?? '');
 
   const remember = el('input', { attrs: { type: 'checkbox' } });
   remember.checked = profiles.remembered;
 
   const form = el('form', {}, [
-    label('Profile name'), name,
-    el('div', { className: 'full' }, [
-      el('span', {
-        className: 'field-note',
-        text: 'Just the display name shown in the workspace switcher — yours to choose.',
-      }),
-    ]),
     label('Bucket'), bucket,
     label('Region'), region,
     label('Access key ID'), accessKey,
@@ -107,7 +50,7 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
     el('div', { className: 'workspace-fixed' }, [
       el('span', { className: 'mono', text: hereLabel }),
       ctx.apexHost
-        ? el('span', { className: 'field-note', text: 'this profile is saved in this workspace' })
+        ? el('span', { className: 'field-note', text: 'this workspace’s own browser storage' })
         : el('span'),
     ]),
     el('div', { className: 'full' }, [
@@ -121,18 +64,38 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
       ]),
     ]),
     el('div', { className: 'full actions' }, [
+      existing
+        ? el('button', {
+            className: 'btn btn-quiet',
+            text: 'Disconnect',
+            attrs: { type: 'button', title: 'forget this workspace’s credentials and cached files' },
+            on: { click: () => disconnect() },
+          })
+        : el('span'),
       el('button', {
         className: 'btn btn-primary',
-        text: 'Save & connect',
+        text: existing ? 'Save' : 'Save & connect',
         attrs: { type: 'submit' },
       }),
     ]),
   ]);
 
+  function disconnect(): void {
+    const wiped = profiles.active()?.bucket;
+    profiles.remove();
+    if (wiped) void cacheWipeBucket(wiped);
+    // a connected workspace leaves the directory when disconnected (the
+    // bounce to the apex and back replaces this render)
+    if (ctx.current) {
+      dropCurrentWorkspace('/config');
+      return;
+    }
+    renderConfig(container, onDone);
+  }
+
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
     const profile: Profile = {
-      name: name.value.trim() || 'default',
       bucket: bucket.value.trim(),
       region: region.value.trim() || 'us-east-1',
       accessKeyId: accessKey.value.trim(),
