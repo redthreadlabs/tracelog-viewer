@@ -70,14 +70,6 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
     wrap.append(list, el('div', { attrs: { style: 'height:26px' } }));
   }
 
-  // --- new profile form ---
-  const name = field('text', 'prod');
-  const bucket = field('text', 'my-service-logs');
-  const region = field('text', 'us-east-1', 'us-east-1');
-  const accessKey = field('text', 'AKIA…');
-  const secretKey = field('password', '');
-  const sessionToken = field('password', '(optional)');
-
   // The workspace is *where you are* — this origin. You can't create a
   // profile for another subdomain from here (its storage is siloed); use
   // the switcher's "New workspace", which takes you there first.
@@ -86,11 +78,26 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
   const ctx = workspaceContext();
   const hereLabel = ctx.current && ctx.apexHost ? `${ctx.current}.${ctx.apexHost}` : 'this device';
 
+  // --- new profile form ---
+  // most people want the profile named after the workspace, so prefill it
+  const name = field('text', 'prod', ctx.current || '');
+  const bucket = field('text', 'my-service-logs');
+  const region = field('text', 'us-east-1', 'us-east-1');
+  const accessKey = field('text', 'AKIA…');
+  const secretKey = field('password', '');
+  const sessionToken = field('password', '(optional)');
+
   const remember = el('input', { attrs: { type: 'checkbox' } });
   remember.checked = profiles.remembered;
 
   const form = el('form', {}, [
     label('Profile name'), name,
+    el('div', { className: 'full' }, [
+      el('span', {
+        className: 'field-note',
+        text: 'Just the display name shown in the workspace switcher — yours to choose.',
+      }),
+    ]),
     label('Bucket'), bucket,
     label('Region'), region,
     label('Access key ID'), accessKey,
