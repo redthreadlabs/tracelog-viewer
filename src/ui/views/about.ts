@@ -4,7 +4,7 @@
  * profile: the root URL lands here for new visitors (app.ts routing).
  */
 import { el } from '../dom';
-import { setView } from '../hashstate';
+import { setView, getParam, setParams } from '../hashstate';
 import { isApexHome } from '../../data/workspaces';
 import { openNewWorkspace } from '../workspaceui';
 import heroUrl from '../../assets/overview.jpg';
@@ -235,6 +235,16 @@ export function renderAbout(container: HTMLElement): () => void {
     }),
     el('span', { text: '.' }),
   ]);
+
+  // confirmation after a workspace purge kicked back here (textContent, not
+  // innerHTML — the label comes from the URL)
+  const purged = getParam('purged');
+  if (purged) {
+    const banner = el('div', { className: 'purge-banner' });
+    banner.textContent = `Workspace “${purged}” purged — its connection and cached data are gone from this browser.`;
+    wrap.append(banner);
+    setParams({ purged: null }); // so a refresh doesn't re-show it
+  }
 
   wrap.append(intro, repos, setup, credit);
   container.append(wrap);

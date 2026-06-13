@@ -248,6 +248,17 @@ export function handleWorkspaceBoot(): boolean {
     return true;
   }
 
+  // (2b) Apex: a purge redirect drops the workspace from the directory,
+  //      then shows the launcher (About reads `purged` for a confirmation).
+  if (ctx.current === '' && params.get('drop')) {
+    const drop = params.get('drop') ?? '';
+    if (validLabel(drop)) writeDirectory(directory().filter((n) => n !== drop));
+    params.delete('drop');
+    const rest = params.toString();
+    history.replaceState(null, '', `#/about${rest ? `?${rest}` : ''}`);
+    return false; // render the apex launcher
+  }
+
   // (3) First visit to a fresh subdomain → read-only auto-sync.
   if (ctx.current !== '' && !isSynced()) {
     gotoRelay('sync', '', hashView());
@@ -276,10 +287,18 @@ export function recordCurrentWorkspaceIfNew(returnView: string): boolean {
   return true;
 }
 
-/** Drop the current workspace from the directory (its last profile is gone). */
-export function dropCurrentWorkspace(returnView: string): void {
-  const { current } = workspaceContext();
-  if (current) gotoRelay('remove', current, returnView);
+/**
+ * Purge done — drop the workspace from the directory and land on the apex
+ * launcher with a confirmation. Goes via a plain apex navigation (cross-
+ * origin reload), where handleWorkspaceBoot does the directory drop
+ * first-party; no relay round-trip needed since we want to end at the apex.
+ */
+export function purgeAndLeave(label: string): void {
+  const { apexOrigin } = workspaceContext();
+  if (!apexOrigin) return;
+  const qs = new URLSearchParams({ drop: label, purged: label });
+  interstitial();
+  location.assign(`${apexOrigin}/#/about?${qs.toString()}`);
 }
 
 /** Refresh this origin's cached snapshot from the apex (manual sync). */

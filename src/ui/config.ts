@@ -2,19 +2,20 @@
  * Connect this workspace (SPEC §6.0, §4). One workspace, one bucket: the
  * subdomain is the namespace, so there's no profile name — just credentials
  * for the bucket this workspace reads. The form prefills from an existing
- * connection (editing), and Disconnect drops it.
+ * connection (editing); "Delete & Purge" wipes everything this origin stores.
  */
 import { el, clear } from './dom';
 import { profiles, type Profile } from './profiles';
 import { cacheWipeAll } from '../data/cache';
 import {
   workspaceContext,
-  dropCurrentWorkspace,
+  knownWorkspaces,
+  purgeAndLeave,
   recordCurrentWorkspaceIfNew,
   clearLocalWorkspaceState,
 } from '../data/workspaces';
 
-export function renderConfig(container: HTMLElement, onDone: () => void): void {
+export function renderConfig(container: HTMLElement, onDone: () => void, flash = ''): void {
   clear(container);
 
   // config only renders on a subdomain (the apex isn't a workspace) or on
@@ -38,6 +39,9 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
   const accessKey = revealField('AKIA…', existing?.accessKeyId ?? '');
   const secretKey = revealField('', existing?.secretAccessKey ?? '');
   const sessionToken = revealField('(optional)', existing?.sessionToken ?? '');
+
+  // feedback line for purge (and any flash passed into this render)
+  const purgeMsg = el('div', { className: 'field-note', attrs: { style: 'text-align:right' } });
 
   // ON = authenticated (private bucket); OFF = public/anonymous
   const authToggle = el('input', { attrs: { type: 'checkbox' } }) as HTMLInputElement;
@@ -66,15 +70,15 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
     authBlock.style.display = authed ? 'contents' : 'none';
     publicHint.style.display = authed ? 'none' : 'block';
     lede.textContent = authed
-      ? 'A workspace reads one tracelog bucket. Credentials are sent only to AWS ' +
-        'as request signatures, never anywhere else — but they are saved in ' +
-        'this browser’s localStorage, in plain text, so the workspace stays ' +
-        'connected across reloads. Anyone with access to this device can read them' +
-        // the Purge button only exists once a connection has been saved
-        (existing ? '; “Purge” below removes everything.' : '.')
+      ? 'A workspace reads one tracelog bucket. Credentials go only to AWS as ' +
+        'request signatures, never anywhere else — but they’re saved in this ' +
+        'browser’s localStorage, in plain text, along with the log files this ' +
+        'workspace caches. Anyone with access to this device can read them; ' +
+        '“Delete & Purge” wipes all of it.'
       : 'A workspace reads one tracelog bucket. This one is public, so no ' +
-        'credentials are entered, stored, or sent — only the bucket location ' +
-        'is saved in this browser.';
+        'credentials are entered, stored, or sent — but the bucket location and ' +
+        'the log files this workspace caches are saved in this browser; ' +
+        '“Delete & Purge” wipes them.';
   };
   authToggle.addEventListener('change', syncAuth);
 
@@ -94,13 +98,22 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
     publicHint,
     el('div', { className: 'full actions' }, [
       el('button', {
+        className: 'btn btn-danger',
+        text: 'Delete & Purge',
+        attrs: { type: 'button', title: 'wipe this workspace’s connection and cached files' },
+        on: { click: () => purge() },
+      }),
+      el('span', { className: 'masthead-spacer' }),
+      el('button', {
         className: 'btn btn-primary',
         text: existing ? 'Save' : 'Save & connect',
         attrs: { type: 'submit' },
       }),
     ]),
+    el('div', { className: 'full' }, [purgeMsg]),
   ]);
   syncAuth();
+  if (flash) purgeMsg.textContent = flash;
 
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
@@ -128,39 +141,23 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
 
   wrap.append(form);
 
-  // --- local data: an obvious, total purge for this workspace ---
-  if (existing) {
-    wrap.append(
-      el('div', { className: 'config-danger' }, [
-        el('div', { className: 'form-label', text: 'Local data' }),
-        el('p', {
-          className: 'field-note',
-          text:
-            'Everything this workspace keeps lives only in this browser: the ' +
-            'connection above, and the cached log files in IndexedDB. Purge ' +
-            'wipes all of it and removes the workspace from your switcher.',
-        }),
-        el('button', {
-          className: 'btn btn-danger',
-          text: 'Purge this workspace’s data',
-          attrs: { type: 'button' },
-          on: { click: () => purge() },
-        }),
-      ]),
-    );
-  }
-
   function purge(): void {
+    const hadData = !!profiles.active() || (!!ctx.current && knownWorkspaces().includes(ctx.current));
     profiles.remove();
     clearLocalWorkspaceState();
     void cacheWipeAll();
-    // drop from the directory (bounce to apex and back replaces this render);
-    // on a single-origin host there's no directory, so just re-render
-    if (ctx.current) {
-      dropCurrentWorkspace('/about');
+    if (!hadData) {
+      purgeMsg.textContent = 'No data to purge in this workspace.';
       return;
     }
-    renderConfig(container, onDone);
+    // there was data: on a real workspace, drop it from the directory and
+    // kick to the apex launcher with a confirmation; on a single-origin
+    // host (no apex) just re-render with the confirmation
+    if (ctx.current) {
+      purgeAndLeave(ctx.current);
+      return;
+    }
+    renderConfig(container, onDone, 'Workspace data purged.');
   }
 
   container.append(wrap);

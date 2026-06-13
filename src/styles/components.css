@@ -1560,21 +1560,6 @@ th.sortable.on {
   display: contents;
 }
 
-/* config: the obvious local-data purge */
-.config-danger {
-  margin-top: 22px;
-  padding-top: 18px;
-  border-top: 1px solid var(--line);
-}
-
-.config-danger .form-label {
-  margin-bottom: 4px;
-}
-
-.config-danger .field-note {
-  margin: 0 0 12px;
-}
-
 .btn-danger {
   background: transparent;
   border-color: color-mix(in srgb, var(--thread) 45%, var(--line-strong));
@@ -1644,4 +1629,17 @@ th.sortable.on {
   line-height: 1.6;
   color: var(--ink-soft);
   padding: 6px 0 2px;
+}
+
+.purge-banner {
+  max-width: 780px;
+  margin: 16px auto -4px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--kind-span) 40%, var(--line-strong));
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  color: var(--ink-soft);
+  font-size: 13px;
+  text-align: center;
 }
