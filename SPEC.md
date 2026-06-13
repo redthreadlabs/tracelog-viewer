@@ -546,8 +546,9 @@ or date rather than abandon tracelog entirely.
 
 ## 10. Decisions (resolved 2026-06-11)
 
-- **Hosting** (revised 2026-06-12): localhost for development; the public
-  deployment plan is **tracelog.org** as an S3 + CloudFront static site
+- **Hosting** (LIVE 2026-06-12, scripts/deploy-site.mjs — a turnkey
+  provision-or-adopt deployer anyone can point at their own account):
+  localhost for development; the public deployment is **tracelog.org** as an S3 + CloudFront static site
   with a wildcard cert (`*.tracelog.org`), every subdomain serving the
   identical bytes. Because origins partition browser storage, each
   subdomain is a free, fully client-side **workspace**: visiting
