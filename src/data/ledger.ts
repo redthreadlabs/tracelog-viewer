@@ -10,7 +10,7 @@
  * Lives in the same IndexedDB as the cache, in its own `sizes` store, so a
  * cache-byte eviction never touches it; a full workspace purge clears both.
  */
-import { openDb, SIZES_STORE, SEP, bucketRange } from './cache';
+import { openDb, SIZES_STORE, SEP, bucketRange, cacheDeleteIds } from './cache';
 
 export interface SizeRecord {
   id: string; // `${bucket}\0${key}`
@@ -164,4 +164,46 @@ export async function markDisplayed(bucket: string, keys: string[], now: number)
 /** The ratios for a bucket, ready for estimateDecompressed. */
 export async function bucketRatios(bucket: string): Promise<Ratios> {
   return deriveRatios(await ledgerRecords(bucket));
+}
+
+/**
+ * Eviction order for cached files (pure): least-recently-*displayed* first;
+ * ties broken by older interval first, then bigger file first. The front of
+ * this list is dropped first when the cache is over budget.
+ */
+export function evictionOrder(cached: SizeRecord[]): SizeRecord[] {
+  return [...cached].sort(
+    (a, b) =>
+      a.displayedAt - b.displayedAt || // least recently displayed
+      a.interval.localeCompare(b.interval) || // then older interval
+      (b.decompressed ?? 0) - (a.decompressed ?? 0), // then bigger
+  );
+}
+
+/** Bytes a cached file occupies (we cache decompressed bytes for now). */
+function cachedBytes(r: SizeRecord): number {
+  return r.decompressed ?? 0;
+}
+
+/**
+ * Enforce the cache byte budget: while the cached total exceeds limitBytes,
+ * drop the eviction-order front — deleting bytes from the `files` store but
+ * keeping the size record (cached=false), so we still know its size.
+ */
+export async function enforceCacheLimit(bucket: string, limitBytes: number): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  const records = await ledgerRecords(bucket);
+  const cached = records.filter((r) => r.cached);
+  let total = cached.reduce((s, r) => s + cachedBytes(r), 0);
+  if (total <= limitBytes) return;
+
+  const evict: SizeRecord[] = [];
+  for (const r of evictionOrder(cached)) {
+    if (total <= limitBytes) break;
+    evict.push(r);
+    total -= cachedBytes(r);
+  }
+  await cacheDeleteIds(evict.map((r) => r.id));
+  for (const r of evict) put(db, { ...r, cached: false });
 }

@@ -143,6 +143,26 @@ export async function cacheKeys(bucket: string): Promise<Set<string>> {
   });
 }
 
+/** Delete specific cached byte entries by ledger id (`bucket\0key`) — used
+ * by LRU eviction; the size ledger keeps the records. */
+export async function cacheDeleteIds(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const db = await openDb();
+  if (!db) return;
+  return new Promise((resolve) => {
+    try {
+      const store = db.transaction(STORE, 'readwrite').objectStore(STORE);
+      for (const id of ids) store.delete(id);
+      const tx = store.transaction;
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
 /** Drop every cached file of one bucket (profile deletion). */
 export async function cacheWipeBucket(bucket: string): Promise<void> {
   const db = await openDb();

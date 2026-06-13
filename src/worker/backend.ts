@@ -82,6 +82,11 @@ interface PortLike {
 const MAX_INSTANCES = 20_000;
 const MAX_SLOW_EVENTS = 500;
 
+/** MB → bytes, or null when no limit is set. */
+function mbToBytes(mb: number | undefined): number | null {
+  return mb != null && mb > 0 ? mb * 1024 * 1024 : null;
+}
+
 class Session {
   store = new Store();
   bucket: LogBucket;
@@ -89,9 +94,11 @@ class Session {
   liveChannels: string[] = [];
   ports = new Set<PortLike>();
   lastUsed = Date.now();
+  cacheLimitBytes: number | null;
 
   constructor(profile: Profile) {
     this.bucket = new LogBucket(profile);
+    this.cacheLimitBytes = mbToBytes(profile.cacheLimitMb);
     this.live = new LiveUpdater(this.store, this.bucket, () => this.liveChannels);
     this.store.addEventListener('data', () => this.broadcast('data'));
     this.store.addEventListener('progress', () => this.broadcast('progress'));
@@ -190,7 +197,7 @@ const ops: Record<string, OpHandler> = {
     const files = (a.files as { channel: string; compressed: number; decompressed?: number }[]) ?? [];
     return estimateDecompressed(files, await bucketRatios(s.bucket.bucket));
   },
-  executeScan: (s, a) => executeScan(s.store, s.bucket, a.plan as ScanPlan),
+  executeScan: (s, a) => executeScan(s.store, s.bucket, a.plan as ScanPlan, s.cacheLimitBytes),
   clearStore: (s) => s.store.clear(),
   setLive: (s, a) => {
     s.liveChannels = a.channels as string[];
@@ -200,7 +207,7 @@ const ops: Record<string, OpHandler> = {
   },
 
   // ---- store inspector ----
-  loadOneFile: (s, a) => loadOneFile(s.store, s.bucket, a.file as ParsedKey),
+  loadOneFile: (s, a) => loadOneFile(s.store, s.bucket, a.file as ParsedKey, s.cacheLimitBytes),
   dropFile: (s, a) => s.store.dropFile(a.key as string),
   cacheKeys: (s) => cacheKeys(s.bucket.bucket),
   wipeCache: (s) => cacheWipeBucket(s.bucket.bucket),

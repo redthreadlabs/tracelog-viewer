@@ -60,3 +60,34 @@ describe('estimateDecompressed', () => {
     ).toBe(900); // 500 + 400
   });
 });
+
+import { evictionOrder } from './ledger';
+
+describe('evictionOrder', () => {
+  const r = (p: Partial<SizeRecord>): SizeRecord =>
+    rec({ cached: true, decompressed: 100, ...p });
+
+  it('drops least-recently-displayed first', () => {
+    const order = evictionOrder([
+      r({ id: 'new', displayedAt: 200 }),
+      r({ id: 'old', displayedAt: 100 }),
+    ]);
+    expect(order.map((x) => x.id)).toEqual(['old', 'new']);
+  });
+
+  it('breaks recency ties by older interval first', () => {
+    const order = evictionOrder([
+      r({ id: 'jun', displayedAt: 100, interval: '2026-06-11' }),
+      r({ id: 'may', displayedAt: 100, interval: '2026-05-01' }),
+    ]);
+    expect(order.map((x) => x.id)).toEqual(['may', 'jun']);
+  });
+
+  it('breaks interval ties by bigger file first', () => {
+    const order = evictionOrder([
+      r({ id: 'small', displayedAt: 100, interval: '2026-06-11', decompressed: 10 }),
+      r({ id: 'big', displayedAt: 100, interval: '2026-06-11', decompressed: 999 }),
+    ]);
+    expect(order.map((x) => x.id)).toEqual(['big', 'small']);
+  });
+});

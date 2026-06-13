@@ -7,7 +7,7 @@ import type { ScanPlan } from '../s3/scanner';
 import type { ParsedKey } from '../s3/keys';
 import { parseFile } from './parse';
 import { cacheGet, cachePut } from './cache';
-import { recordFetched } from './ledger';
+import { recordFetched, enforceCacheLimit } from './ledger';
 import type { Store } from './store';
 import { perf } from './perf';
 
@@ -33,12 +33,18 @@ async function fetchAndParse(
   const result = parseFile(bytes, file, {}, !file.current);
   doneParse({ bytes: result.byteLength, records: result.records.length });
   // ledger: now we know this file's decompressed size, and it was just
-  // loaded for display (feeds the per-channel ratio + LRU recency)
-  void recordFetched(bucket.bucket, file, result.byteLength, !file.current, Date.now());
+  // loaded for display (feeds the per-channel ratio + LRU recency); awaited
+  // so the ledger is settled before post-scan cache eviction reads it
+  await recordFetched(bucket.bucket, file, result.byteLength, !file.current, Date.now());
   return { result, fromCache };
 }
 
-export async function executeScan(store: Store, bucket: LogBucket, plan: ScanPlan): Promise<void> {
+export async function executeScan(
+  store: Store,
+  bucket: LogBucket,
+  plan: ScanPlan,
+  cacheLimitBytes: number | null,
+): Promise<void> {
   store.clear();
   store.setProgress({
     filesTotal: plan.files.length,
@@ -89,11 +95,18 @@ export async function executeScan(store: Store, bucket: LogBucket, plan: ScanPla
     bytes: parsedBytes,
     records: store.records.length,
   });
+  if (cacheLimitBytes != null) await enforceCacheLimit(bucket.bucket, cacheLimitBytes);
 }
 
 /** Load one file into the store (inspector "load" action) — cache-aware. */
-export async function loadOneFile(store: Store, bucket: LogBucket, file: ParsedKey): Promise<void> {
+export async function loadOneFile(
+  store: Store,
+  bucket: LogBucket,
+  file: ParsedKey,
+  cacheLimitBytes: number | null,
+): Promise<void> {
   const { result } = await fetchAndParse(bucket, file);
   store.registerFile(file, result.byteLength);
   store.replaceFile(file.key, result.records);
+  if (cacheLimitBytes != null) await enforceCacheLimit(bucket.bucket, cacheLimitBytes);
 }
