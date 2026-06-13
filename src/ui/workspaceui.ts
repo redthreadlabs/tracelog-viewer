@@ -48,10 +48,9 @@ export function openNewWorkspace(): void {
       className: 'field-note',
     }, [
       el('span', {
-        text:
-          'This site serves the exact same pages to every subdomain, but your ',
+        text: 'This site serves the exact same pages to every subdomain, but ',
       }),
-      el('em', { text: 'browser' }),
+      el('strong', { attrs: { style: 'font-style:italic' }, text: 'your browser' }),
       el('span', {
         text:
           ' uses separate storage per subdomain, so each of your workspaces ' +
