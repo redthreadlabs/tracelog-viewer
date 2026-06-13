@@ -34,8 +34,8 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
   const bucket = field('text', 'my-service-logs', existing?.bucket ?? '');
   const prefix = field('text', 'logs/  (optional)', existing?.prefix ?? '');
   const region = field('text', 'us-east-1', existing?.region ?? 'us-east-1');
-  const accessKey = field('text', 'AKIA…', existing?.accessKeyId ?? '');
-  const secretKey = field('password', '', existing?.secretAccessKey ?? '');
+  const accessKey = revealField('AKIA…', existing?.accessKeyId ?? '');
+  const secretKey = revealField('', existing?.secretAccessKey ?? '');
   const sessionToken = field('password', '(optional)', existing?.sessionToken ?? '');
 
   const remember = el('input', { attrs: { type: 'checkbox' } });
@@ -53,8 +53,8 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
       }),
     ]),
     label('Region'), region,
-    label('Access key ID'), accessKey,
-    label('Secret access key'), secretKey,
+    label('Access key ID'), accessKey.wrap,
+    label('Secret access key'), secretKey.wrap,
     label('Session token'), sessionToken,
     label('Workspace'),
     el('div', { className: 'workspace-fixed' }, [
@@ -109,8 +109,8 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
       bucket: bucket.value.trim(),
       prefix: prefix.value.trim() || undefined,
       region: region.value.trim() || 'us-east-1',
-      accessKeyId: accessKey.value.trim(),
-      secretAccessKey: secretKey.value.trim(),
+      accessKeyId: accessKey.input.value.trim(),
+      secretAccessKey: secretKey.input.value.trim(),
       sessionToken: sessionToken.value.trim() || undefined,
       subdomain: ctx.current || undefined,
     };
@@ -139,4 +139,29 @@ function field(type: string, placeholder: string, value = ''): HTMLInputElement 
   });
   input.value = value;
   return input;
+}
+
+const EYE =
+  '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+const EYE_OFF =
+  '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+
+/** A masked credential field that starts hidden, with an eyeball reveal. */
+function revealField(placeholder: string, value = ''): { input: HTMLInputElement; wrap: HTMLElement } {
+  const input = field('password', placeholder, value);
+  const btn = el('button', {
+    className: 'reveal-toggle',
+    attrs: { type: 'button', 'aria-label': 'show', title: 'show' },
+  });
+  btn.innerHTML = EYE;
+  let shown = false;
+  btn.addEventListener('click', () => {
+    shown = !shown;
+    input.type = shown ? 'text' : 'password';
+    btn.innerHTML = shown ? EYE_OFF : EYE;
+    btn.title = shown ? 'hide' : 'show';
+    btn.setAttribute('aria-label', shown ? 'hide' : 'show');
+  });
+  const wrap = el('div', { className: 'reveal-field' }, [input, btn]);
+  return { input, wrap };
 }

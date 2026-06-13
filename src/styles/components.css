@@ -1520,3 +1520,36 @@ th.sortable.on {
   gap: 2px;
   justify-content: center;
 }
+
+/* ---------- credential reveal field ---------- */
+.reveal-field {
+  position: relative;
+  display: block;
+}
+
+.reveal-field .input {
+  width: 100%;
+  padding-right: 34px;
+}
+
+.reveal-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: pointer;
+  border-radius: var(--radius);
+}
+
+.reveal-toggle:hover {
+  color: var(--ink);
+}
