@@ -50,14 +50,18 @@ One-time bucket-side setup; the viewer assumes both are in place:
        "AllowedOrigins": ["https://<viewer-origin>", "http://localhost:5173"],
        "AllowedMethods": ["GET", "HEAD"],
        "AllowedHeaders": ["*"],
-       "ExposeHeaders": ["ETag", "Content-Length", "Last-Modified"],
+       "ExposeHeaders": ["ETag", "Content-Length", "Last-Modified", "Content-Range", "Accept-Ranges"],
        "MaxAgeSeconds": 3600
      }]
    }
    ```
 
    Note `ListObjectsV2` is a GET on the bucket URL, so this single rule
-   covers listing and fetching.
+   covers listing and fetching. The viewer fetches finalized files with a
+   `Range: bytes=0-` GET so S3 returns the object's stored (gzip) bytes
+   un-inflated, to cache the compressed form (§8) — the `["*"]`
+   `AllowedHeaders` already permits `Range`, so if you narrow that list to
+   an explicit allow-list, include `Range`.
 
 2. **A dedicated read-only IAM user** for the viewer, scoped to the logs
    bucket only (`s3:GetObject`, `s3:ListBucket` on
@@ -122,10 +126,15 @@ day, as before.
 
 Each file is gzipped NDJSON (one JSON object per line).
 
-- Objects are uploaded with `Content-Encoding: gzip`, so browsers decompress
-  transparently on `fetch`. Implementation must not double-gunzip: check the
-  response, and fall back to `DecompressionStream('gzip')` only when the body
-  is still compressed (e.g. a proxy stripped the header).
+- Objects are uploaded with `Content-Encoding: gzip`, so a plain `fetch`
+  decompresses transparently. Implementation must not double-gunzip: check the
+  response, and `DecompressionStream('gzip')` only when the body is still
+  compressed. For finalized files we instead issue a `Range: bytes=0-` GET so
+  S3 returns `206 Partial Content` — which browsers never auto-inflate — and
+  we receive the stored gzip bytes verbatim, to cache the compressed form
+  (§8) and inflate locally. A gzip-magic check makes both paths safe, and the
+  Range probe self-disables if rejected (e.g. CORS), falling back to the
+  plain decompressed GET.
 - **Line 1 is a `metadata` record** describing the writing process: service
   name/version/environment, agent version, process, system, cloud (account,
   instance id, AZ, machine type), and `channel`. Every subsequent record
@@ -269,9 +278,19 @@ src/
                                 bucket + S3 key, ETag-checked (immutable, so
                                 cache forever; namespaced because every
                                 tracelog bucket repeats the same key paths);
+                                stores the gzip-COMPRESSED bytes (§8);
                                 _current files are never cached. Survives
                                 profile switches; deleting the last profile
                                 for a bucket wipes that bucket's entries
+             blobs.ts         — two-tier byte cache: in-memory decompressed
+                                LRU (MemBytes, bounded by the memory limit) in
+                                front of cache.ts; inflate/deflate on the
+                                boundary so disk stays compressed, RAM hot
+             gzip.ts          — gzip/gunzip over (De)CompressionStream + magic
+             ledger.ts        — persistent per-file size record (compressed +
+                                decompressed, per-channel ratios) that OUTLIVES
+                                the byte cache: drives memory-limit estimates,
+                                cache-limit (LRU) eviction, re-fetch reasoning
   ui/        app.ts           — shell, routing (hash-based), layout
              config.ts        — credentials/profiles panel
              scanbar.ts       — channel / date-range / host / live controls
@@ -484,6 +503,20 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
   finding that unthrottled per-file re-renders of a growing store are
   O(n²) and froze a million-record load. The IndexedDB cache keeps repeat
   ranges near-free.
+- Per-workspace limits (2026-06-13): a **memory limit** (default 256 MB) and
+  a **cache limit** (default 1 GB), set on the connection form; blank = no
+  limit. Two cooperating tiers back them. IndexedDB stores files
+  **gzip-compressed** — fetched raw via `Range: bytes=0-` (§3.3) so the
+  on-disk form is the exact stored object, ~10× smaller, with the cache limit
+  accounted against the listing size and evicted LRU by display-recency (then
+  older interval, then bigger). In front, an in-memory **decompressed LRU**
+  (MemBytes) bounded by the memory limit holds hot bodies so parse and
+  raw-line re-reads skip a re-inflate. A persistent **size ledger** records
+  every file's compressed/decompressed size and per-channel compression
+  ratio, OUTLIVING byte eviction — so before a load the worker estimates the
+  view's in-memory cost (known sizes by key, ratios for the rest) and, if it
+  exceeds the memory limit, the scanbar offers a guardrail: raise the limit,
+  clamp to the newest files that fit, or cancel.
 - IndexedDB cache (§5) makes every revisit to finalized days free; `ETag`
   equality is the immutability check.
 

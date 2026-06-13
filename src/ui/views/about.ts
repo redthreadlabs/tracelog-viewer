@@ -20,7 +20,7 @@ const CORS_SNIPPET = `{
     "AllowedHeaders": ["*"],
     "AllowedMethods": ["GET", "HEAD"],
     "AllowedOrigins": ["https://*.tracelog.org", "http://localhost:5173"],
-    "ExposeHeaders": ["ETag", "Content-Length", "Last-Modified"],
+    "ExposeHeaders": ["ETag", "Content-Length", "Last-Modified", "Content-Range", "Accept-Ranges"],
     "MaxAgeSeconds": 3600
   }]
 }`;
