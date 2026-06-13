@@ -232,9 +232,10 @@ export function evictionOrder(cached: SizeRecord[]): SizeRecord[] {
   );
 }
 
-/** Bytes a cached file occupies (we cache decompressed bytes for now). */
+/** Bytes a cached file occupies on disk — IndexedDB holds the gzip form, so
+ *  this is the compressed (listing) size, which is exact. */
 function cachedBytes(r: SizeRecord): number {
-  return r.decompressed ?? 0;
+  return r.compressed;
 }
 
 /**

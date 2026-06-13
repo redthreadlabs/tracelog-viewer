@@ -14,7 +14,9 @@ const STORE = 'files';
 export const SIZES_STORE = 'sizes';
 // v2: record keys gained the bucket namespace. v3: added the `sizes` ledger,
 // which survives byte eviction (so we still know file sizes after a purge).
-const DB_VERSION = 3;
+// v4: `files` now holds gzip-COMPRESSED bytes (was decompressed), so the old
+// entries are dropped once and re-fetched in compressed form.
+const DB_VERSION = 4;
 
 /** `bucket + \0 + key` — \0 can appear in neither, so the join is unambiguous. */
 export const SEP = '\u0000';
@@ -39,8 +41,10 @@ export function openDb(): Promise<IDBDatabase | null> {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
       request.onupgradeneeded = (ev) => {
         const db = request.result;
-        // v1 used an un-namespaced files store — drop it once; v2+ keeps it
-        if (ev.oldVersion < 2 && db.objectStoreNames.contains(STORE)) {
+        // v1 used an un-namespaced files store; pre-v4 held decompressed
+        // bytes. Either way the old `files` entries are unusable now, so drop
+        // and recreate the store once (the `sizes` ledger is left intact).
+        if (ev.oldVersion < 4 && db.objectStoreNames.contains(STORE)) {
           db.deleteObjectStore(STORE);
         }
         if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });

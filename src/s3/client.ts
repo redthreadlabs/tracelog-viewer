@@ -9,6 +9,7 @@ import {
   type _Object,
 } from '@aws-sdk/client-s3';
 import type { Profile } from '../ui/profiles';
+import { gunzip, isGzip } from '../data/gzip';
 
 export interface ListedObject {
   key: string;
@@ -33,6 +34,8 @@ export class LogBucket {
   readonly bucket: string;
   /** S3 key prefix the channels live under ('' = bucket root); fully internal */
   private readonly prefix: string;
+  /** whether `Range`-based raw-gzip fetches work here (cleared on first reject) */
+  private rangeOk = true;
 
   constructor(profile: Profile) {
     this.bucket = profile.bucket;
@@ -152,19 +155,34 @@ export class LogBucket {
     );
     if (!res.Body) return new Uint8Array(0);
     let bytes = await res.Body.transformToByteArray();
-    if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
-      bytes = await gunzip(bytes);
-    }
+    if (isGzip(bytes)) bytes = await gunzip(bytes);
     return bytes;
   }
-}
 
-async function gunzip(bytes: Uint8Array): Promise<Uint8Array> {
-  const stream = new Blob([bytes as BlobPart])
-    .stream()
-    .pipeThrough(new DecompressionStream('gzip'));
-  const buf = await new Response(stream).arrayBuffer();
-  return new Uint8Array(buf);
+  /**
+   * Fetch one file as STORED, without the fetch layer auto-inflating it
+   * (SPEC §8). Tracelog objects carry `Content-Encoding: gzip`, so a plain
+   * GET comes back already decompressed — wasteful when we want to *cache*
+   * the small compressed form. A `Range: bytes=0-` request returns the whole
+   * object as `206 Partial Content`, and browsers never decompress a partial
+   * response, so we receive the raw gzip bytes verbatim. The caller checks
+   * the gzip magic (a proxy, or a UA that ignores the Range, can still hand
+   * back inflated bytes); if Range is rejected outright (e.g. CORS), we note
+   * it and fall back to the normal decompressed GET for the rest of the run.
+   */
+  async getObjectCompressed(key: string): Promise<Uint8Array> {
+    if (this.rangeOk) {
+      try {
+        const res = await this.s3.send(
+          new GetObjectCommand({ Bucket: this.bucket, Key: `${this.prefix}${key}`, Range: 'bytes=0-' }),
+        );
+        if (res.Body) return res.Body.transformToByteArray();
+      } catch {
+        this.rangeOk = false; // Range unsupported here — stop probing
+      }
+    }
+    return this.getObjectBytes(key);
+  }
 }
 
 function toListed(obj: _Object, prefix: string): ListedObject {

@@ -6,24 +6,36 @@ import type { LogBucket } from '../s3/client';
 import type { ScanPlan } from '../s3/scanner';
 import type { ParsedKey } from '../s3/keys';
 import { parseFile } from './parse';
-import { cacheGet, cachePut } from './cache';
+import { cachedDecompressed, storeFetched, type MemBytes } from './blobs';
 import { recordFetched, enforceCacheLimit } from './ledger';
 import type { Store } from './store';
 import { perf } from './perf';
 
 const CONCURRENCY = 4;
 
-/** Fetch one file's bytes (IndexedDB first), parse it, and time both. */
+/** Fetch one file's bytes (hot LRU / IndexedDB first), parse it, and time both. */
 async function fetchAndParse(
   bucket: LogBucket,
   file: ParsedKey,
+  mem: MemBytes,
 ): Promise<{ result: ReturnType<typeof parseFile>; fromCache: boolean }> {
   const doneFetch = perf.begin('fetch', file.key);
-  let bytes = file.current ? null : await cacheGet(bucket.bucket, file.key, file.etag);
+  // finalized files: hot decompressed LRU → IndexedDB (compressed) inflated
+  let bytes = file.current ? null : await cachedDecompressed(mem, bucket.bucket, file.key, file.etag);
   const fromCache = bytes !== null;
   if (!bytes) {
-    bytes = await bucket.getObjectBytes(file.key);
-    if (!file.current) void cachePut(bucket.bucket, file.key, file.etag, bytes);
+    if (file.current) {
+      bytes = await bucket.getObjectBytes(file.key); // volatile snapshot, never cached
+    } else {
+      // pull the stored gzip bytes raw, cache them as-is, inflate for parsing
+      bytes = await storeFetched(
+        mem,
+        bucket.bucket,
+        file.key,
+        file.etag,
+        await bucket.getObjectCompressed(file.key),
+      );
+    }
   }
   doneFetch({ bytes: bytes.length, cached: fromCache });
 
@@ -44,8 +56,12 @@ export async function executeScan(
   bucket: LogBucket,
   plan: ScanPlan,
   cacheLimitBytes: number | null,
+  mem: MemBytes,
 ): Promise<void> {
   store.clear();
+  // a fresh view supersedes the old working set; the memory budget governs
+  // the decompressed bytes of *this* view, so drop the prior hot bytes
+  mem.clear();
   store.setProgress({
     filesTotal: plan.files.length,
     filesDone: 0,
@@ -67,7 +83,7 @@ export async function executeScan(
       try {
         // Finalized files are immutable: ETag-checked cache hits skip S3
         // entirely (SPEC §8). _current snapshots are never cached.
-        const { result, fromCache } = await fetchAndParse(bucket, file);
+        const { result, fromCache } = await fetchAndParse(bucket, file, mem);
         parsedBytes += result.byteLength;
         store.registerFile(file, result.byteLength);
         store.addBatch(result.records);
@@ -104,8 +120,9 @@ export async function loadOneFile(
   bucket: LogBucket,
   file: ParsedKey,
   cacheLimitBytes: number | null,
+  mem: MemBytes,
 ): Promise<void> {
-  const { result } = await fetchAndParse(bucket, file);
+  const { result } = await fetchAndParse(bucket, file, mem);
   store.registerFile(file, result.byteLength);
   store.replaceFile(file.key, result.records);
   if (cacheLimitBytes != null) await enforceCacheLimit(bucket.bucket, cacheLimitBytes);

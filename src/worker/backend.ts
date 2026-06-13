@@ -21,7 +21,8 @@ import { planScan, type ScanPlan } from '../s3/scanner';
 import { executeScan, loadOneFile } from '../data/scan';
 import { LiveUpdater } from '../data/live';
 import { perf, type PerfEntry } from '../data/perf';
-import { cacheKeys, cacheGetAny, cacheWipeBucket } from '../data/cache';
+import { cacheKeys, cacheWipeBucket } from '../data/cache';
+import { MemBytes, cachedDecompressedAny } from '../data/blobs';
 import { parseKey, dedupeCurrents, type ParsedKey } from '../s3/keys';
 import { nthLine } from '../data/parse';
 import type { Rec, RecordKind } from '../data/types';
@@ -95,10 +96,13 @@ class Session {
   ports = new Set<PortLike>();
   lastUsed = Date.now();
   cacheLimitBytes: number | null;
+  /** hot decompressed-byte cache, bounded by the workspace memory limit */
+  mem: MemBytes;
 
   constructor(profile: Profile) {
     this.bucket = new LogBucket(profile);
     this.cacheLimitBytes = mbToBytes(profile.cacheLimitMb);
+    this.mem = new MemBytes(mbToBytes(profile.memoryLimitMb));
     this.live = new LiveUpdater(this.store, this.bucket, () => this.liveChannels);
     this.store.addEventListener('data', () => this.broadcast('data'));
     this.store.addEventListener('progress', () => this.broadcast('progress'));
@@ -198,8 +202,11 @@ const ops: Record<string, OpHandler> = {
       s.bucket.bucket,
       (a.files as { key: string; channel: string; compressed: number }[]) ?? [],
     ),
-  executeScan: (s, a) => executeScan(s.store, s.bucket, a.plan as ScanPlan, s.cacheLimitBytes),
-  clearStore: (s) => s.store.clear(),
+  executeScan: (s, a) => executeScan(s.store, s.bucket, a.plan as ScanPlan, s.cacheLimitBytes, s.mem),
+  clearStore: (s) => {
+    s.store.clear();
+    s.mem.clear();
+  },
   setLive: (s, a) => {
     s.liveChannels = a.channels as string[];
     if (a.on) s.live.start();
@@ -208,10 +215,17 @@ const ops: Record<string, OpHandler> = {
   },
 
   // ---- store inspector ----
-  loadOneFile: (s, a) => loadOneFile(s.store, s.bucket, a.file as ParsedKey, s.cacheLimitBytes),
-  dropFile: (s, a) => s.store.dropFile(a.key as string),
+  loadOneFile: (s, a) => loadOneFile(s.store, s.bucket, a.file as ParsedKey, s.cacheLimitBytes, s.mem),
+  dropFile: (s, a) => {
+    const key = a.key as string;
+    s.store.dropFile(key);
+    s.mem.delete(key);
+  },
   cacheKeys: (s) => cacheKeys(s.bucket.bucket),
-  wipeCache: (s) => cacheWipeBucket(s.bucket.bucket),
+  wipeCache: (s) => {
+    s.mem.clear();
+    return cacheWipeBucket(s.bucket.bucket);
+  },
   listAllFiles: async (s) => {
     const channels = await s.bucket.listChannels();
     const listings = await Promise.all(
@@ -389,7 +403,7 @@ const ops: Record<string, OpHandler> = {
       let line = rec.rawLine;
       if (line === null) {
         const done = perf.begin('fetch', rec.sourceKey);
-        let bytes = await cacheGetAny(s.bucket.bucket, rec.sourceKey);
+        let bytes = await cachedDecompressedAny(s.mem, s.bucket.bucket, rec.sourceKey);
         const fromCache = bytes !== null;
         if (!bytes) bytes = await s.bucket.getObjectBytes(rec.sourceKey);
         done({ detail: `raw line ${rec.line}`, bytes: bytes.length, cached: fromCache });
