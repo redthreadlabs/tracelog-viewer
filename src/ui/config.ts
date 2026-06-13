@@ -77,7 +77,7 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
     publicHint.style.display = authed ? 'none' : 'block';
     const intro = authed
       ? 'A workspace reads a single tracelog bucket. Your credentials are used ' +
-        'only to sign requests to AWS, and go nowhere else. But to stay ' +
+        'only to sign requests to AWS. But to stay ' +
         'connected, this workspace keeps them as plain text in your browser’s ' +
         'localStorage. The log files themselves are copied from your S3 bucket ' +
         'and cached in your browser’s IndexedDB. Anyone with access to this ' +
