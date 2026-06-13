@@ -23,12 +23,13 @@ import { LiveUpdater } from '../data/live';
 import { perf, type PerfEntry } from '../data/perf';
 import { cacheKeys, cacheWipeBucket, SEP } from '../data/cache';
 import { MemBytes, cachedDecompressedAny } from '../data/blobs';
-import { parseKey, dedupeCurrents, type ParsedKey } from '../s3/keys';
+import { parseKey, dedupeCurrents, overlapsRange, type ParsedKey } from '../s3/keys';
 import { nthLine } from '../data/parse';
 import type { Rec, RecordKind } from '../data/types';
 import {
   bucketByTime,
   bucketBySidecar,
+  chooseBucketMs,
   groupTransactions,
   transactionStats,
   resultFamily,
@@ -191,6 +192,21 @@ function sampleInstances(instances: Rec[]): { rows: Rec[]; sample?: SampleNote }
  * Returns null when it can't (no plan/sidecars, or the resolved bucket is
  * sub-hourly) — the caller falls back to bucketByTime over loaded records.
  */
+const CHART_HOUR_MS = 3_600_000;
+
+/**
+ * Whether every file overlapping the window is already loaded — so a sub-hour
+ * (records-only) chart of that window would be complete, not partial or empty.
+ * Used to gate auto-downgrading the bucket below the 1h metadata floor.
+ */
+function windowFullyLoaded(s: Session, window: Window): boolean {
+  if (!window) return true;
+  for (const f of s.currentPlan) {
+    if (overlapsRange(f, window[0], window[1]) && !s.store.files.has(f.key)) return false;
+  }
+  return true;
+}
+
 async function metadataVolume(
   s: Session,
   window: Window,
@@ -324,8 +340,19 @@ const ops: Record<string, OpHandler> = {
   // ---- views ----
   overviewData: async (s, a) => {
     const window = a.window as Window;
-    const bucketMs = a.bucketMs as number | null;
+    let bucketMs = a.bucketMs as number | null;
     const txns = s.store.kindRecords('transaction');
+
+    // Data-aware auto bucketing: a sub-hour bucket can only come from loaded
+    // records, so don't *automatically* drop below the 1h metadata floor for a
+    // window whose records aren't all in yet — that would render empty. Hold at
+    // 1h (complete, from metadata) and let it refine to the finer bucket once
+    // the window's records finish loading. An explicit choice (bucketMs set) is
+    // always honored — the user waits for it the old-fashioned way.
+    if (bucketMs === null && window) {
+      const natural = chooseBucketMs(Math.max(window[1] - window[0], 1));
+      if (natural < CHART_HOUR_MS && !windowFullyLoaded(s, window)) bucketMs = CHART_HOUR_MS;
+    }
 
     // The Volume chart is record COUNTS bucketed by time — exactly what the
     // sidecar histograms hold (hourly). So for any bucket ≥1h serve it from
