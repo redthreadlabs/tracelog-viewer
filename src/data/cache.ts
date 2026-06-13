@@ -10,12 +10,14 @@
 
 const DB_NAME = 'tracelog-viewer';
 const STORE = 'files';
-// v2: record keys gained the bucket namespace; old un-namespaced entries are
-// dropped wholesale on upgrade (a one-time cold cache, nothing else lost).
-const DB_VERSION = 2;
+/** the size ledger (data/ledger.ts) — per-file metadata that outlives bytes */
+export const SIZES_STORE = 'sizes';
+// v2: record keys gained the bucket namespace. v3: added the `sizes` ledger,
+// which survives byte eviction (so we still know file sizes after a purge).
+const DB_VERSION = 3;
 
 /** `bucket + \0 + key` — \0 can appear in neither, so the join is unambiguous. */
-const SEP = '\u0000';
+export const SEP = '\u0000';
 
 interface CachedFile {
   id: string; // `${bucket}\0${key}`
@@ -24,21 +26,27 @@ interface CachedFile {
 }
 
 /** Range covering every record of one bucket (\u0001 is the next code unit). */
-function bucketRange(bucket: string): IDBKeyRange {
+export function bucketRange(bucket: string): IDBKeyRange {
   return IDBKeyRange.bound(bucket + SEP, bucket + '\u0001', false, true);
 }
 
 let dbPromise: Promise<IDBDatabase | null> | null = null;
 
-function openDb(): Promise<IDBDatabase | null> {
+export function openDb(): Promise<IDBDatabase | null> {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve) => {
     try {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
-      request.onupgradeneeded = () => {
+      request.onupgradeneeded = (ev) => {
         const db = request.result;
-        if (db.objectStoreNames.contains(STORE)) db.deleteObjectStore(STORE);
-        db.createObjectStore(STORE, { keyPath: 'id' });
+        // v1 used an un-namespaced files store — drop it once; v2+ keeps it
+        if (ev.oldVersion < 2 && db.objectStoreNames.contains(STORE)) {
+          db.deleteObjectStore(STORE);
+        }
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+        if (!db.objectStoreNames.contains(SIZES_STORE)) {
+          db.createObjectStore(SIZES_STORE, { keyPath: 'id' });
+        }
       };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => resolve(null);

@@ -7,6 +7,7 @@ import type { ScanPlan } from '../s3/scanner';
 import type { ParsedKey } from '../s3/keys';
 import { parseFile } from './parse';
 import { cacheGet, cachePut } from './cache';
+import { recordFetched } from './ledger';
 import type { Store } from './store';
 import { perf } from './perf';
 
@@ -31,6 +32,9 @@ async function fetchAndParse(
   // re-reads on demand); _current snapshots have no cache to go back to.
   const result = parseFile(bytes, file, {}, !file.current);
   doneParse({ bytes: result.byteLength, records: result.records.length });
+  // ledger: now we know this file's decompressed size, and it was just
+  // loaded for display (feeds the per-channel ratio + LRU recency)
+  void recordFetched(bucket.bucket, file, result.byteLength, !file.current, Date.now());
   return { result, fromCache };
 }
 

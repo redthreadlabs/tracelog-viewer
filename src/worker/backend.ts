@@ -41,6 +41,7 @@ import {
   clientEventTypes,
 } from '../data/clients';
 import { scannerStats } from '../data/scanner-traffic';
+import { recordListing, estimateDecompressed, bucketRatios } from '../data/ledger';
 
 type Window = [number, number] | null;
 
@@ -175,8 +176,20 @@ const ops: Record<string, OpHandler> = {
   // ---- scanbar ----
   listChannels: (s) => s.bucket.listChannels(),
   latestInterval: (s, a) => s.bucket.latestInterval(a.channels as string[]),
-  planScan: (s, a) =>
-    planScan(s.bucket, a.channels as string[], a.startMs as number, a.endMs as number),
+  planScan: async (s, a) => {
+    const plan = await planScan(s.bucket, a.channels as string[], a.startMs as number, a.endMs as number);
+    // ledger: remember the compressed size of every file in range, even
+    // those we never fetch — so we can reason about cost later
+    void recordListing(
+      s.bucket.bucket,
+      plan.files.map((f) => ({ key: f.key, channel: f.channel, interval: f.interval, size: f.size, etag: f.etag })),
+    );
+    return plan;
+  },
+  estimateView: async (s, a) => {
+    const files = (a.files as { channel: string; compressed: number; decompressed?: number }[]) ?? [];
+    return estimateDecompressed(files, await bucketRatios(s.bucket.bucket));
+  },
   executeScan: (s, a) => executeScan(s.store, s.bucket, a.plan as ScanPlan),
   clearStore: (s) => s.store.clear(),
   setLive: (s, a) => {
