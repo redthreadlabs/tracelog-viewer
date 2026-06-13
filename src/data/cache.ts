@@ -151,3 +151,20 @@ export async function cacheWipeBucket(bucket: string): Promise<void> {
     }
   });
 }
+
+/** Drop every cached file for this origin (full purge). */
+export async function cacheWipeAll(): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}

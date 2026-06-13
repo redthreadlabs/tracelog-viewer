@@ -283,3 +283,13 @@ export function dropCurrentWorkspace(returnView: string): void {
 export function syncWorkspaces(returnView: string): void {
   gotoRelay('sync', '', returnView);
 }
+
+/** Forget this origin's directory cache + synced flag (part of a full purge). */
+export function clearLocalWorkspaceState(): void {
+  try {
+    localStorage.removeItem(CACHE_KEY);
+    localStorage.removeItem(SYNCED_KEY);
+  } catch {
+    /* storage disabled */
+  }
+}

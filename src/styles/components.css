@@ -1553,3 +1553,36 @@ th.sortable.on {
 .reveal-toggle:hover {
   color: var(--ink);
 }
+
+/* config: auth fields toggle as a group (grid-participating) */
+.config-auth {
+  display: contents;
+}
+
+/* config: the obvious local-data purge */
+.config-danger {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.config-danger .form-label {
+  margin-bottom: 4px;
+}
+
+.config-danger .field-note {
+  margin: 0 0 12px;
+}
+
+.btn-danger {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--thread) 45%, var(--line-strong));
+  color: var(--thread);
+  font-weight: 600;
+}
+
+.btn-danger:hover {
+  background: var(--thread);
+  border-color: var(--thread);
+  color: #fff;
+}

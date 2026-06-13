@@ -37,14 +37,25 @@ export class LogBucket {
   constructor(profile: Profile) {
     this.bucket = profile.bucket;
     this.prefix = normalizePrefix(profile.prefix);
-    this.s3 = new S3Client({
-      region: profile.region,
-      credentials: {
-        accessKeyId: profile.accessKeyId,
-        secretAccessKey: profile.secretAccessKey,
-        ...(profile.sessionToken ? { sessionToken: profile.sessionToken } : {}),
-      },
-    });
+    this.s3 = new S3Client(
+      profile.public
+        ? {
+            // public bucket: issue unsigned requests. The no-op signer
+            // bypasses SigV4; the placeholder credentials just short-circuit
+            // the credential provider chain (which would hang in a browser).
+            region: profile.region,
+            credentials: { accessKeyId: 'anonymous', secretAccessKey: 'anonymous' },
+            signer: { sign: async (request) => request },
+          }
+        : {
+            region: profile.region,
+            credentials: {
+              accessKeyId: profile.accessKeyId,
+              secretAccessKey: profile.secretAccessKey,
+              ...(profile.sessionToken ? { sessionToken: profile.sessionToken } : {}),
+            },
+          },
+    );
   }
 
   /**

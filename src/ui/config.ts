@@ -6,8 +6,13 @@
  */
 import { el, clear } from './dom';
 import { profiles, type Profile } from './profiles';
-import { cacheWipeBucket } from '../data/cache';
-import { workspaceContext, dropCurrentWorkspace, recordCurrentWorkspaceIfNew } from '../data/workspaces';
+import { cacheWipeAll } from '../data/cache';
+import {
+  workspaceContext,
+  dropCurrentWorkspace,
+  recordCurrentWorkspaceIfNew,
+  clearLocalWorkspaceState,
+} from '../data/workspaces';
 
 export function renderConfig(container: HTMLElement, onDone: () => void): void {
   clear(container);
@@ -24,24 +29,53 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
     el('p', {
       className: 'lede',
       text:
-        'A workspace reads one tracelog bucket with a read-only key. Credentials ' +
-        'stay in this tab’s memory and are sent only to AWS, as request ' +
-        'signatures — never anywhere else.',
+        'A workspace reads one tracelog bucket. Credentials are sent only to AWS ' +
+        'as request signatures — never anywhere else — and are kept only in this ' +
+        'tab’s memory unless you opt to remember them below.',
     }),
   );
 
   // --- connection form (prefilled when editing an existing connection) ---
+  const region = field('text', 'us-east-1', existing?.region ?? 'us-east-1');
   const bucket = field('text', 'my-service-logs', existing?.bucket ?? '');
   const prefix = field('text', 'logs/  (optional)', existing?.prefix ?? '');
-  const region = field('text', 'us-east-1', existing?.region ?? 'us-east-1');
   const accessKey = revealField('AKIA…', existing?.accessKeyId ?? '');
   const secretKey = revealField('', existing?.secretAccessKey ?? '');
   const sessionToken = revealField('(optional)', existing?.sessionToken ?? '');
 
+  const isPublic = el('input', { attrs: { type: 'checkbox' } }) as HTMLInputElement;
+  isPublic.checked = existing?.public ?? false;
+
   const remember = el('input', { attrs: { type: 'checkbox' } });
   remember.checked = profiles.remembered;
 
+  // auth fields live in their own block (display:contents so the label/field
+  // pairs still align in the form grid) so the public toggle can hide them
+  const authBlock = el('div', { className: 'config-auth' }, [
+    label('Access key ID'), accessKey.wrap,
+    label('Secret access key'), secretKey.wrap,
+    label('Session token'), sessionToken.wrap,
+  ]);
+  const rememberNote = el('span');
+  const syncAuthVisibility = (): void => {
+    authBlock.style.display = isPublic.checked ? 'none' : 'contents';
+    rememberNote.textContent = isPublic.checked
+      ? 'Remember on this device — saves this connection (no credentials are involved) to this browser.'
+      : 'Remember on this device — stores these credentials in this browser’s ' +
+        'localStorage, in plain text. Leave off to keep them only in this tab’s ' +
+        'memory, gone when you close it.';
+  };
+  isPublic.addEventListener('change', syncAuthVisibility);
+
   const form = el('form', {}, [
+    label('Workspace'),
+    el('div', { className: 'workspace-fixed' }, [
+      el('span', { className: 'mono', text: hereLabel }),
+      ctx.apexHost
+        ? el('span', { className: 'field-note', text: 'this workspace’s own browser storage' })
+        : el('span'),
+    ]),
+    label('Region'), region,
     label('Bucket'), bucket,
     label('Prefix'), prefix,
     el('div', { className: 'full' }, [
@@ -52,36 +86,21 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
           'prefix rather than the bucket root (e.g. logs/ for logs/server/…).',
       }),
     ]),
-    label('Region'), region,
-    label('Access key ID'), accessKey.wrap,
-    label('Secret access key'), secretKey.wrap,
-    label('Session token'), sessionToken.wrap,
-    label('Workspace'),
-    el('div', { className: 'workspace-fixed' }, [
-      el('span', { className: 'mono', text: hereLabel }),
-      ctx.apexHost
-        ? el('span', { className: 'field-note', text: 'this workspace’s own browser storage' })
-        : el('span'),
-    ]),
     el('div', { className: 'full' }, [
       el('label', { className: 'remember' }, [
-        remember,
+        isPublic,
         el('span', {
           text:
-            'Remember on this device — stores these credentials in this browser’s ' +
-            'localStorage, in plain text. Only check this on a machine that is yours alone.',
+            'Public bucket — readable anonymously. No credentials are entered, ' +
+            'stored, or sent.',
         }),
       ]),
     ]),
+    authBlock,
+    el('div', { className: 'full' }, [
+      el('label', { className: 'remember' }, [remember, rememberNote]),
+    ]),
     el('div', { className: 'full actions' }, [
-      existing
-        ? el('button', {
-            className: 'btn btn-quiet',
-            text: 'Disconnect',
-            attrs: { type: 'button', title: 'forget this workspace’s credentials and cached files' },
-            on: { click: () => disconnect() },
-          })
-        : el('span'),
       el('button', {
         className: 'btn btn-primary',
         text: existing ? 'Save' : 'Save & connect',
@@ -89,32 +108,24 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
       }),
     ]),
   ]);
-
-  function disconnect(): void {
-    const wiped = profiles.active()?.bucket;
-    profiles.remove();
-    if (wiped) void cacheWipeBucket(wiped);
-    // a connected workspace leaves the directory when disconnected (the
-    // bounce to the apex and back replaces this render)
-    if (ctx.current) {
-      dropCurrentWorkspace('/config');
-      return;
-    }
-    renderConfig(container, onDone);
-  }
+  syncAuthVisibility();
 
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
+    const pub = isPublic.checked;
     const profile: Profile = {
+      region: region.value.trim() || 'us-east-1',
       bucket: bucket.value.trim(),
       prefix: prefix.value.trim() || undefined,
-      region: region.value.trim() || 'us-east-1',
-      accessKeyId: accessKey.input.value.trim(),
-      secretAccessKey: secretKey.input.value.trim(),
-      sessionToken: sessionToken.input.value.trim() || undefined,
+      public: pub || undefined,
+      // public → no credentials are kept (cleared from storage on save)
+      accessKeyId: pub ? '' : accessKey.input.value.trim(),
+      secretAccessKey: pub ? '' : secretKey.input.value.trim(),
+      sessionToken: pub ? undefined : sessionToken.input.value.trim() || undefined,
       subdomain: ctx.current || undefined,
     };
-    if (!profile.bucket || !profile.accessKeyId || !profile.secretAccessKey) return;
+    if (!profile.bucket) return;
+    if (!pub && (!profile.accessKeyId || !profile.secretAccessKey)) return;
     profiles.setRemembered(remember.checked);
     profiles.save(profile);
     // a workspace reached by direct navigation joins the directory now (the
@@ -125,6 +136,42 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
   });
 
   wrap.append(form);
+
+  // --- local data: an obvious, total purge for this workspace ---
+  if (existing) {
+    wrap.append(
+      el('div', { className: 'config-danger' }, [
+        el('div', { className: 'form-label', text: 'Local data' }),
+        el('p', {
+          className: 'field-note',
+          text:
+            'Everything this workspace keeps lives only in this browser: the ' +
+            'connection above, and the cached log files in IndexedDB. Purge ' +
+            'wipes all of it and removes the workspace from your switcher.',
+        }),
+        el('button', {
+          className: 'btn btn-danger',
+          text: 'Purge this workspace’s data',
+          attrs: { type: 'button' },
+          on: { click: () => purge() },
+        }),
+      ]),
+    );
+  }
+
+  function purge(): void {
+    profiles.remove();
+    clearLocalWorkspaceState();
+    void cacheWipeAll();
+    // drop from the directory (bounce to apex and back replaces this render);
+    // on a single-origin host there's no directory, so just re-render
+    if (ctx.current) {
+      dropCurrentWorkspace('/about');
+      return;
+    }
+    renderConfig(container, onDone);
+  }
+
   container.append(wrap);
 }
 

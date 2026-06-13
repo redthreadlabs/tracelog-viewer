@@ -569,6 +569,17 @@ or date rather than abandon tracelog entirely.
   cloud service, no account; the wildcard subdomain already resolves for
   everyone, and a workspace is just a separate corner of this one browser
   (the new-workspace modal says so).
+- **Public buckets** (2026-06-13): a connection can be marked public —
+  the form hides all auth fields, LogBucket issues *unsigned* requests
+  (no-op SigV4 signer + placeholder creds to skip the credential chain),
+  and saving in public mode clears any stored credentials. Requires the
+  bucket policy to allow anonymous `ListBucket` + `GetObject`.
+- **Credential persistence is opt-in** (SPEC §4): a connection lives only
+  in the tab's memory unless "Remember on this device" is checked, which
+  writes it to localStorage. Public buckets carry nothing sensitive. Each
+  workspace's config has an obvious **Purge** that wipes its connection,
+  its IndexedDB cache, and its directory entry — the only persistent
+  surfaces this origin has.
 - **Optional bucket prefix** (2026-06-13): a connection may set a key
   prefix (e.g. `logs/`) when the tracelog channels live below the bucket
   root rather than at it. Encapsulated entirely in `LogBucket` — it's

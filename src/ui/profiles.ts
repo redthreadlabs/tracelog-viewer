@@ -11,6 +11,8 @@ export interface Profile {
   bucket: string;
   /** optional key prefix under which the tracelog channels live (e.g. `logs/`) */
   prefix?: string;
+  /** public bucket — read anonymously, no credentials stored or sent */
+  public?: boolean;
   accessKeyId: string;
   secretAccessKey: string;
   sessionToken?: string;
