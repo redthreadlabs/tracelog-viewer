@@ -1586,3 +1586,57 @@ th.sortable.on {
   border-color: var(--thread);
   color: #fff;
 }
+
+/* ---------- iOS-style toggle switch ---------- */
+.switch {
+  position: relative;
+  display: inline-flex;
+  width: 42px;
+  height: 24px;
+  flex: none;
+  cursor: pointer;
+}
+
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch .slider {
+  position: absolute;
+  inset: 0;
+  background: var(--line-strong);
+  border-radius: 999px;
+  transition: background 150ms ease;
+}
+
+.switch .slider::before {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  left: 2px;
+  top: 2px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  transition: transform 150ms ease;
+}
+
+.switch input:checked + .slider {
+  background: var(--thread);
+}
+
+.switch input:checked + .slider::before {
+  transform: translateX(18px);
+}
+
+.public-hint {
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+  padding: 6px 0 2px;
+}

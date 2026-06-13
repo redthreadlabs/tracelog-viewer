@@ -39,31 +39,43 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
   const secretKey = revealField('', existing?.secretAccessKey ?? '');
   const sessionToken = revealField('(optional)', existing?.sessionToken ?? '');
 
-  const isPublic = el('input', { attrs: { type: 'checkbox' } }) as HTMLInputElement;
-  isPublic.checked = existing?.public ?? false;
+  // ON = authenticated (private bucket); OFF = public/anonymous
+  const authToggle = el('input', { attrs: { type: 'checkbox' } }) as HTMLInputElement;
+  authToggle.checked = !(existing?.public ?? false);
+  const authSwitch = el('label', { className: 'switch' }, [
+    authToggle,
+    el('span', { className: 'slider' }),
+  ]);
 
   // auth fields live in their own block (display:contents so the label/field
-  // pairs still align in the form grid) so the public toggle can hide them
+  // pairs still align in the form grid) so the toggle can hide them
   const authBlock = el('div', { className: 'config-auth' }, [
     label('Access key ID'), accessKey.wrap,
     label('Secret access key'), secretKey.wrap,
     label('Session token'), sessionToken.wrap,
   ]);
+  const publicHint = el('div', { className: 'full public-hint' });
+  publicHint.innerHTML =
+    '<strong>Public Bucket:</strong><br>Readable anonymously. ' +
+    'No credentials are entered, stored, or sent.';
+
   // an honest disclosure, not an opt-in: the connection is always saved to
   // this browser so the workspace survives reloads and subdomain hops
-  const syncAuthVisibility = (): void => {
-    authBlock.style.display = isPublic.checked ? 'none' : 'contents';
-    lede.textContent = isPublic.checked
-      ? 'A workspace reads one tracelog bucket. This one is public, so no ' +
-        'credentials are entered, stored, or sent — only the bucket location ' +
-        'is saved in this browser.'
-      : 'A workspace reads one tracelog bucket. Credentials are sent only to AWS ' +
+  const syncAuth = (): void => {
+    const authed = authToggle.checked;
+    authBlock.style.display = authed ? 'contents' : 'none';
+    publicHint.style.display = authed ? 'none' : 'block';
+    lede.textContent = authed
+      ? 'A workspace reads one tracelog bucket. Credentials are sent only to AWS ' +
         'as request signatures, never anywhere else — but they are saved in ' +
         'this browser’s localStorage, in plain text, so the workspace stays ' +
         'connected across reloads. Anyone with access to this device can read ' +
-        'them; “Purge” below removes everything.';
+        'them; “Purge” below removes everything.'
+      : 'A workspace reads one tracelog bucket. This one is public, so no ' +
+        'credentials are entered, stored, or sent — only the bucket location ' +
+        'is saved in this browser.';
   };
-  isPublic.addEventListener('change', syncAuthVisibility);
+  authToggle.addEventListener('change', syncAuth);
 
   const form = el('form', {}, [
     label('Workspace'),
@@ -76,17 +88,9 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
     label('Region'), region,
     label('Bucket'), bucket,
     label('Prefix'), prefix,
-    el('div', { className: 'full' }, [
-      el('label', { className: 'remember' }, [
-        isPublic,
-        el('span', {
-          text:
-            'Public bucket — readable anonymously. No credentials are entered, ' +
-            'stored, or sent.',
-        }),
-      ]),
-    ]),
+    label('Authentication'), authSwitch,
     authBlock,
+    publicHint,
     el('div', { className: 'full actions' }, [
       el('button', {
         className: 'btn btn-primary',
@@ -95,11 +99,11 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
       }),
     ]),
   ]);
-  syncAuthVisibility();
+  syncAuth();
 
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
-    const pub = isPublic.checked;
+    const pub = !authToggle.checked;
     const profile: Profile = {
       region: region.value.trim() || 'us-east-1',
       bucket: bucket.value.trim(),
