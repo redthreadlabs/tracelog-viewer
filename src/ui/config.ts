@@ -128,7 +128,7 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
   authToggle.addEventListener('change', syncAuth);
 
   const form = el('form', {}, [
-    el('h2', { text: 'Connect Workspace' }),
+    el('h2', { text: existing ? 'Edit Workspace Configuration' : 'Connect Workspace' }),
     lede,
     el('div', { className: 'config-cols' }, [
       // left column: where the bucket is, plus the on-device limits

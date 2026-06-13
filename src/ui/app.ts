@@ -276,7 +276,7 @@ function workspaceSwitcher(active: Profile | null): HTMLElement {
       pop.append(
         el('button', {
           className: 'switcher-row add',
-          text: active ? 'Edit connection…' : 'Connect this workspace…',
+          text: active ? 'Edit Workspace…' : 'Connect this workspace…',
           on: { click: () => { close(); setView('/config'); } },
         }),
       );
