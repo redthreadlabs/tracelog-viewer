@@ -81,12 +81,10 @@ export function renderConfig(container: HTMLElement, onDone: () => void): void {
   // The workspace is *where you are* — this origin. You can't create a
   // profile for another subdomain from here (its storage is siloed); use
   // the switcher's "New workspace", which takes you there first.
+  // config only renders on a subdomain (the apex isn't a workspace) or on
+  // localhost/self-host single-origin
   const ctx = workspaceContext();
-  const hereLabel = ctx.apexHost
-    ? ctx.current
-      ? `${ctx.current}.${ctx.apexHost}`
-      : `${ctx.apexHost} (home)`
-    : 'this device';
+  const hereLabel = ctx.current && ctx.apexHost ? `${ctx.current}.${ctx.apexHost}` : 'this device';
 
   const remember = el('input', { attrs: { type: 'checkbox' } });
   remember.checked = profiles.remembered;

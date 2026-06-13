@@ -5,6 +5,8 @@
  */
 import { el } from '../dom';
 import { setView } from '../hashstate';
+import { isApexHome } from '../../data/workspaces';
+import { openNewWorkspace } from '../workspaceui';
 import heroUrl from '../../assets/overview.jpg';
 
 const REPOS = [
@@ -57,6 +59,14 @@ export function renderAbout(container: HTMLElement): () => void {
   const wrap = el('div', { className: 'about' });
   const hero = heroImage();
 
+  // On the apex you can't configure a profile (it isn't a workspace) — the
+  // CTA opens the new-workspace launcher; on a subdomain it opens config.
+  const connectCta = (ev: Event): void => {
+    ev.preventDefault();
+    if (isApexHome()) openNewWorkspace();
+    else setView('/config');
+  };
+
   const intro = el('div', { className: 'about-panel' }, [
     el('h1', { text: 'Welcome to Tracelog' }),
     el('div', {
@@ -101,12 +111,7 @@ export function renderAbout(container: HTMLElement): () => void {
       el('a', {
         text: 'Connect a profile',
         attrs: { href: '#/config' },
-        on: {
-          click: (ev: Event) => {
-            ev.preventDefault();
-            setView('/config');
-          },
-        },
+        on: { click: connectCta },
       }),
       el('span', { text: ' and start exploring.' }),
     ]),
@@ -197,12 +202,7 @@ export function renderAbout(container: HTMLElement): () => void {
         el('a', {
           text: 'connect a profile',
           attrs: { href: '#/config' },
-          on: {
-            click: (ev: Event) => {
-              ev.preventDefault();
-              setView('/config');
-            },
-          },
+          on: { click: connectCta },
         }),
         el('span', {
           text:

@@ -51,10 +51,30 @@ export function workspaceContext(): WorkspaceContext {
   return { apexHost, current, apexOrigin: `${location.protocol}//${apexHost}` };
 }
 
-/** The https URL a workspace label lives at ('' = the apex/home). */
+/** The https URL a workspace (subdomain) lives at. */
 export function workspaceUrl(label: string): string {
   const { apexHost } = workspaceContext();
-  return `https://${label ? `${label}.${apexHost}` : apexHost}/`;
+  return `https://${label}.${apexHost}/`;
+}
+
+/**
+ * On the bare apex of a real domain — the public landing + directory keeper,
+ * which is NOT itself a workspace (no profiles, no data live here). False on
+ * subdomains and on localhost/self-host single-origin.
+ */
+export function isApexHome(): boolean {
+  const c = workspaceContext();
+  return c.apexHost !== null && c.current === '';
+}
+
+/**
+ * Workspaces to show in the switcher. At the apex we read the live directory
+ * first-party; on a subdomain we read this origin's cached snapshot.
+ */
+export function knownWorkspaces(): string[] {
+  const c = workspaceContext();
+  if (!c.apexHost) return [];
+  return c.current === '' ? directory() : cachedWorkspaces();
 }
 
 // --------------------------------------------------------- local snapshot

@@ -561,6 +561,14 @@ or date rather than abandon tracelog entirely.
   to trust the hosted instance, or who forks. No cookies, ever — they are
   the one storage that could leak across subdomains (§4 already forbids
   them).
+- **Workspaces are always subdomains; the apex is not one** (2026-06-12):
+  `tracelog.org` is the public landing (About) + directory keeper only —
+  no profiles or data live there, it shows About for every view, and the
+  switcher there is purely a launcher (pick a workspace or make a new
+  one). Creating a workspace provisions *nothing* — no DNS record, no
+  cloud service, no account; the wildcard subdomain already resolves for
+  everyone, and a workspace is just a separate corner of this one browser
+  (the new-workspace modal says so).
 - **Workspace switcher** (2026-06-12, navigation-based): the masthead pill
   is a switcher — it lists the profiles saved at this origin (activate in
   place) and the other workspaces (navigate to their subdomain). Since

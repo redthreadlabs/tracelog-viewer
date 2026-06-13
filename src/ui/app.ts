@@ -17,11 +17,11 @@ import {
   workspaceContext,
   workspaceUrl,
   handleWorkspaceBoot,
-  cachedWorkspaces,
-  createWorkspace,
+  knownWorkspaces,
+  isApexHome,
   syncWorkspaces,
-  validLabel,
 } from '../data/workspaces';
+import { openNewWorkspace } from './workspaceui';
 import { renderPerfView } from './views/perfview';
 import { renderAbout } from './views/about';
 import { renderRecordsView } from './views/records';
@@ -73,10 +73,12 @@ export function startApp(root: HTMLElement): void {
     // mirror route()'s bare-URL delegation so the nav highlights correctly
     const bare = !location.hash || location.hash === '#' || location.hash === '#/';
     const currentView = bare
-      ? profiles.active() ? '/overview' : '/about'
+      ? profiles.active() && !isApexHome() ? '/overview' : '/about'
       : readHash().view;
+    // the apex is the public landing only — no data views in its nav
+    const navItems = isApexHome() ? NAV.filter((i) => i.view === '/about') : NAV;
     const nav = el('nav', { className: 'masthead-nav' });
-    for (const item of NAV) {
+    for (const item of navItems) {
       nav.append(
         el('button', {
           className: item.view === currentView ? 'nav-link on' : 'nav-link',
@@ -160,6 +162,14 @@ export function startApp(root: HTMLElement): void {
     clear(main);
     renderHeader(); // keep nav active-state in sync
 
+    // The apex is the public landing + directory keeper, never a workspace:
+    // no profiles or data live here, so it only ever shows About. (The relay
+    // route is handled in handleWorkspaceBoot, before we ever get here.)
+    if (isApexHome()) {
+      teardown = renderAbout(main);
+      return;
+    }
+
     // a bare URL delegates: newcomers land on About, returning users on data
     const bareUrl = !location.hash || location.hash === '#' || location.hash === '#/';
     const view = bareUrl
@@ -215,24 +225,27 @@ export function startApp(root: HTMLElement): void {
 }
 
 /**
- * The masthead pill is a workspace switcher: it shows the current workspace
- * and active profile, and its menu hops between workspaces (each a separate
- * subdomain origin, discovered through the apex directory) and between the
- * profiles saved here. On hosts with no apex (localhost, self-host) it
- * degrades to a profile switcher — no cross-workspace rows.
+ * The masthead pill is a workspace switcher. A workspace is always a
+ * subdomain — there is no apex/home workspace. Three contexts:
+ *  • apex: the launcher — pick an existing workspace or make a new one;
+ *  • subdomain: this workspace's profiles + a jump to the others;
+ *  • localhost/self-host single-origin: just local profiles.
  */
 function workspaceSwitcher(active: Profile | null): HTMLElement {
   const ctx = workspaceContext();
-  const here = ctx.current; // '' = home/apex
-  // on a real workspace host, lead with the workspace; otherwise just the profile
-  const prefix = ctx.apexHost ? `${here || 'home'} · ` : '';
-  const pillText = active ? `${prefix}${active.name}` : `${prefix}connect…`;
+  const here = ctx.current;
+  const apex = isApexHome();
+  const pillText = apex
+    ? 'Workspaces'
+    : ctx.apexHost
+      ? `${here} · ${active ? active.name : 'connect…'}`
+      : active ? active.name : 'connect…';
 
   const wrap = el('div', { className: 'switcher' });
   const pill = el('button', {
     className: 'chip',
     text: pillText,
-    title: active ? `s3://${active.bucket} · ${active.region}` : 'connect a profile',
+    title: active ? `s3://${active.bucket} · ${active.region}` : 'workspaces',
   });
   wrap.append(pill);
 
@@ -242,56 +255,74 @@ function workspaceSwitcher(active: Profile | null): HTMLElement {
     pop = null;
   };
 
+  function workspaceRow(label: string): HTMLElement {
+    const row = el('button', {
+      className: label === here ? 'switcher-row on' : 'switcher-row',
+      text: label,
+    });
+    row.addEventListener('click', () => {
+      close();
+      if (label !== here) location.assign(workspaceUrl(label));
+    });
+    return row;
+  }
+
   function open(): void {
     pop = el('div', { className: 'switcher-pop' });
     wrap.append(pop);
 
-    // profiles saved at THIS origin — activate in place
-    const local = profiles.list();
-    if (local.length > 0) {
-      pop.append(el('div', { className: 'switcher-head', text: here || 'home' }));
-      for (const p of local) {
-        const row = el('button', {
-          className: p.name === active?.name ? 'switcher-row on' : 'switcher-row',
-          text: p.name,
-        });
-        row.append(el('span', { className: 'switcher-sub', text: `s3://${p.bucket}` }));
-        row.addEventListener('click', () => {
-          close();
-          profiles.setActive(p.name);
-          setView('/overview');
-        });
-        pop.append(row);
+    // a subdomain's own profiles — activate in place
+    if (!apex) {
+      const local = profiles.list();
+      if (local.length > 0) {
+        pop.append(el('div', { className: 'switcher-head', text: here || 'this device' }));
+        for (const p of local) {
+          const row = el('button', {
+            className: p.name === active?.name ? 'switcher-row on' : 'switcher-row',
+            text: p.name,
+          });
+          row.append(el('span', { className: 'switcher-sub', text: `s3://${p.bucket}` }));
+          row.addEventListener('click', () => {
+            close();
+            profiles.setActive(p.name);
+            setView('/overview');
+          });
+          pop.append(row);
+        }
       }
+      pop.append(
+        el('button', {
+          className: 'switcher-row add',
+          text: local.length > 0 ? '+ Add a profile here' : 'Connect a profile…',
+          on: { click: () => { close(); setView('/config'); } },
+        }),
+      );
     }
-    pop.append(
-      el('button', {
-        className: 'switcher-row add',
-        text: local.length > 0 ? '+ Add a profile here' : 'Connect a profile…',
-        on: { click: () => { close(); setView('/config'); } },
-      }),
-    );
 
-    // other workspaces — navigate to their subdomain origins (cached
-    // snapshot of the apex directory; refreshed on every apex transit)
+    // other workspaces (subdomains). On the apex this is the whole menu.
     if (ctx.apexHost) {
-      const others = cachedWorkspaces().filter((n) => n !== here);
-      const block = el('div', { className: 'switcher-block' });
+      const others = knownWorkspaces().filter((n) => n !== here);
+      const block = el('div', { className: apex ? '' : 'switcher-block' });
       block.append(el('div', { className: 'switcher-head', text: 'Workspaces' }));
-      if (here !== '') block.append(workspaceRow('home', ''));
-      for (const n of others) block.append(workspaceRow(n, n));
+      for (const n of others) block.append(workspaceRow(n));
       block.append(
         el('button', {
           className: 'switcher-row add',
           text: '+ New workspace…',
           on: { click: () => { close(); openNewWorkspace(); } },
         }),
-        el('button', {
-          className: 'switcher-row add',
-          text: '↻ Sync workspaces',
-          on: { click: () => { close(); syncWorkspaces(readHash().view); } },
-        }),
       );
+      // the apex reads the directory first-party (always fresh); only a
+      // subdomain, working off a cached snapshot, needs a manual sync
+      if (!apex) {
+        block.append(
+          el('button', {
+            className: 'switcher-row add',
+            text: '↻ Sync workspaces',
+            on: { click: () => { close(); syncWorkspaces(readHash().view); } },
+          }),
+        );
+      }
       pop.append(block);
     }
 
@@ -311,73 +342,8 @@ function workspaceSwitcher(active: Profile | null): HTMLElement {
     }, 0);
   }
 
-  function workspaceRow(labelText: string, navLabel: string): HTMLElement {
-    const row = el('button', {
-      className: navLabel === here ? 'switcher-row on' : 'switcher-row',
-      text: labelText || 'home',
-    });
-    row.addEventListener('click', () => {
-      close();
-      if (navLabel !== here) location.assign(workspaceUrl(navLabel));
-    });
-    return row;
-  }
-
   pill.addEventListener('click', () => (pop ? close() : open()));
   return wrap;
-}
-
-/**
- * New-workspace modal: name the subdomain, then bounce through the apex
- * (which records it) to that subdomain's config to enter credentials.
- */
-function openNewWorkspace(): void {
-  const ctx = workspaceContext();
-  const overlay = el('div', { className: 'modal-overlay' });
-  const input = el('input', {
-    className: 'input',
-    attrs: { type: 'text', placeholder: 'e.g. acme', autocomplete: 'off', spellcheck: 'false' },
-  }) as HTMLInputElement;
-  const err = el('div', { className: 'field-note', attrs: { style: 'color:var(--level-error)' } });
-  const close = (): void => overlay.remove();
-
-  const submit = (): void => {
-    const label = input.value.trim().toLowerCase().replace(/^\.+|\.+$/g, '');
-    if (!validLabel(label)) {
-      err.textContent = 'Letters, numbers, and hyphens only.';
-      return;
-    }
-    createWorkspace(label); // → apex records it → lands on its config
-  };
-
-  const card = el('div', { className: 'modal-card about-panel' }, [
-    el('h2', { text: 'New workspace' }),
-    el('p', {
-      text:
-        `A workspace is a subdomain — your new one will live at ` +
-        `${ctx.apexHost ? `«name».${ctx.apexHost}` : '«name»'}. We’ll take you ` +
-        `there to add its credentials.`,
-    }),
-    el('div', { className: 'modal-row' }, [
-      input,
-      ctx.apexHost ? el('span', { className: 'modal-suffix', text: `.${ctx.apexHost}` }) : el('span'),
-    ]),
-    err,
-    el('div', { className: 'modal-actions' }, [
-      el('button', { className: 'btn', text: 'Cancel', on: { click: close } }),
-      el('button', { className: 'btn btn-primary', text: 'Continue', on: { click: submit } }),
-    ]),
-  ]);
-  overlay.append(card);
-  overlay.addEventListener('click', (ev) => {
-    if (ev.target === overlay) close();
-  });
-  input.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Enter') submit();
-    if (ev.key === 'Escape') close();
-  });
-  document.body.append(overlay);
-  input.focus();
 }
 
 /** The red thread: slight waves, one small loop — drawn once, full width. */
