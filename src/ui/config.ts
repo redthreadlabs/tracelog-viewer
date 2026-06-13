@@ -59,14 +59,14 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
     el('span', { className: 'slider' }),
   ]);
 
-  // auth fields live in their own block (display:contents so the label/field
-  // pairs still align in the form grid) so the toggle can hide them
+  // auth fields live in their own block so the toggle can show/hide them as a
+  // group (they fill the right-hand column)
   const authBlock = el('div', { className: 'config-auth' }, [
-    label('Access key ID'), accessKey.wrap,
-    label('Secret access key'), secretKey.wrap,
-    label('Session token'), sessionToken.wrap,
+    row('Access key ID', accessKey.wrap),
+    row('Secret access key', secretKey.wrap),
+    row('Session token', sessionToken.wrap),
   ]);
-  const publicHint = el('div', { className: 'full public-hint' });
+  const publicHint = el('div', { className: 'public-hint' });
   publicHint.innerHTML =
     '<strong>Public Bucket:</strong><br>Readable anonymously. ' +
     'No credentials are entered, stored, or sent.';
@@ -75,7 +75,7 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
   // this browser so the workspace survives reloads and subdomain hops
   const syncAuth = (): void => {
     const authed = authToggle.checked;
-    authBlock.style.display = authed ? 'contents' : 'none';
+    authBlock.style.display = authed ? 'flex' : 'none';
     publicHint.style.display = authed ? 'none' : 'block';
     lede.textContent = authed
       ? 'A workspace reads a single tracelog bucket. Your credentials are used ' +
@@ -92,30 +92,38 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
   authToggle.addEventListener('change', syncAuth);
 
   const form = el('form', {}, [
-    label('Workspace'),
-    el('div', { className: 'workspace-fixed' }, [
-      el('span', { className: 'mono', text: hereLabel }),
-      ctx.apexHost
-        ? el('span', { className: 'field-note', text: 'this workspace’s own browser storage' })
-        : el('span'),
+    el('div', { className: 'config-cols' }, [
+      // left column: where the bucket is, plus the on-device limits
+      el('div', { className: 'config-col' }, [
+        row(
+          'Workspace',
+          el('div', { className: 'workspace-fixed' }, [
+            el('span', { className: 'mono', text: hereLabel }),
+            ctx.apexHost
+              ? el('span', { className: 'field-note', text: 'this workspace’s own browser storage' })
+              : el('span'),
+          ]),
+        ),
+        row('Region', region),
+        row('Bucket', bucket),
+        row('Prefix', prefix),
+        row('Memory limit', withUnit(memLimit, 'MB')),
+        row('Cache limit', withUnit(cacheLimit, 'MB')),
+        el('span', {
+          className: 'field-note',
+          text:
+            'Caps the working set held in memory and the log files cached on disk ' +
+            '(IndexedDB). Leave either blank for no limit.',
+        }),
+      ]),
+      // right column: how to authenticate to it
+      el('div', { className: 'config-col' }, [
+        el('div', { className: 'auth-head' }, [label('Authentication'), authSwitch]),
+        authBlock,
+        publicHint,
+      ]),
     ]),
-    label('Region'), region,
-    label('Bucket'), bucket,
-    label('Prefix'), prefix,
-    label('Authentication'), authSwitch,
-    authBlock,
-    publicHint,
-    label('Memory limit'), withUnit(memLimit, 'MB'),
-    label('Cache limit'), withUnit(cacheLimit, 'MB'),
-    el('div', { className: 'full' }, [
-      el('span', {
-        className: 'field-note',
-        text:
-          'Caps the working set held in memory and the log files cached on disk ' +
-          '(IndexedDB). Leave either blank for no limit.',
-      }),
-    ]),
-    el('div', { className: 'full actions' }, [
+    el('div', { className: 'actions' }, [
       el('button', {
         className: 'btn btn-danger',
         text: 'Delete & Purge',
@@ -128,7 +136,7 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
         attrs: { type: 'submit' },
       }),
     ]),
-    el('div', { className: 'full' }, [purgeMsg]),
+    purgeMsg,
   ]);
   syncAuth();
   if (flash) purgeMsg.textContent = flash;
@@ -185,6 +193,11 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
 
 function label(text: string): HTMLElement {
   return el('div', { className: 'form-label', text });
+}
+
+/** One stacked column row: a label above its control. */
+function row(labelText: string, control: HTMLElement): HTMLElement {
+  return el('div', { className: 'field-row' }, [label(labelText), control]);
 }
 
 function field(type: string, placeholder: string, value = ''): HTMLInputElement {

@@ -365,7 +365,7 @@ pre.json .b {
 /* ---------- config panel ---------- */
 
 .config {
-  max-width: 620px;
+  max-width: 720px;
   margin: 36px auto;
   padding: 0 28px;
 }
@@ -384,24 +384,49 @@ pre.json .b {
 }
 
 .config form {
-  display: grid;
-  grid-template-columns: 150px 1fr;
-  gap: 12px 14px;
-  align-items: center;
   background: var(--surface);
   border-radius: var(--radius-lg);
   padding: 22px 24px;
   box-shadow: var(--shadow);
 }
 
-.config form .full {
-  grid-column: 1 / -1;
+/* two columns: bucket coordinates + limits left, authentication right */
+.config-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.config-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* a faint rule between the columns */
+.config-col + .config-col {
+  border-left: 1px solid var(--line);
+  padding-left: 24px;
+}
+
+/* one stacked label-over-control row */
+.config .field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
 }
 
 .config .form-label {
   font-size: 12.5px;
   color: var(--ink-soft);
-  text-align: right;
+}
+
+/* the auth column header: label beside its toggle */
+.config .auth-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 24px;
 }
 
 .config .actions {
@@ -409,7 +434,17 @@ pre.json .b {
   gap: 10px;
   align-items: center;
   justify-content: flex-end;
-  margin-top: 14px;
+  margin-top: 20px;
+}
+
+@media (max-width: 640px) {
+  .config-cols {
+    grid-template-columns: 1fr;
+  }
+  .config-col + .config-col {
+    border-left: 0;
+    padding-left: 0;
+  }
 }
 
 .profile-list {
@@ -1557,9 +1592,11 @@ th.sortable.on {
   color: var(--ink);
 }
 
-/* config: auth fields toggle as a group (grid-participating) */
+/* config: auth fields show/hide as a group, stacked in the right column */
 .config-auth {
-  display: contents;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 .btn-danger {
@@ -1583,10 +1620,6 @@ th.sortable.on {
   height: 24px;
   flex: none;
   cursor: pointer;
-}
-
-.config form .switch {
-  justify-self: end;
 }
 
 .switch input {
@@ -1626,11 +1659,10 @@ th.sortable.on {
 }
 
 .public-hint {
-  text-align: center;
   font-size: 13px;
   line-height: 1.6;
   color: var(--ink-soft);
-  padding: 6px 0 2px;
+  padding: 2px 0;
 }
 
 .purge-banner {
