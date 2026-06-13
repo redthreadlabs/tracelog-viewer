@@ -21,7 +21,7 @@ import { planScan, type ScanPlan } from '../s3/scanner';
 import { executeScan, loadOneFile, hydrateSidecars } from '../data/scan';
 import { LiveUpdater } from '../data/live';
 import { perf, type PerfEntry } from '../data/perf';
-import { cacheKeys, cacheWipeBucket } from '../data/cache';
+import { cacheKeys, cacheWipeBucket, SEP } from '../data/cache';
 import { MemBytes, cachedDecompressedAny } from '../data/blobs';
 import { parseKey, dedupeCurrents, type ParsedKey } from '../s3/keys';
 import { nthLine } from '../data/parse';
@@ -42,7 +42,7 @@ import {
   clientEventTypes,
 } from '../data/clients';
 import { scannerStats } from '../data/scanner-traffic';
-import { recordListing, estimatePlan } from '../data/ledger';
+import { recordListing, estimatePlan, ledgerRecords } from '../data/ledger';
 
 type Window = [number, number] | null;
 
@@ -227,6 +227,21 @@ const ops: Record<string, OpHandler> = {
     s.mem.delete(key);
   },
   cacheKeys: (s) => cacheKeys(s.bucket.bucket),
+  /** Factual per-file sizes/counts from sidecars (hydrates the ledger first),
+   *  keyed by logical S3 key — so the inspector's rollups are real, not
+   *  estimated, for every file whether or not it's loaded. */
+  fileFacts: async (s, a) => {
+    const files = (a.files as ParsedKey[]) ?? [];
+    await hydrateSidecars(s.bucket, files);
+    const prefix = s.bucket.bucket + SEP;
+    const out: Record<string, { decompressed?: number; records?: number }> = {};
+    for (const r of await ledgerRecords(s.bucket.bucket)) {
+      if (r.id.startsWith(prefix)) {
+        out[r.id.slice(prefix.length)] = { decompressed: r.decompressed, records: r.records };
+      }
+    }
+    return out;
+  },
   wipeCache: (s) => {
     s.mem.clear();
     return cacheWipeBucket(s.bucket.bucket);
