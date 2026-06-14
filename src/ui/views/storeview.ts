@@ -260,9 +260,8 @@ export function renderStoreView(container: HTMLElement): () => void {
     body.append(internalsTabs('/internals/store'));
     const allRows = buildRows();
 
-    // --- summary panel: store ledger | kinds ---
+    // --- summary panel: a headline over store-ledger | kinds columns ---
     const storeCol = el('div', { className: 'sgrid' });
-    storeCol.append(el('div', { className: 'label scol-title', text: 'In memory' }));
     const srow = (label: string, value: string) =>
       storeCol.append(
         el('div', { className: 'srow' }, [
@@ -284,6 +283,12 @@ export function renderStoreView(container: HTMLElement): () => void {
 
     body.append(
       el('div', { className: 'store-summary' }, [
+        el('p', {
+          className: 'inspector-note',
+          text:
+            'Loading and eviction happen automatically, to optimize your memory and ' +
+            'cache within the limits you set.',
+        }),
         storeCol,
         el('div', { className: 'sdivider' }),
         totalKindStats(),
@@ -293,15 +298,6 @@ export function renderStoreView(container: HTMLElement): () => void {
     // over-budget panel sits below the summary (only shown when over budget)
     const bp = budgetPanel();
     if (bp) body.append(bp);
-
-    body.append(
-      el('p', {
-        className: 'inspector-note',
-        text:
-          'Loading and eviction happen automatically, to optimize your memory and ' +
-          'cache within the limits you set.',
-      }),
-    );
 
     // --- file inventory: flat, or grouped by interval/channel/host with
     //     expandable headers. Pagination windows the flattened, expanded tree,
@@ -580,7 +576,6 @@ export function renderStoreView(container: HTMLElement): () => void {
 
   function totalKindStats(): HTMLElement {
     const col = el('div', { className: 'sgrid' });
-    col.append(el('div', { className: 'label scol-title', text: 'Kinds' }));
     const total = storeClient.snapshot.recordCount;
     for (const kind of RECORD_KINDS) {
       const count = storeClient.snapshot.kindCounts.get(kind) ?? 0;
