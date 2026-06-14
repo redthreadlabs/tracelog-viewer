@@ -156,7 +156,7 @@
 }
 
 [data-theme='dark'] .about-panel,
-[data-theme='dark'] [data-theme='dark'] .chart-host,
+[data-theme='dark'] .chart-host,
 [data-theme='dark'] .records-wrap,
 [data-theme='dark'] .pagerbar,
 [data-theme='dark'] .txn-wrap,
