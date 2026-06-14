@@ -178,20 +178,6 @@ export function renderEventsView(container: HTMLElement): () => void {
           },
         }),
       );
-    } else if (viewState.timeWindow) {
-      filterbar.append(
-        el('button', {
-          className: 'chip on',
-          text: '⧖ brushed window ✕',
-          on: {
-            click: () => {
-              viewState.timeWindow = null;
-              page = 0;
-              refresh(true);
-            },
-          },
-        }),
-      );
     }
 
     filterbar.append(el('span', { className: 'spacer' }));

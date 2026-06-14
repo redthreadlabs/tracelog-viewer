@@ -12,7 +12,7 @@ import type { SampleNote } from '../../worker/backend';
 import { renderHistogram } from '../../viz/histogram';
 import { renderScatter, resultFamily } from '../../viz/scatter';
 import { viewState } from '../../state';
-import { setParams, setView } from '../hashstate';
+import { setView } from '../hashstate';
 import type { Rec } from '../../data/types';
 import { fmtCount, fmtDateTime, fmtDuration } from '../format';
 
@@ -75,21 +75,6 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
         },
       }),
     );
-    if (viewState.timeWindow) {
-      head.append(
-        el('button', {
-          className: 'chip on',
-          text: '⧖ brushed window ✕',
-          on: {
-            click: () => {
-              viewState.timeWindow = null;
-              setParams({ w: null });
-              void render();
-            },
-          },
-        }),
-      );
-    }
   }
 
   function renderBody(stats: TxnDetail): void {

@@ -138,23 +138,6 @@ export function renderRecordsView(container: HTMLElement): () => void {
 
     filterbar.append(el('span', { className: 'spacer' }));
 
-    if (viewState.timeWindow) {
-      filterbar.append(
-        el('button', {
-          className: 'chip on',
-          text: '⧖ brushed window ✕',
-          title: 'records are narrowed to the time window brushed on the overview — click to clear',
-          on: {
-            click: () => {
-              viewState.timeWindow = null;
-              page = 0;
-              refresh(true);
-            },
-          },
-        }),
-      );
-    }
-
     filterbar.append(
       el('button', {
         className: 'toggle on',

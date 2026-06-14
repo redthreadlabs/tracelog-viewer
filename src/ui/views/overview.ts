@@ -10,7 +10,7 @@ import { perf } from '../../data/perf';
 import { sortTxnGroups, type TxnGroup, type TxnSortKey, type BucketResult } from '../../data/aggregate';
 import { renderTimebars } from '../../viz/timebars';
 import { viewState } from '../../state';
-import { pushParams, canGoBack, setView, windowParam, RANGE_NAV_EVENT } from '../hashstate';
+import { pushParams, setView, windowParam, RANGE_NAV_EVENT } from '../hashstate';
 import { chosenBucketMs, bucketLabel } from '../bucketpicker';
 import { fmtBytes, fmtCount, fmtDuration, isUtcMode } from '../format';
 
@@ -91,7 +91,7 @@ export function renderOverview(container: HTMLElement): () => void {
       chartHead.append(
         el('span', {
           className: 'budget faint',
-          text: 'drag to zoom · double-click to zoom out',
+          text: 'drag to set the time range',
         }),
       );
     }
@@ -116,15 +116,12 @@ export function renderOverview(container: HTMLElement): () => void {
     // --- chart ---
     renderTimebars(chartHost, data, {
       onWindow: (w) => {
-        if (w) {
-          // brushing sets the *range* to the window: push a history entry (so
-          // Back zooms out) and let the scanbar adopt it + reload that range
-          viewState.timeWindow = w; // optimistic, so the chart doesn't flash full-range
-          pushParams({ w: windowParam(w) });
-          globalThis.dispatchEvent(new Event(RANGE_NAV_EVENT));
-        } else if (canGoBack()) {
-          globalThis.history.back(); // double-click = zoom out one step
-        }
+        if (!w) return;
+        // dragging sets the time range: push a history entry (so Back returns to
+        // the previous range) and let the scanbar adopt it + reload that range
+        viewState.timeWindow = w; // optimistic, so the chart doesn't flash the old range
+        pushParams({ w: windowParam(w) });
+        globalThis.dispatchEvent(new Event(RANGE_NAV_EVENT));
       },
     }, res.ghostSpans);
 

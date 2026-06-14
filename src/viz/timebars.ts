@@ -124,7 +124,7 @@ export function renderTimebars(
       tooltip.style.display = 'none';
     });
 
-  // brush to zoom; double-click resets
+  // drag to set the time range
   const brush = brushX<unknown>()
     .extent([
       [0, 0],
@@ -144,8 +144,6 @@ export function renderTimebars(
     .attr('fill', styles.getPropertyValue('--thread').trim())
     .attr('fill-opacity', 0.12)
     .attr('stroke', styles.getPropertyValue('--thread').trim());
-
-  svg.on('dblclick', () => callbacks.onWindow(null));
 
   function pointerInG(event: MouseEvent, host: HTMLElement): [number, number] {
     const rect = host.getBoundingClientRect();
