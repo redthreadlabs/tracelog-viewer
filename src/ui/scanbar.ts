@@ -20,7 +20,7 @@ import { intervalSpan } from '../s3/keys';
 import { storeClient } from '../data/storeclient';
 import { viewState, resetViewState } from '../state';
 import { fmtBytesRough } from './format';
-import { getParam, setParams, setView, parseWindowParam, windowParam, readHash, RANGE_NAV_EVENT } from './hashstate';
+import { getParam, setParams, pushParams, setView, parseWindowParam, windowParam, readHash, RANGE_NAV_EVENT } from './hashstate';
 import { renderBucketPicker } from './bucketpicker';
 import { renderMultiselect } from './multiselect';
 import { profiles } from './profiles';
@@ -200,9 +200,37 @@ export function renderScanbar(container: HTMLElement): void {
 
   /** Open dropdown (one at a time), persisted across re-renders like rangeOpen. */
   let openPicker: 'channels' | 'hosts' | null = null;
+  /** the ch/host params when the open picker was opened — so closing it pushes a
+   *  single history entry for the whole session (Back undoes it in one step) */
+  let pickerSnapshot: { ch: string | null; host: string | null } | null = null;
   /** set when the selection exceeds the memory budget: we loaded the newest
    *  files that fit, and the scanbar shows an over-budget indicator */
   let overBudget: { estBytes: number } | null = null;
+
+  const selectionParams = (): { ch: string | null; host: string | null } => ({
+    ch: channelUrlParam(),
+    host: hostUrlParam(),
+  });
+
+  /** Open/close a picker. Closing one with a changed selection pushes a single
+   *  history entry for the session — intermediate toggles use replaceState, so
+   *  they never pollute history; Back returns to the pre-open selection. */
+  function setOpenPicker(next: 'channels' | 'hosts' | null): void {
+    if (openPicker === next) return;
+    if (openPicker && pickerSnapshot) commitPickerHistory(pickerSnapshot);
+    openPicker = next;
+    pickerSnapshot = next ? selectionParams() : null;
+    render();
+  }
+
+  function commitPickerHistory(before: { ch: string | null; host: string | null }): void {
+    const after = selectionParams();
+    if (after.ch === before.ch && after.host === before.host) return; // no net change
+    // the live toggles left the current entry holding `after`; rewrite it back
+    // to `before`, then push `after` as a new entry → one Back step undoes it
+    setParams({ ch: before.ch, host: before.host });
+    pushParams({ ch: after.ch, host: after.host });
+  }
 
   /** The host filter for planScan: undefined (all) when every candidate is
    *  selected, else the selected subset ([] = none). Before the first plan
@@ -218,6 +246,28 @@ export function renderScanbar(container: HTMLElement): void {
     if (state.hosts.size === 0) return hostsFromUrl ? [...hostsFromUrl].join(',') : null;
     const sel = selectedHosts();
     return sel.length === state.hosts.size ? null : sel.join(',');
+  }
+
+  /** The `ch=` URL param mirroring the selection: null (omit) when all on. */
+  function channelUrlParam(): string | null {
+    if (state.channels.size === 0) return channelsFromUrl ? [...channelsFromUrl].join(',') : null;
+    const sel = selectedChannels();
+    return sel.length === state.channels.size ? null : sel.join(',');
+  }
+
+  /** Force a picker's on/off to match a URL param (URL = truth on Back/Forward):
+   *  null = all on, 'a,b' = those on, '' = none. Returns whether anything moved. */
+  function applyUrlSelection(map: Map<string, boolean>, param: string | null): boolean {
+    const sel = param === null ? null : new Set(param.split(',').filter(Boolean));
+    let changed = false;
+    for (const k of map.keys()) {
+      const want = !sel || sel.has(k);
+      if (map.get(k) !== want) {
+        map.set(k, want);
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   // identity of the currently loaded plan, so range fiddling that resolves
@@ -284,7 +334,7 @@ export function renderScanbar(container: HTMLElement): void {
     }
     state.planning = true;
     setParams({
-      ch: selected.length === state.channels.size ? null : selected.join(','),
+      ch: channelUrlParam(),
       host: hostUrlParam(),
       from: utcDayOf(state.startMs),
       to: utcDayOf(state.endMs),
@@ -352,33 +402,45 @@ export function renderScanbar(container: HTMLElement): void {
   }
 
   /**
-   * Re-derive the range from the URL and reload if it changed. The browser
-   * history IS the zoom stack: brushing the chart pushes a new range entry
-   * (RANGE_NAV_EVENT), and Back/Forward restore prior ranges (hashchange).
-   * Both land here, so a window zoom and a history step take the same path.
+   * Re-derive the whole working-set from the URL — range AND selection — and
+   * reload if anything changed. The browser history IS the navigation stack:
+   * brushing pushes a range entry, closing a picker pushes a selection entry,
+   * and Back/Forward restore prior states (hashchange). All land here, so a
+   * zoom, a filter change, and a history step take the same path.
    */
-  function syncRangeFromUrl(): void {
+  async function syncFromUrl(): Promise<void> {
+    let changed = false;
+
+    // range
     const w = parseWindowParam(getParam('w'));
     const fromDay = getParam('from');
     const toDay = getParam('to');
-    let startMs: number;
-    let endMs: number;
-    let wholeDays: boolean;
+    let startMs = state.startMs;
+    let endMs = state.endMs;
+    let wholeDays = state.wholeDays;
     if (w) {
-      // a precise sub-day range (a brushed window or a shared deep link)
       [startMs, endMs] = w;
       wholeDays = false;
     } else if (fromDay || toDay) {
       startMs = fromDay ? Date.parse(`${fromDay}T00:00:00Z`) : state.startMs;
       endMs = toDay ? Date.parse(`${toDay}T00:00:00Z`) + DAY_MS - 1 : state.endMs;
       wholeDays = true;
-    } else {
-      return; // no range in the URL — nothing to sync
     }
-    if (startMs === state.startMs && endMs === state.endMs && wholeDays === state.wholeDays) {
-      return; // unchanged — don't reload
+    if (startMs !== state.startMs || endMs !== state.endMs || wholeDays !== state.wholeDays) {
+      state.startMs = startMs;
+      state.endMs = endMs;
+      state.wholeDays = wholeDays;
+      facetSig = null; // range changed → refresh the candidate keys
+      changed = true;
     }
-    setRange(startMs, endMs, wholeDays);
+
+    // selection — apply after ensureFacets has the candidate keys for the range
+    await ensureFacets();
+    changed = applyUrlSelection(state.channels, getParam('ch')) || changed;
+    changed = applyUrlSelection(state.hosts, getParam('host')) || changed;
+
+    if (changed) void replan();
+    else render();
   }
 
   /** Actually load a plan (no budget check — runScan gates before this). */
@@ -566,10 +628,7 @@ export function renderScanbar(container: HTMLElement): void {
       values,
       selected,
       open: openPicker === id,
-      onToggleOpen: () => {
-        openPicker = openPicker === id ? null : id;
-        render();
-      },
+      onToggleOpen: () => setOpenPicker(openPicker === id ? null : id),
       onChange: (sel) => {
         for (const v of map.keys()) map.set(v, sel.has(v));
         void replan();
@@ -773,11 +832,10 @@ export function renderScanbar(container: HTMLElement): void {
     while (node.firstChild) node.removeChild(node.firstChild);
   }
 
-  // Back/Forward (hashchange) and a chart brush (RANGE_NAV_EVENT) both re-sync
-  // the range from the URL, then re-render.
+  // Back/Forward (hashchange), a chart brush, and a picker close (RANGE_NAV_EVENT)
+  // all re-derive the working-set from the URL.
   activeHashHandler = () => {
-    syncRangeFromUrl();
-    render();
+    void syncFromUrl();
   };
   window.addEventListener('hashchange', activeHashHandler);
   window.addEventListener(RANGE_NAV_EVENT, activeHashHandler);
