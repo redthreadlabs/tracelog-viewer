@@ -214,27 +214,47 @@ export function renderScanbar(container: HTMLElement): void {
     host: hostUrlParam(),
   });
 
-  /** Open/close a picker. Closing one with a changed selection pushes a single
-   *  history entry for the session — intermediate toggles use replaceState, so
-   *  they never pollute history; Back returns to the pre-open selection. */
-  function setOpenPicker(next: 'channels' | 'hosts' | null): void {
-    if (openPicker === next) return;
-    if (openPicker && pickerSnapshot) commitPickerHistory(pickerSnapshot);
-    const fullyClosed = openPicker !== null && next === null;
-    openPicker = next;
-    pickerSnapshot = next ? selectionParams() : null;
-    if (fullyClosed && pickerDirty) {
-      pickerDirty = false;
-      void replan(); // commit on close: plan + load the chosen selection, once
+  /** Open a picker: snapshot the selection so Cancel/tap-away can revert to it.
+   *  Leaving another picker open without OK reverts it (strict commit model). */
+  function openFacetPicker(id: 'channels' | 'hosts'): void {
+    if (openPicker && openPicker !== id) cancelPicker();
+    openPicker = id;
+    pickerSnapshot = selectionParams();
+    pickerDirty = false;
+    render();
+  }
+
+  /** OK: apply the pending selection — push one history entry, then plan + load. */
+  function commitPicker(): void {
+    const snap = pickerSnapshot;
+    const dirty = pickerDirty;
+    openPicker = null;
+    pickerSnapshot = null;
+    pickerDirty = false;
+    if (snap && dirty) {
+      commitPickerHistory(snap);
+      void replan();
     }
+    render();
+  }
+
+  /** Cancel / tap-away / Esc: revert to the selection as it was when opened. */
+  function cancelPicker(): void {
+    if (openPicker && pickerSnapshot) {
+      applyUrlSelection(state.channels, pickerSnapshot.ch);
+      applyUrlSelection(state.hosts, pickerSnapshot.host);
+    }
+    openPicker = null;
+    pickerSnapshot = null;
+    pickerDirty = false;
     render();
   }
 
   function commitPickerHistory(before: { ch: string | null; host: string | null }): void {
     const after = selectionParams();
     if (after.ch === before.ch && after.host === before.host) return; // no net change
-    // the live toggles left the current entry holding `after`; rewrite it back
-    // to `before`, then push `after` as a new entry → one Back step undoes it
+    // the session didn't touch the URL; push `after` as a new entry over the
+    // unchanged `before`, so one Back step returns to the pre-open selection
     setParams({ ch: before.ch, host: before.host });
     pushParams({ ch: after.ch, host: after.host });
   }
@@ -637,11 +657,12 @@ export function renderScanbar(container: HTMLElement): void {
       values,
       selected,
       open: openPicker === id,
-      onToggleOpen: () => setOpenPicker(openPicker === id ? null : id),
+      onOpen: () => openFacetPicker(id),
+      onCommit: () => commitPicker(),
+      onCancel: () => cancelPicker(),
       onChange: (sel) => {
-        // edit locally while the picker is open — the checkboxes + summary update
-        // immediately, but plan + load (and the history entry) wait for close, so
-        // exploring options never kicks off (and abandons) a background load
+        // edit locally — checkboxes + summary update at once, but plan + load
+        // (and the history entry) wait for OK; Cancel/tap-away/Esc revert
         for (const v of map.keys()) map.set(v, sel.has(v));
         pickerDirty = true;
         render();

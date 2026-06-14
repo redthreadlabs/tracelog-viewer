@@ -1859,3 +1859,12 @@ th.sortable.on {
   padding: 4px 8px;
   font-size: 12px;
 }
+
+.multiselect-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 8px;
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+}

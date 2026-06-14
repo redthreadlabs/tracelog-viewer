@@ -1,9 +1,12 @@
 /**
  * A pill-dropdown multiselect: a compact pill showing a selection summary
- * ("all" / "none" / "3 of 8") that opens a checkbox list with All / None quick
- * actions. Used for the channel and host filters. Stateless — the caller owns
- * the open flag and the selected set, and re-renders on every change (the
- * scanbar's model); the popover self-prunes stale outside-click listeners.
+ * ("all" / "none" / "3 of 8") that opens a checkbox list with All / None bulk
+ * actions and an OK / Cancel footer. Used for the channel and host filters.
+ *
+ * Commit semantics (caller-driven): editing is local and deferred. ONLY OK
+ * commits the pending selection; Cancel, tapping away, and Esc all REVERT it.
+ * The component is stateless — the caller owns the open flag and the selected
+ * set and re-renders on every change; the popover self-prunes stale listeners.
  */
 import { el } from './dom';
 
@@ -12,13 +15,17 @@ export interface MultiselectSpec {
   label: string;
   /** every available value (already sorted) */
   values: string[];
-  /** the currently-selected subset */
+  /** the (pending) selected subset */
   selected: Set<string>;
   /** whether the dropdown is open (caller-owned, survives re-renders) */
   open: boolean;
-  /** toggle the dropdown open/closed */
-  onToggleOpen: () => void;
-  /** the selection changed — caller updates state + reloads */
+  /** the pill was clicked while closed → open + snapshot */
+  onOpen: () => void;
+  /** OK → apply the pending selection (load + history) */
+  onCommit: () => void;
+  /** Cancel / tap-away / Esc → revert to the snapshot */
+  onCancel: () => void;
+  /** a checkbox / All / None toggled — pending only, not yet applied */
   onChange: (selected: Set<string>) => void;
 }
 
@@ -43,7 +50,9 @@ export function renderMultiselect(spec: MultiselectSpec): HTMLElement {
   );
   pill.addEventListener('click', (e) => {
     e.stopPropagation();
-    spec.onToggleOpen();
+    // clicking the pill while open closes WITHOUT applying (only OK commits)
+    if (spec.open) spec.onCancel();
+    else spec.onOpen();
   });
   group.append(pill);
 
@@ -81,22 +90,38 @@ export function renderMultiselect(spec: MultiselectSpec): HTMLElement {
     });
     pop.append(row);
   }
+
+  pop.append(
+    el('div', { className: 'multiselect-footer' }, [
+      el('button', { className: 'btn btn-quiet', text: 'Cancel', on: { click: () => spec.onCancel() } }),
+      el('button', { className: 'btn btn-primary', text: 'OK', on: { click: () => spec.onCommit() } }),
+    ]),
+  );
   group.append(pop);
 
-  // close on outside click; a stale listener (its pop replaced by a re-render)
-  // simply unsubscribes itself, so only the live popover's listener acts
+  // tap-away and Esc both cancel (revert); a stale listener (its pop replaced by
+  // a re-render) unsubscribes itself, so only the live popover acts
   setTimeout(() => {
-    const onDown = (ev: MouseEvent) => {
-      if (!pop.isConnected) {
-        document.removeEventListener('mousedown', onDown);
-        return;
-      }
+    const done = (): void => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+    const onDown = (ev: MouseEvent): void => {
+      if (!pop.isConnected) return done();
       if (!group.contains(ev.target as Node)) {
-        document.removeEventListener('mousedown', onDown);
-        spec.onToggleOpen();
+        done();
+        spec.onCancel();
+      }
+    };
+    const onKey = (ev: KeyboardEvent): void => {
+      if (!pop.isConnected) return done();
+      if (ev.key === 'Escape') {
+        done();
+        spec.onCancel();
       }
     };
     document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
   }, 0);
 
   return group;
