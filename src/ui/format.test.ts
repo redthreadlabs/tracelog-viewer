@@ -7,9 +7,9 @@ describe('fmtScaleTime', () => {
     try {
       const t = Date.UTC(2020, 5, 10, 14, 5, 30, 118); // June 10 2020, 14:05:30.118 UTC
       expect(fmtScaleTime(t, 86_400_000)).toBe('June 10, 2020'); //   daily → date only
-      expect(fmtScaleTime(t, 3_600_000)).toBe('June 10, 2020, 2p'); // hourly → the hour
-      expect(fmtScaleTime(t, 60_000)).toBe('June 10, 2020, 2:05p'); // minute
-      expect(fmtScaleTime(t, 1000)).toBe('June 10, 2020, 2:05:30p'); // sub-minute → second
+      expect(fmtScaleTime(t, 3_600_000)).toBe('June 10, 2020, 2pm'); // hourly → the hour
+      expect(fmtScaleTime(t, 60_000)).toBe('June 10, 2020, 2:05pm'); // minute
+      expect(fmtScaleTime(t, 1000)).toBe('June 10, 2020, 2:05:30pm'); // sub-minute → second
     } finally {
       setUtcMode(false);
     }
@@ -48,8 +48,8 @@ describe('fmtHumane', () => {
   it('clock time for earlier today, yesterday, month-day, and year (UTC mode)', () => {
     setUtcMode(true);
     try {
-      expect(fmtHumane(Date.UTC(2026, 5, 12, 16, 30), NOW)).toBe('4:30p');
-      expect(fmtHumane(Date.UTC(2026, 5, 12, 9, 5), NOW)).toBe('9:05a');
+      expect(fmtHumane(Date.UTC(2026, 5, 12, 16, 30), NOW)).toBe('4:30pm');
+      expect(fmtHumane(Date.UTC(2026, 5, 12, 9, 5), NOW)).toBe('9:05am');
       expect(fmtHumane(Date.UTC(2026, 5, 11, 23, 0), NOW)).toBe('yesterday');
       expect(fmtHumane(Date.UTC(2026, 5, 3, 12, 0), NOW)).toBe('June 3');
       expect(fmtHumane(Date.UTC(2025, 11, 25, 12, 0), NOW)).toBe('December 25, 2025');

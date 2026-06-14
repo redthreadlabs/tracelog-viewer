@@ -62,7 +62,7 @@ export function fmtScaleTime(ms: number, scaleMs: number): string {
 
   const h = utcMode ? d.getUTCHours() : d.getHours();
   const h12 = h % 12 === 0 ? 12 : h % 12;
-  const ap = h < 12 ? 'a' : 'p';
+  const ap = h < 12 ? 'am' : 'pm';
   if (scaleMs >= 3_600_000) return `${date}, ${h12}${ap}`; // hourly → the hour
   const mi = utcMode ? d.getUTCMinutes() : d.getMinutes();
   if (scaleMs >= 60_000) return `${date}, ${h12}:${pad2(mi)}${ap}`; // → the minute
@@ -139,7 +139,7 @@ export function fmtHumane(ms: number, now = Date.now()): string {
     const h24 = utcMode ? d.getUTCHours() : d.getHours();
     const min = utcMode ? d.getUTCMinutes() : d.getMinutes();
     const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
-    return `${h12}:${String(min).padStart(2, '0')}${h24 < 12 ? 'a' : 'p'}`;
+    return `${h12}:${String(min).padStart(2, '0')}${h24 < 12 ? 'am' : 'pm'}`;
   }
   if (dayDiff === 1) return 'yesterday';
 

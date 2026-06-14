@@ -382,7 +382,7 @@ export function formatTick(
       return { text: monthKey === prevMonthKey ? `${Da}` : `${MONTHS[Mo]} ${Da}`, monthKey };
     case 'hour':
       // full-hour ticks read more compactly as 12a / 6a / 12p / 6p than HH:00
-      return { text: `${H % 12 === 0 ? 12 : H % 12}${H < 12 ? 'a' : 'p'}`, monthKey };
+      return { text: `${H % 12 === 0 ? 12 : H % 12}${H < 12 ? 'am' : 'pm'}`, monthKey };
     case 'minute':
       return { text: `${pad2(H)}:${pad2(Mi)}`, monthKey };
     case 'second':
