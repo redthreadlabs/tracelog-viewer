@@ -42,6 +42,34 @@ export function fmtDateTime(ms: number): string {
   return `${fmtDate(ms)} ${fmtTime(ms)}`;
 }
 
+/**
+ * A timestamp rendered no finer than a chart's bar width (SPEC §7): daily bars
+ * show just the date, hourly bars the hour, minute bars the minute, and so on —
+ * so a 1h bucket reads "Jun 10, 2 PM" rather than "…14:00:00.000". Humane
+ * (abbreviated month, 12-hour clock, year dropped when it's the current year)
+ * and zone-aware.
+ */
+export function fmtScaleTime(ms: number, scaleMs: number): string {
+  const d = new Date(ms);
+  const mo = utcMode ? d.getUTCMonth() : d.getMonth();
+  const day = utcMode ? d.getUTCDate() : d.getDate();
+  const y = utcMode ? d.getUTCFullYear() : d.getFullYear();
+  const ref = new Date();
+  const refY = utcMode ? ref.getUTCFullYear() : ref.getFullYear();
+  let date = `${MONTHS[mo].slice(0, 3)} ${day}`;
+  if (y !== refY) date += `, ${y}`;
+  if (scaleMs >= 86_400_000) return date; // daily+ bars → date only
+
+  const h = utcMode ? d.getUTCHours() : d.getHours();
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  const ap = h < 12 ? 'AM' : 'PM';
+  if (scaleMs >= 3_600_000) return `${date}, ${h12} ${ap}`; // hourly → the hour
+  const mi = utcMode ? d.getUTCMinutes() : d.getMinutes();
+  if (scaleMs >= 60_000) return `${date}, ${h12}:${pad2(mi)} ${ap}`; // → the minute
+  const s = utcMode ? d.getUTCSeconds() : d.getSeconds();
+  return `${date}, ${h12}:${pad2(mi)}:${pad2(s)} ${ap}`; // sub-minute → the second
+}
+
 /** duration in ms → `1.82 s` / `162 ms` / `840 µs` */
 export function fmtDuration(ms: number): string {
   if (!isFinite(ms)) return '—';

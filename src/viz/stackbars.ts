@@ -9,7 +9,7 @@ import { axisLeft } from 'd3-axis';
 import { el, clear } from '../ui/dom';
 import type { BreakdownResult } from '../data/metrics';
 import { spanTypeColorToken } from '../data/trace';
-import { fmtDateTime, fmtDuration, isUtcMode } from '../ui/format';
+import { fmtScaleTime, fmtDuration, isUtcMode } from '../ui/format';
 import { contentWidth } from './ticks';
 import { drawTimeGrid } from './timegrid';
 import { placeTooltip } from './tooltip';
@@ -103,7 +103,7 @@ export function renderStackbars(container: HTMLElement, data: BreakdownResult): 
           (key) =>
             `<span class="row"><span class="dot" style="background:${colorOf(key)}"></span>${key}<span class="v">${fmtDuration(bucket.byType.get(key)!)}</span></span>`,
         );
-      tooltip.innerHTML = `<div class="t">${fmtDateTime(bucket.t0)}</div>${rows.join('')}`;
+      tooltip.innerHTML = `<div class="t">${fmtScaleTime(bucket.t0, data.bucketMs)}</div>${rows.join('')}`;
       tooltip.style.display = 'block';
       placeTooltip(tooltip, container, event);
     })

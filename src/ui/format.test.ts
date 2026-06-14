@@ -1,5 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import { fmtCount, fmtHumane, setUtcMode, fmtBytesRough } from './format';
+import { fmtCount, fmtHumane, setUtcMode, fmtBytesRough, fmtScaleTime } from './format';
+
+describe('fmtScaleTime', () => {
+  it('renders no finer than the bar width', () => {
+    setUtcMode(true);
+    try {
+      const t = Date.UTC(2026, 5, 10, 14, 5, 30, 118); // Jun 10 2026, 14:05:30.118 UTC
+      expect(fmtScaleTime(t, 86_400_000)).not.toMatch(/[AP]M|:/); // daily → date only
+      expect(fmtScaleTime(t, 3_600_000)).toContain('2 PM'); //        hourly → the hour
+      expect(fmtScaleTime(t, 3_600_000)).not.toContain(':'); //       ...no minutes
+      expect(fmtScaleTime(t, 60_000)).toContain('2:05 PM'); //        minute
+      expect(fmtScaleTime(t, 1000)).toContain('2:05:30 PM'); //       sub-minute → second
+    } finally {
+      setUtcMode(false);
+    }
+  });
+});
 
 describe('fmtBytesRough', () => {
   it('shows one decimal below 10, whole numbers at 10+', () => {

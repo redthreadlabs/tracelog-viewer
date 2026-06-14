@@ -11,7 +11,7 @@ import { brushX, type D3BrushEvent } from 'd3-brush';
 import { el, clear } from '../ui/dom';
 import { RECORD_KINDS, type RecordKind } from '../data/types';
 import type { BucketResult } from '../data/aggregate';
-import { fmtCount, fmtDateTime, isUtcMode } from '../ui/format';
+import { fmtCount, fmtScaleTime, isUtcMode } from '../ui/format';
 import { contentWidth } from './ticks';
 import { drawTimeGrid, drawGhostBand, inGhost, GHOST_FOOTNOTE } from './timegrid';
 import { placeTooltip } from './tooltip';
@@ -116,7 +116,7 @@ export function renderTimebars(
           )
         : [];
       const when = bucket ? bucket.t0 : t;
-      tooltip.innerHTML = `<div class="t">${fmtDateTime(when)}</div>${lines.join('')}${ghosted ? GHOST_FOOTNOTE : ''}`;
+      tooltip.innerHTML = `<div class="t">${fmtScaleTime(when, data.bucketMs)}</div>${lines.join('')}${ghosted ? GHOST_FOOTNOTE : ''}`;
       tooltip.style.display = 'block';
       placeTooltip(tooltip, container, event);
     })
