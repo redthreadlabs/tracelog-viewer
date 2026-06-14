@@ -16,6 +16,8 @@ import { fmtBytes, fmtCount, fmtDateTime, fmtHumane, zoneLabel } from '../format
 import { profiles } from '../profiles';
 import { viewState } from '../../state';
 import { limitError, parseLimit } from '../config';
+import { prettyJson } from '../recdrawer';
+import { sidecarKey, type SidecarMeta } from '@redthreadlabs/tracelog-schema';
 
 const PAGE_SIZE = 50;
 const MB = 1024 * 1024;
@@ -75,12 +77,14 @@ function readHeap(): PerformanceMemory | null {
 export function renderStoreView(container: HTMLElement): () => void {
   const body = el('div', { className: 'txn-detail-body' });
   const tip = el('div', { className: 'chart-tooltip fixed' });
-  container.append(body, tip);
+  const drawer = el('div', { className: 'drawer' }); // sidecar JSON, opened by a row tap
+  container.append(body, tip, drawer);
 
   let available: ParsedKey[] | null = null; // null = still listing
   let cachedSet = new Set<string>();
   let listError: string | null = null;
   let page = 0;
+  let openSidecar: string | null = null; // key of the file whose sidecar is shown
   const inFlight = new Set<string>();
   // file-listing rollups: a [Rollups] toggle reveals by-interval/channel/host
   // checkboxes; any checked dimension switches the listing to aggregated totals
@@ -418,6 +422,73 @@ export function renderStoreView(container: HTMLElement): () => void {
     }
   }
 
+  /** Open the metadata sidecar for a file in the JSON drawer (tap again to close). */
+  async function showSidecar(parsed: ParsedKey): Promise<void> {
+    if (openSidecar === parsed.key) {
+      closeSidecar();
+      return;
+    }
+    openSidecar = parsed.key;
+    paintSidecar(parsed.key, null, true); // loading
+    render(); // highlight the selected row
+    let meta: SidecarMeta | null = null;
+    try {
+      meta = await storeClient.request<SidecarMeta | null>('getSidecar', { key: parsed.key });
+    } catch {
+      meta = null;
+    }
+    if (openSidecar !== parsed.key) return; // tapped elsewhere meanwhile
+    paintSidecar(parsed.key, meta, false);
+  }
+
+  function closeSidecar(): void {
+    openSidecar = null;
+    paintSidecar(null, null, false);
+    render();
+  }
+
+  function paintSidecar(key: string | null, meta: SidecarMeta | null, loading: boolean): void {
+    clear(drawer);
+    if (!key) {
+      drawer.classList.remove('open');
+      return;
+    }
+    drawer.classList.add('open');
+    const name = key.split('/').pop() ?? key;
+    const head = el('div', { className: 'drawer-head' }, [el('h3', { text: name, title: key })]);
+    if (meta) {
+      head.append(
+        el('button', {
+          className: 'btn btn-quiet',
+          text: 'copy',
+          on: { click: () => void navigator.clipboard.writeText(JSON.stringify(meta, null, 2)) },
+        }),
+      );
+    }
+    head.append(el('button', { className: 'btn btn-quiet', text: '✕', on: { click: closeSidecar } }));
+
+    const bodyEl = el('div', { className: 'drawer-body' }, [
+      el('div', { className: 'drawer-meta' }, [
+        el('span', { className: 'label', text: 'sidecar' }),
+        el('span', { className: 'mono', text: sidecarKey(key).split('/').pop() ?? '' }),
+      ]),
+    ]);
+    if (loading) {
+      bodyEl.append(el('div', { className: 'faint', text: 'reading sidecar…', attrs: { style: 'font-size:12px;padding:4px 0' } }));
+    } else if (!meta) {
+      bodyEl.append(
+        el('div', {
+          className: 'faint',
+          text: 'no metadata sidecar for this file (live snapshots and pre-sidecar files have none)',
+          attrs: { style: 'font-size:12px;padding:4px 0' },
+        }),
+      );
+    } else {
+      bodyEl.append(prettyJson(meta));
+    }
+    drawer.append(head, bodyEl);
+  }
+
   function fileRow(row: FileRow): HTMLElement {
     const loaded = row.total > 0;
     const action = el('button', {
@@ -446,7 +517,10 @@ export function renderStoreView(container: HTMLElement): () => void {
     });
     action.disabled = !!row.loading;
 
-    const tr = el('tr', { className: loaded ? '' : 'evicted-row' }, [
+    const cls = [loaded ? '' : 'evicted-row', openSidecar === row.parsed.key ? 'selected' : '']
+      .filter(Boolean)
+      .join(' ');
+    const tr = el('tr', { className: cls }, [
       el('td', { className: 'mono', text: row.parsed.key, title: row.parsed.key }),
       el('td', {
         className: 'num',
@@ -481,6 +555,7 @@ export function renderStoreView(container: HTMLElement): () => void {
       }),
       el('td', { attrs: { style: 'text-align:right' } }, [action]),
     ]);
+    tr.addEventListener('click', () => void showSidecar(row.parsed));
     return tr;
   }
 

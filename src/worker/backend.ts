@@ -345,6 +345,8 @@ const ops: Record<string, OpHandler> = {
 
   // ---- store inspector ----
   loadOneFile: (s, a) => loadOneFile(s.store, s.bucket, a.file as ParsedKey, s.cacheLimitBytes, s.mem),
+  /** Fetch a file's metadata sidecar (the .meta.json) for the inspector drawer. */
+  getSidecar: (s, a) => s.bucket.getSidecar(a.key as string),
   dropFile: (s, a) => {
     const key = a.key as string;
     s.store.dropFile(key);
