@@ -55,7 +55,10 @@ describe('formatTick — humane labels per level', () => {
   it('labels each level in its own unit', () => {
     expect(formatTick(ms('2026-01-01T00:00:00Z'), 'year', utc, '').text).toBe('2026');
     expect(formatTick(ms('2026-06-01T00:00:00Z'), 'month', utc, '').text).toBe('Jun');
-    expect(formatTick(ms('2026-06-10T14:00:00Z'), 'hour', utc, '').text).toBe('14:00');
+    expect(formatTick(ms('2026-06-10T14:00:00Z'), 'hour', utc, '').text).toBe('2p');
+    expect(formatTick(ms('2026-06-10T00:00:00Z'), 'hour', utc, '').text).toBe('12a');
+    expect(formatTick(ms('2026-06-10T06:00:00Z'), 'hour', utc, '').text).toBe('6a');
+    expect(formatTick(ms('2026-06-10T12:00:00Z'), 'hour', utc, '').text).toBe('12p');
     expect(formatTick(ms('2026-06-10T14:05:00Z'), 'minute', utc, '').text).toBe('14:05');
     expect(formatTick(ms('2026-06-10T14:05:30Z'), 'second', utc, '').text).toBe('14:05:30');
   });

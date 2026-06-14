@@ -64,7 +64,7 @@ const TOP_LABEL_TOP = -14;
 const MIN_BARS = 4; // minor gridline spans at least this many bars
 const MIN_MINOR_PX = 26; // ...and never finer than this on screen
 const MAJOR_MIN_PX = 150; // the coarse anchor lines, comfortably spaced
-const BOTTOM_LABEL_PX = 52; // bottom time labels no closer than this
+const BOTTOM_LABEL_PX = 130; // min spacing for the bottom label cadence
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -382,7 +382,8 @@ export function formatTick(
     case 'day':
       return { text: monthKey === prevMonthKey ? `${Da}` : `${MONTHS[Mo]} ${Da}`, monthKey };
     case 'hour':
-      return { text: `${pad2(H)}:00`, monthKey };
+      // full-hour ticks read more compactly as 12a / 6a / 12p / 6p than HH:00
+      return { text: `${H % 12 === 0 ? 12 : H % 12}${H < 12 ? 'a' : 'p'}`, monthKey };
     case 'minute':
       return { text: `${pad2(H)}:${pad2(Mi)}`, monthKey };
     case 'second':
@@ -480,20 +481,22 @@ export function drawTimeGrid(
   if (major && !isTime(major.level)) drawTop(major, inkSoft);
   if (medium && !isTime(medium.level)) drawTop(medium, inkFaint);
 
-  // ── bottom labels: the running fine times (the medium marks when those are
-  //    sub-day, else minor), thinned for legibility; a mark whose date is
-  //    already up top is skipped so no x carries two labels ──
-  const bottomStep = medium && isTime(medium.level) ? medium : minor;
+  // ── bottom labels: the running fine times. Cadence = the finest nice step
+  //    (≥ the minor grid) that's comfortably spaced — so labels are frequent
+  //    without crowding or collapsing to a single repeated value (e.g. 6h here,
+  //    not the 12h medium that would leave only noons). A mark whose date is
+  //    already up top is skipped so no x carries two labels. ──
+  const minorI = STEPS.indexOf(minor);
+  let bottomI = STEPS.findIndex((s, i) => i >= minorI && (innerW * s.ms) / span >= BOTTOM_LABEL_PX);
+  if (bottomI < 0) bottomI = minorI;
+  const bottomStep = STEPS[bottomI];
   const bottomG = g.append('g').attr('transform', `translate(0,${innerH})`);
-  let lastX = -Infinity;
   let prevB = '';
   for (const t of ticksFor(domain[0], domain[1], bottomStep, utc)) {
     if (topMarks.has(t)) continue;
     const gx = x(new Date(t));
     if (!onScreen(gx)) continue;
-    if (gx - lastX < BOTTOM_LABEL_PX) continue;
-    lastX = gx;
-    const { text, monthKey } = formatTick(t, minor.level, utc, prevB);
+    const { text, monthKey } = formatTick(t, bottomStep.level, utc, prevB);
     prevB = monthKey;
     bottomG
       .append('text')
