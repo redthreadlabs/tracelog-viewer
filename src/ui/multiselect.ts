@@ -74,8 +74,11 @@ export function renderMultiselect(spec: MultiselectSpec): HTMLElement {
     ]),
   );
 
+  // only the option list scrolls — All/None (above) and Cancel/OK (below) stay
+  // anchored, so you can end the interaction without scrolling to the bottom
+  const list = el('div', { className: 'multiselect-list' });
   if (spec.values.length === 0) {
-    pop.append(el('div', { className: 'faint multiselect-empty', text: 'none in range' }));
+    list.append(el('div', { className: 'faint multiselect-empty', text: 'none in range' }));
   }
   for (const v of spec.values) {
     const checkbox = el('input', { attrs: { type: 'checkbox' } });
@@ -88,8 +91,9 @@ export function renderMultiselect(spec: MultiselectSpec): HTMLElement {
       else next.add(v);
       spec.onChange(next);
     });
-    pop.append(row);
+    list.append(row);
   }
+  pop.append(list);
 
   pop.append(
     el('div', { className: 'multiselect-footer' }, [

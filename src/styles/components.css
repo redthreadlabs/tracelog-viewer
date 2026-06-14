@@ -1808,15 +1808,22 @@ th.sortable.on {
   left: 0;
   z-index: 40;
   min-width: 180px;
-  max-height: 320px;
-  overflow-y: auto;
+  max-height: 360px;
   background: var(--surface-raised);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
   padding: 8px;
   display: flex;
   flex-direction: column;
+}
+
+/* the scrolling option list — All/None and Cancel/OK sit outside it, anchored */
+.multiselect-list {
+  display: flex;
+  flex-direction: column;
   gap: 2px;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .multiselect-actions {
