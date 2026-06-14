@@ -463,6 +463,28 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
     start)/bucketMs)` assignment (it would need a boundary array + binary
     search per record). Deferred deliberately: the bounded, self-healing,
     fine-zoom-only drift beats re-introducing per-record search.
+  - **Working-set fulfillment (ghost band)** — one overlay primitive meaning
+    *the working set is unfulfilled in this span*, drawn as a muted band in the
+    chart background. Two flavors: **momentary**, while a fetch is in flight
+    (metadata streaming in on first paint — see §8 prefetch horizon), and
+    **persistent**, while a fetch is *blocked* (over budget — the records can't
+    be loaded). Bar heights stay truthful: where a sidecar gives the exact
+    count we draw the real bars and lay the ghost *behind* them — the counts are
+    real, the underlying records just aren't in memory (you can't drill in
+    here); where we have neither metadata nor records the ghost stands alone
+    (no bars). Three layers: metadata + records → clean bars; metadata only
+    (loading or over budget) → accurate bars + ghost background; neither →
+    ghost only. This is strictly more honest than *blanking* an over-budget
+    interval (which reads as "no traffic") and lands the over-budget signal
+    spatially on the chart, not only in the inspector banner. It coexists with
+    the no-partial-intervals rule rather than fighting it: that rule forbids a
+    *misleadingly short* bar, so the records-only path (sub-hour, no sidecar)
+    still blanks a partial interval — we can't know its true height — while the
+    metadata path shows the true height plus the ghost. **Scoping:** the band
+    means *intended-but-unfulfilled* — it tracks the working set's unmet demand
+    (in-flight + budget-refused), NOT the ordinary absence of records outside
+    the loaded window (records load lazily by window, so most of a long chart
+    has none by design and must stay un-ghosted).
 - **Interaction grammar**: brush horizontally to zoom time (double-click to
   reset); hovering any time-axis chart shows a synced crosshair in the
   others; click-through follows the drilldown chain (overview → transaction
@@ -537,8 +559,25 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
   every file's compressed/decompressed size and per-channel compression
   ratio, OUTLIVING byte eviction — so before a load the worker estimates the
   view's in-memory cost (known sizes by key, ratios for the rest) and, if it
-  exceeds the memory limit, the scanbar offers a guardrail: raise the limit,
-  clamp to the newest files that fit, or cancel.
+  exceeds the memory limit, auto-clamps the load to the newest files that fit
+  and surfaces the over-budget state non-blockingly — an amber banner on the
+  store inspector with a raise-the-limit recommendation, plus (per §7) a
+  persistent ghost band over the intervals it couldn't load; raising the limit
+  or narrowing the range clears it. (No blocking modal — that was removed
+  2026-06-13.)
+- **Metadata prefetch horizon** (sidecars): scanning records every file's
+  *existence* (key/size/etag/interval) from the S3 listing with no per-file
+  GET. A file's sidecar (hourly histogram + exact decompressed size) is
+  hydrated only for intervals *in the operating range*; first paint is bounded
+  to the recent **horizon** (~75 days back from the window end, anchored to the
+  latest interval present) and draws immediately, while the rest of the
+  operating range hydrates in the background, recent-first, riding the existing
+  working-set `progress` signal so the overview re-renders and the ghost band
+  (§7) fills in — momentary, not a separate poll. No cap *within* the operating
+  range: the whole selection loads and is retained (the size ledger is
+  persistent and metadata is tiny). Intervals *outside* the operating range
+  stay existence-only until selected — a yearlong, many-host bucket therefore
+  costs a listing on connect, not 10k+ sidecar GETs.
 - IndexedDB cache (§5) makes every revisit to finalized days free; `ETag`
   equality is the immutability check.
 

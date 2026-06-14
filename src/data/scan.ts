@@ -16,6 +16,36 @@ export const CONCURRENCY = 4;
 const SIDECAR_CONCURRENCY = 8;
 
 /**
+ * How far back the overview eagerly pre-fetches sidecar metadata on first
+ * paint (SPEC §8). Intervals within this horizon of the window end hydrate
+ * before the chart draws; older intervals still in the operating range fill in
+ * the background, recent-first. ~75 days (2.5 months).
+ */
+export const SIDECAR_PREFETCH_HORIZON_MS = 75 * 24 * 3_600_000;
+
+/** Sidecars hydrated per background chunk before re-notifying the UI. */
+const SIDECAR_BG_CHUNK = 48;
+
+/**
+ * Hydrate sidecars for `files` (assumed recent-first) in the background, a
+ * chunk at a time, calling `onChunk` after each so the caller can signal the
+ * UI to re-render and the ghost band to fill in. `keepGoing` is checked
+ * between chunks so a plan/range change aborts a now-stale fill. Already-probed
+ * files are skipped cheaply inside hydrateSidecars (its `sidecarChecked` gate).
+ */
+export async function hydrateSidecarsInBackground(
+  bucket: LogBucket,
+  files: ParsedKey[],
+  onChunk: () => void,
+  keepGoing: () => boolean,
+): Promise<void> {
+  for (let i = 0; i < files.length && keepGoing(); i += SIDECAR_BG_CHUNK) {
+    await hydrateSidecars(bucket, files.slice(i, i + SIDECAR_BG_CHUNK));
+    if (keepGoing()) onChunk();
+  }
+}
+
+/**
  * Populate the size ledger with FACTUAL data from finalized files' sidecars
  * (decompressed bytes, record count, hourly histogram), so the memory-limit
  * estimate is exact rather than ratio-based. Only probes files not already

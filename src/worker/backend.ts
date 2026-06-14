@@ -18,7 +18,13 @@ import type { FileInfo, ScanProgress } from '../data/store';
 import { LogBucket } from '../s3/client';
 import type { Profile } from '../ui/profiles';
 import { planScan, type ScanPlan } from '../s3/scanner';
-import { LoadController, loadOneFile, hydrateSidecars } from '../data/scan';
+import {
+  LoadController,
+  loadOneFile,
+  hydrateSidecars,
+  hydrateSidecarsInBackground,
+  SIDECAR_PREFETCH_HORIZON_MS,
+} from '../data/scan';
 import { LiveUpdater } from '../data/live';
 import { perf, type PerfEntry } from '../data/perf';
 import { cacheKeys, cacheWipeBucket, SEP } from '../data/cache';
@@ -110,6 +116,9 @@ class Session {
   currentWindow: Window = null;
   /** the working-set loader — re-scoped on window change, reset on new plan */
   loader: LoadController;
+  /** the plan a background sidecar fill is currently running for — dedupes
+   *  overlapping fills and lets one abort when the plan changes */
+  private metaFillPlan: ParsedKey[] | null = null;
 
   constructor(profile: Profile) {
     this.bucket = new LogBucket(profile);
@@ -142,6 +151,30 @@ class Session {
   broadcast(ev: 'data' | 'progress'): void {
     const message: Outbound = { ev, snapshot: this.snapshot() };
     for (const port of this.ports) port.postMessage(message);
+  }
+
+  /**
+   * Hydrate the rest of the operating range's sidecars in the background,
+   * recent-first, after the eager (recent-horizon) slice has painted. Each
+   * landed chunk bumps the store so the overview re-renders and the metadata
+   * chart fills in. Deduped per plan; aborts when the plan changes.
+   */
+  startMetaFill(deferred: ParsedKey[]): void {
+    // dedupe: one fill per plan. metaFillPlan stays pinned to the plan even
+    // after it finishes, so the same selection is never re-filled with no-op
+    // chunks; a plan change (new array) is what frees a fresh fill, and also
+    // aborts this one via the keepGoing check.
+    if (deferred.length === 0 || this.metaFillPlan === this.currentPlan) return;
+    const plan = this.currentPlan;
+    this.metaFillPlan = plan;
+    void hydrateSidecarsInBackground(
+      this.bucket,
+      deferred,
+      () => this.store.markChanged(),
+      () => this.currentPlan === plan,
+    ).catch(() => {
+      /* best-effort: a network error just leaves the tail to estimate/retry */
+    });
   }
 }
 
@@ -252,7 +285,30 @@ async function metadataVolume(
   utc: boolean,
 ): Promise<ReturnType<typeof bucketBySidecar>> {
   if (s.currentPlan.length === 0) return null;
-  await hydrateSidecars(s.bucket, s.currentPlan); // one-time per file; cheap after
+  // Bound the blocking first paint: eagerly hydrate only the sidecars the
+  // current view needs — the visible window, but no more than the recency
+  // horizon back from its end (anchored to the latest interval present, so a
+  // dormant bucket still shows its newest slice). The rest of the operating
+  // range hydrates in the background, recent-first (startMetaFill), so a
+  // yearlong selection paints now instead of stalling behind 10k GETs.
+  let latestEnd = 0;
+  let earliestStart = Infinity;
+  for (const f of s.currentPlan) {
+    const span = intervalSpan(f.interval);
+    if (!span) continue;
+    if (span[1] > latestEnd) latestEnd = span[1];
+    if (span[0] < earliestStart) earliestStart = span[0];
+  }
+  const winStart = window ? window[0] : earliestStart;
+  const winEnd = window ? window[1] : latestEnd;
+  const eagerStart = Math.max(winStart, winEnd - SIDECAR_PREFETCH_HORIZON_MS);
+  const eager: ParsedKey[] = [];
+  const deferred: ParsedKey[] = [];
+  for (const f of s.currentPlan) {
+    (overlapsRange(f, eagerStart, winEnd) ? eager : deferred).push(f);
+  }
+  await hydrateSidecars(s.bucket, eager); // one-time per file; cheap after
+  s.startMetaFill(deferred); // fill the rest of the operating range in the background
   const byId = new Map((await ledgerRecords(s.bucket.bucket)).map((r) => [r.id, r]));
   const hists: Record<string, Record<string, number>>[] = [];
   for (const f of s.currentPlan) {

@@ -280,6 +280,17 @@ export class Store extends EventTarget {
     this.progress = { ...this.progress, ...progress };
     this.dispatchEvent(new Event('progress'));
   }
+
+  /**
+   * Signal that chart-relevant metadata changed (sidecars hydrated in the
+   * background) without any record mutation — bump the generation and emit so
+   * subscribers re-render and pick up the new sidecars. Throttled like any
+   * data emit while a scan is running.
+   */
+  markChanged(): void {
+    this.generation++;
+    this.emitData();
+  }
 }
 
 /**
