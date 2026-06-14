@@ -264,15 +264,14 @@ export function renderStoreView(container: HTMLElement): () => void {
     ]);
 
     return el('div', { className: 'store-budget over' }, [
-      el('div', { className: 'store-budget-note' }, [
-        el('strong', { text: 'Over budget. ' }),
-        el('span', {
-          text:
-            'This selection is larger than your memory limit, so you’re seeing the ' +
-            'newest data that fits. Raise the limit to load it all, or narrow the ' +
-            'channels, hosts, or range.',
-        }),
-      ]),
+      el('h2', { className: 'store-budget-title', text: 'Over Budget' }),
+      el('p', {
+        className: 'store-budget-note',
+        text:
+          'This selection is larger than your memory limit, so you’re seeing the ' +
+          'newest data that fits. Raise the limit to load it all, or narrow the ' +
+          'channels, hosts, or range.',
+      }),
       controls,
       err,
     ]);
@@ -281,8 +280,6 @@ export function renderStoreView(container: HTMLElement): () => void {
   function render(): void {
     clear(body);
     body.append(internalsTabs('/internals/store'));
-    const bp = budgetPanel();
-    if (bp) body.append(bp);
     const rows = buildRows();
     page = Math.min(page, maxPage(rows));
 
@@ -315,6 +312,10 @@ export function renderStoreView(container: HTMLElement): () => void {
         totalKindStats(),
       ]),
     );
+
+    // over-budget panel sits below the summary (only shown when over budget)
+    const bp = budgetPanel();
+    if (bp) body.append(bp);
 
     // --- file inventory (optionally rolled up by interval/channel/host) ---
     const activeDims = ROLLUP_DIMS.filter((d) => rollupDims.has(d.key)).map((d) => d.key);

@@ -1873,30 +1873,35 @@ th.sortable.on {
 /* ---------- store inspector: memory/cache budget editor ---------- */
 
 .store-budget {
-  margin: 0 0 16px;
-  padding: 12px 16px 14px;
-  background: var(--surface-raised);
+  margin: 16px 0;
+  padding: 18px 20px 20px;
   border-radius: var(--radius-lg);
 }
 
+/* matches the over-budget pill: filled amber, white text, centered */
 .store-budget.over {
-  border: 1px solid #d97706;
+  background: #d97706;
+  color: #fff;
+  text-align: center;
+}
+
+.store-budget-title {
+  font-style: italic;
+  font-size: 23px;
+  margin: 0 0 6px;
 }
 
 .store-budget-note {
   font-size: 13px;
   line-height: 1.5;
-  color: var(--ink-soft);
-  margin-bottom: 12px;
-}
-
-.store-budget-note strong {
-  color: #d97706;
+  margin: 0 auto 14px;
+  max-width: 56ch;
 }
 
 .budget-controls {
   display: flex;
   align-items: flex-end;
+  justify-content: center;
   flex-wrap: wrap;
   gap: 12px;
 }
@@ -1905,12 +1910,40 @@ th.sortable.on {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  text-align: left;
 }
 
 .budget-field .label {
   font-size: 11px;
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .budget-field .input {
   width: 130px;
+}
+
+/* controls legible on the amber field: outline buttons; primary fills white */
+.store-budget.over .btn {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.55);
+  color: #fff;
+}
+
+.store-budget.over .btn:hover {
+  border-color: #fff;
+}
+
+.store-budget.over .btn-primary {
+  background: #fff;
+  border-color: #fff;
+  color: #b45309;
+}
+
+.store-budget.over .btn-primary:hover {
+  background: #fff;
+  color: #92400e;
+}
+
+.store-budget.over .field-error {
+  color: #fff;
 }
