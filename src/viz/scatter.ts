@@ -18,7 +18,7 @@ import { scaleUtc, scaleTime, scaleLog } from 'd3-scale';
 import { axisLeft } from 'd3-axis';
 import { el, clear } from '../ui/dom';
 import type { Rec } from '../data/types';
-import { fmtDateTime, fmtDuration, isUtcMode } from '../ui/format';
+import { fmtScaleTime, fmtDuration, isUtcMode } from '../ui/format';
 import { logTicks, contentWidth } from './ticks';
 import { drawTimeGrid, drawGhostBand, inGhost, GHOST_FOOTNOTE } from './timegrid';
 import { placeTooltip } from './tooltip';
@@ -282,11 +282,11 @@ export function renderScatter(
       return;
     }
     if (hit === -1) {
-      tooltip.innerHTML = `<div class="t">${fmtDateTime(x.invert(mx).getTime())}</div>${GHOST_FOOTNOTE}`;
+      tooltip.innerHTML = `<div class="t">${fmtScaleTime(x.invert(mx).getTime(), 1000)}</div>${GHOST_FOOTNOTE}`;
     } else {
       const rec = points[hit];
       tooltip.innerHTML =
-        `<div class="t">${fmtDateTime(rec.ts)}</div><span class="row">${rec.result ?? rec.outcome ?? ''}<span class="v">${fmtDuration(rec.duration!)}</span></span>` +
+        `<div class="t">${fmtScaleTime(rec.ts, 1000)}</div><span class="row">${rec.result ?? rec.outcome ?? ''}<span class="v">${fmtDuration(rec.duration!)}</span></span>` +
         (ghosted ? GHOST_FOOTNOTE : '');
     }
     tooltip.style.display = 'block';
