@@ -56,6 +56,11 @@ const STEPS: Step[] = [
 /** Opacity of `--ink` per tier rank — relative, not per calendar unit. */
 const TIER_OPACITY = { minor: 0.08, medium: 0.2, major: 0.35 };
 
+const TOP_LABEL_Y = -6; // baseline of the top (date) labels, in the margin
+// a top-labelled gridline rises to about the cap-top of its label (TOP_LABEL_Y
+// minus the label's cap height) so the line reaches the top of the date text
+const TOP_LABEL_TOP = -14;
+
 const MIN_BARS = 4; // minor gridline spans at least this many bars
 const MIN_MINOR_PX = 26; // ...and never finer than this on screen
 const MAJOR_MIN_PX = 150; // the coarse anchor lines, comfortably spaced
@@ -412,6 +417,14 @@ export function drawTimeGrid(
   const { minor, medium, major } = chooseTiers(domain, innerW, bucketMs, utc);
   const onScreen = (gx: number): boolean => gx >= -0.5 && gx <= innerW + 0.5;
 
+  // marks that get a top (date) label — their gridlines rise into the margin to
+  // meet the label; the rest stop at the plot top
+  const topMarks = new Set<number>();
+  if (major && !isTime(major.level))
+    for (const t of ticksFor(domain[0], domain[1], major, utc)) topMarks.add(t);
+  if (medium && !isTime(medium.level))
+    for (const t of ticksFor(domain[0], domain[1], medium, utc)) topMarks.add(t);
+
   // ── gridlines, weighted by tier rank (coarser tier wins at shared marks) ──
   const tierOf = new Map<number, keyof typeof TIER_OPACITY>();
   for (const t of ticksFor(domain[0], domain[1], minor, utc)) tierOf.set(t, 'minor');
@@ -426,7 +439,7 @@ export function drawTimeGrid(
       .append('line')
       .attr('x1', gx)
       .attr('x2', gx)
-      .attr('y1', 0)
+      .attr('y1', topMarks.has(t) ? TOP_LABEL_TOP : 0)
       .attr('y2', innerH)
       .attr('stroke', ink)
       .attr('stroke-opacity', TIER_OPACITY[tier])
@@ -442,22 +455,22 @@ export function drawTimeGrid(
 
   // ── top labels: the coarse DATE anchor, to the right of its line, grey to
   //    match the line's prominence (major darker, medium lighter) ──
-  const topMarks = new Set<number>();
   const topG = g.append('g');
+  const labelled = new Set<number>(); // dedup a mark that is both major & medium
   const drawTop = (step: Step, color: string): void => {
     let prev = '';
     for (const t of ticksFor(domain[0], domain[1], step, utc)) {
-      if (topMarks.has(t)) continue;
+      if (labelled.has(t)) continue;
       const gx = x(new Date(t));
       if (!onScreen(gx)) continue;
-      topMarks.add(t);
+      labelled.add(t);
       const { text, monthKey } = formatTick(t, step.level, utc, prev);
       prev = monthKey;
       const atRight = gx > innerW - 34;
       topG
         .append('text')
         .attr('x', atRight ? gx - 4 : gx + 4)
-        .attr('y', -6)
+        .attr('y', TOP_LABEL_Y)
         .attr('text-anchor', atRight ? 'end' : 'start')
         .attr('fill', color)
         .style('font', '10.5px var(--font-data)')
