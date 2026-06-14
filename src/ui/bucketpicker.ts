@@ -5,8 +5,7 @@
  * choice still escalates rather than draw thousands of bars — see
  * resolveBucketMs).
  */
-import { el } from './dom';
-import { getParam, setParams } from './hashstate';
+import { getParam } from './hashstate';
 
 export const BUCKET_CHOICES: { token: string; label: string; ms: number | null }[] = [
   { token: 'auto', label: 'auto', ms: null },
@@ -27,18 +26,4 @@ export function chosenBucketMs(): number | null {
 /** Label for an effective width, e.g. to show what "auto" resolved to. */
 export function bucketLabel(ms: number): string {
   return BUCKET_CHOICES.find((c) => c.ms === ms)?.label ?? `${Math.round(ms / 60_000)} min`;
-}
-
-export function renderBucketPicker(onChange: () => void): HTMLElement {
-  const select = el('select', { className: 'select select-pill', title: 'bar width' });
-  const current = getParam('b') ?? 'auto';
-  for (const choice of BUCKET_CHOICES) {
-    select.append(el('option', { text: choice.label, attrs: { value: choice.token } }));
-  }
-  select.value = BUCKET_CHOICES.some((c) => c.token === current) ? current : 'auto';
-  select.addEventListener('change', () => {
-    setParams({ b: select.value === 'auto' ? null : select.value });
-    onChange();
-  });
-  return select;
 }

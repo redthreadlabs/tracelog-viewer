@@ -21,8 +21,8 @@ import { storeClient } from '../data/storeclient';
 import { viewState, resetViewState } from '../state';
 import { fmtBytesRough } from './format';
 import { getParam, setParams, pushParams, setView, rangeFromParams, readHash, RANGE_NAV_EVENT } from './hashstate';
-import { renderBucketPicker } from './bucketpicker';
-import { renderMultiselect } from './multiselect';
+import { BUCKET_CHOICES } from './bucketpicker';
+import { renderChooser } from './chooser';
 import { profiles } from './profiles';
 import { clampByMemory } from '../data/ledger';
 
@@ -192,7 +192,7 @@ export function renderScanbar(container: HTMLElement): void {
   }
 
   /** Open dropdown (one at a time), persisted across re-renders like rangeOpen. */
-  let openPicker: 'channels' | 'hosts' | null = null;
+  let openPicker: 'channels' | 'hosts' | 'bars' | null = null;
   /** the ch/host params when the open picker was opened — so closing it pushes a
    *  single history entry for the whole session (Back undoes it in one step) */
   let pickerSnapshot: { ch: string | null; host: string | null } | null = null;
@@ -620,8 +620,9 @@ export function renderScanbar(container: HTMLElement): void {
   ): HTMLElement {
     const values = [...map.keys()].sort();
     const selected = new Set(values.filter((v) => map.get(v)));
-    return renderMultiselect({
+    return renderChooser({
       label,
+      mode: 'multi',
       values,
       selected,
       open: openPicker === id,
@@ -633,6 +634,38 @@ export function renderScanbar(container: HTMLElement): void {
         // (and the history entry) wait for OK; Cancel/tap-away/Esc revert
         for (const v of map.keys()) map.set(v, sel.has(v));
         pickerDirty = true;
+        render();
+      },
+    });
+  }
+
+  /** The bar-width chooser — single-select: picking a width applies and closes
+   *  immediately (no OK/Cancel). Lives in the `b` hash param like everything. */
+  function bucketChooser(): HTMLElement {
+    const tokens = BUCKET_CHOICES.map((c) => c.token);
+    const current = getParam('b');
+    const value = current && tokens.includes(current) ? current : 'auto';
+    return renderChooser({
+      label: 'Bars',
+      mode: 'single',
+      values: tokens,
+      selected: new Set([value]),
+      open: openPicker === 'bars',
+      labelOf: (t) => BUCKET_CHOICES.find((c) => c.token === t)?.label ?? t,
+      onOpen: () => {
+        if (openPicker === 'channels' || openPicker === 'hosts') cancelPicker();
+        openPicker = 'bars';
+        render();
+      },
+      onChange: (sel) => {
+        const token = [...sel][0] ?? 'auto';
+        openPicker = null;
+        setParams({ b: token === 'auto' ? null : token });
+        render(); // close the popover
+        window.dispatchEvent(new HashChangeEvent('hashchange')); // re-render the chart
+      },
+      onCancel: () => {
+        openPicker = null;
         render();
       },
     });
@@ -668,17 +701,9 @@ export function renderScanbar(container: HTMLElement): void {
     }
     bar.append(dateGroup);
 
-    // bars picker — only on views with a time-bucketed chart
+    // bars chooser — only on views with a time-bucketed chart
     if (BUCKETED_VIEWS.has(readHash().view)) {
-      bar.append(
-        el('div', { className: 'group' }, [
-          el('span', { className: 'label', text: 'Bars' }),
-          renderBucketPicker(() => {
-            // re-render the active view with the new width
-            window.dispatchEvent(new HashChangeEvent('hashchange'));
-          }),
-        ]),
-      );
+      bar.append(bucketChooser());
     }
 
     // right group, left to right: refresh · LIVE · status/MEM

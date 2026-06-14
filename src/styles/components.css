@@ -1794,18 +1794,18 @@ th.sortable.on {
   color: var(--ink-faint);
 }
 
-/* ---------- pill-dropdown multiselect (channel / host filters) ---------- */
+/* ---------- pill-dropdown chooser (channel / host filters) ---------- */
 
-.multiselect-wrap {
+.chooser-wrap {
   position: relative;
 }
 
-.multiselect-pill .caret {
+.chooser-pill .caret {
   font-size: 10px;
   opacity: 0.7;
 }
 
-.multiselect-pop {
+.chooser-pop {
   position: absolute;
   top: calc(100% + 8px);
   left: 0;
@@ -1821,7 +1821,7 @@ th.sortable.on {
 }
 
 /* the scrolling option list — All/None and Cancel/OK sit outside it, anchored */
-.multiselect-list {
+.chooser-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1829,7 +1829,7 @@ th.sortable.on {
   min-height: 0;
 }
 
-.multiselect-actions {
+.chooser-actions {
   display: flex;
   gap: 6px;
   padding: 2px 2px 8px;
@@ -1837,7 +1837,7 @@ th.sortable.on {
   margin-bottom: 4px;
 }
 
-.multiselect-row {
+.chooser-row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1849,22 +1849,22 @@ th.sortable.on {
   user-select: none;
 }
 
-.multiselect-row:hover {
+.chooser-row:hover {
   background: var(--thread-wash);
   color: var(--ink);
 }
 
-.multiselect-row input {
+.chooser-row input {
   accent-color: var(--thread);
   cursor: pointer;
 }
 
-.multiselect-empty {
+.chooser-empty {
   padding: 4px 8px;
   font-size: 12px;
 }
 
-.multiselect-footer {
+.chooser-footer {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
