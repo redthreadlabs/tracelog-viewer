@@ -9,9 +9,10 @@ import { cachedDecompressed, storeFetched, type MemBytes } from './blobs';
 import { recordFetched, enforceCacheLimit, recordSidecarsBatch, ledgerRecords } from './ledger';
 import { SEP } from './cache';
 import type { Store } from './store';
+import type { Rec } from './types';
 import { perf } from './perf';
 
-const CONCURRENCY = 4;
+export const CONCURRENCY = 4;
 const SIDECAR_CONCURRENCY = 8;
 
 /**
@@ -91,6 +92,20 @@ async function fetchAndParse(
 
 type Window = [number, number] | null;
 
+/** One file's loaded result — decompressed records + their byte size. */
+export interface LoadedFile {
+  records: Rec[];
+  byteLength: number;
+  fromCache: boolean;
+}
+
+/**
+ * Fetch + parse + cache one file. Injectable so the working-set orchestration
+ * can be tested deterministically without S3 / IndexedDB; production uses the
+ * default (fetchAndParse), which caches both byte tiers as the bytes land.
+ */
+export type FileLoader = (file: ParsedKey) => Promise<LoadedFile>;
+
 /**
  * The working-set loader (SPEC §7). A *working-set* is the set of files implied
  * by the current selection — the active channels × the selected time-range —
@@ -114,6 +129,7 @@ export class LoadController {
   private epoch = 0; // bumped on reset; stale in-flight results are discarded
   private dirty = false; // records added since the last sort
   private doneScan: ((info: Record<string, unknown>) => void) | null = null;
+  private loadFile: FileLoader;
 
   constructor(
     private store: Store,
@@ -121,7 +137,17 @@ export class LoadController {
     private mem: MemBytes,
     private cacheLimitBytes: number | null,
     private getWindow: () => Window,
-  ) {}
+    loadFile?: FileLoader,
+  ) {
+    this.loadFile =
+      loadFile ??
+      ((file) =>
+        fetchAndParse(this.bucket, file, this.mem).then(({ result, fromCache }) => ({
+          records: result.records,
+          byteLength: result.byteLength,
+          fromCache,
+        })));
+  }
 
   /** New plan (channel/range change): drop the old working set and reload. */
   reset(plan: ParsedKey[]): void {
@@ -174,11 +200,13 @@ export class LoadController {
   private async loadOne(file: ParsedKey, epoch: number): Promise<void> {
     try {
       // Finalized files are immutable: ETag-checked cache hits skip S3 entirely
-      // (SPEC §8). _current snapshots are never cached.
-      const { result, fromCache } = await fetchAndParse(this.bucket, file, this.mem);
+      // (SPEC §8). _current snapshots are never cached. The fetch caches the
+      // bytes as they land, so a completed download is never wasted even if the
+      // epoch moved on (new plan) and we discard its records here.
+      const { records, byteLength, fromCache } = await this.loadFile(file);
       if (epoch === this.epoch) {
-        this.store.registerFile(file, result.byteLength);
-        this.store.addBatch(result.records);
+        this.store.registerFile(file, byteLength);
+        this.store.addBatch(records);
         if (fromCache) this.cached++;
         this.dirty = true;
       }
@@ -233,7 +261,9 @@ export class LoadController {
       bytesDone,
       bytesTotal,
       filesFromCache: this.cached,
-      running: this.active > 0 || this.nextPending() !== null,
+      // a failure stops the loader — don't report "running" for files it will
+      // never pick up (they're unloaded, but the scan has halted)
+      running: !this.failed && (this.active > 0 || this.nextPending() !== null),
       error: this.failed,
     });
   }
