@@ -80,6 +80,9 @@ export function renderRecDrawer(
   if (rec.tzOffset != null) {
     metaRow('client time', `${localWallClock(rec.ts, rec.tzOffset)} (UTC${fmtOffset(rec.tzOffset)})`);
   }
+  // where this line came from: the source log file and its 1-based line number
+  metaRow('file', rec.sourceKey);
+  metaRow('line', String(rec.line + 1));
   metaRow('channel', rec.channel);
   metaRow('host', rec.host);
   metaRow('service', rec.meta.serviceVersion && `${rec.meta.serviceName} ${rec.meta.serviceVersion}`);
