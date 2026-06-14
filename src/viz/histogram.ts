@@ -86,7 +86,7 @@ export function renderHistogram(
       .attr('width', Math.max(bx1 - bx0 - 1, 1))
       .attr('height', innerH - y(bucket.count))
       .attr('fill', barColor)
-      .attr('fill-opacity', 0.8)
+      .attr('fill-opacity', 1)
       .attr('shape-rendering', 'crispEdges')
       .on('mousemove', (event: MouseEvent) => {
         tooltip.innerHTML = `<div class="t">${fmtDuration(bucket.x0)} – ${fmtDuration(bucket.x1)}</div><span class="row">requests<span class="v">${fmtCount(bucket.count)}</span></span>`;

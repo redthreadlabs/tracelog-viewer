@@ -123,7 +123,7 @@ const GHOST_HATCH = {
   token: '--level-warn', // amber, themed; falls back below if unresolved
   fallback: '#f59b1e',
   tile: 10, // px tile → spacing between the diagonal lines (bigger = further apart)
-  width: 2, // line thickness
+  width: 5, // line thickness — half the tile, so stripe and gap are equal
   lineOpacity: 0.2,
   fillOpacity: 0.05, // faint wash between the lines
 };
