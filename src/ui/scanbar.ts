@@ -22,6 +22,7 @@ import { viewState, resetViewState } from '../state';
 import { fmtBytesRough } from './format';
 import { getParam, setParams, setView, parseWindowParam, windowParam, readHash, RANGE_NAV_EVENT } from './hashstate';
 import { renderBucketPicker } from './bucketpicker';
+import { renderMultiselect } from './multiselect';
 import { profiles } from './profiles';
 import { clampByMemory } from '../data/ledger';
 import { openMemoryLimitModal } from './memorymodal';
@@ -159,24 +160,47 @@ export function renderScanbar(container: HTMLElement): void {
   const selectedHosts = () =>
     [...state.hosts.entries()].filter(([, on]) => on).map(([h]) => h);
 
-  // the URL's host filter intent, applied once the candidate hosts are known:
-  // host=a,b narrows; an absent param = all; host= (empty) = none — like `ch`
-  const hostParam = getParam('host');
-  let hostsFromUrl: Set<string> | null =
-    hostParam === null ? null : new Set(hostParam.split(',').filter(Boolean));
+  // the URL's filter intent per picker, applied once the candidate values are
+  // known: ch/host=a,b narrows; an absent param = all; an empty value = none
+  const parseFilterParam = (name: string): Set<string> | null => {
+    const v = getParam(name);
+    return v === null ? null : new Set(v.split(',').filter(Boolean));
+  };
+  let channelsFromUrl = parseFilterParam('ch');
+  let hostsFromUrl = parseFilterParam('host');
 
-  /** Reconcile the host picker against the plan's candidate hosts: keep prior
-   *  toggles, default a newly-seen host on (unless a deep link excludes it),
-   *  and drop hosts no longer present in the channels+range. */
-  function reconcileHosts(allHosts: string[]): void {
-    for (const h of allHosts) {
-      if (!state.hosts.has(h)) state.hosts.set(h, !hostsFromUrl || hostsFromUrl.has(h));
+  /** Reconcile a picker against the candidate values present in the range: keep
+   *  prior toggles, default a newly-seen value on (unless a deep link excludes
+   *  it), and drop values no longer present. */
+  function reconcileFacet(map: Map<string, boolean>, values: string[], fromUrl: Set<string> | null): void {
+    for (const v of values) {
+      if (!map.has(v)) map.set(v, !fromUrl || fromUrl.has(v));
     }
-    for (const h of [...state.hosts.keys()]) {
-      if (!allHosts.includes(h)) state.hosts.delete(h);
+    for (const v of [...map.keys()]) {
+      if (!values.includes(v)) map.delete(v);
     }
-    hostsFromUrl = null; // the URL intent is consumed once applied
   }
+
+  /** Refresh the channel + host candidate sets — the unique values present in
+   *  the range — when the range changes. Guarded so a selection-only replan
+   *  doesn't re-list. */
+  let facetSig: string | null = null;
+  async function ensureFacets(): Promise<void> {
+    const sig = `${state.startMs}-${state.endMs}`;
+    if (sig === facetSig) return;
+    const facets = await storeClient.request<{ channels: string[]; hosts: string[] }>('listFacets', {
+      startMs: state.startMs,
+      endMs: state.endMs,
+    });
+    reconcileFacet(state.channels, facets.channels, channelsFromUrl);
+    reconcileFacet(state.hosts, facets.hosts, hostsFromUrl);
+    channelsFromUrl = null; // deep-link intent consumed after first application
+    hostsFromUrl = null;
+    facetSig = sig;
+  }
+
+  /** Open dropdown (one at a time), persisted across re-renders like rangeOpen. */
+  let openPicker: 'channels' | 'hosts' | null = null;
 
   /** The host filter for planScan: undefined (all) when every candidate is
    *  selected, else the selected subset ([] = none). Before the first plan
@@ -204,20 +228,15 @@ export function renderScanbar(container: HTMLElement): void {
 
   storeClient
     .request<string[]>('listChannels')
-    .then(async (channels) => {
-      // a shared URL's ch=a,b narrows the default all-on selection; an
-      // absent param means all-on, and ch= (empty → []) means none
-      const fromUrl = getParam('ch')?.split(',').filter(Boolean);
-      for (const ch of channels) {
-        state.channels.set(ch, !fromUrl || fromUrl.includes(ch));
-      }
-      // fresh arrival: land on the most recent interval that has data, not
-      // a possibly-empty "today"
+    .then(async (channelNames) => {
+      // fresh arrival: land on the most recent interval that has data, not a
+      // possibly-empty "today". The pickers themselves are populated from the
+      // range's facets by ensureFacets once we have a range.
       if (!rangePinned) {
-        const selected = selectedChannels();
-        const latest = selected.length
-          ? await storeClient.request<string | null>('latestInterval', { channels: selected })
-          : null;
+        const chf = channelsFromUrl;
+        const want = chf ? channelNames.filter((c) => chf.has(c)) : channelNames;
+        const detect = want.length ? want : channelNames;
+        const latest = await storeClient.request<string | null>('latestInterval', { channels: detect });
         const span = latest ? intervalSpan(latest) : null;
         if (span) {
           state.startMs = span[0];
@@ -233,7 +252,16 @@ export function renderScanbar(container: HTMLElement): void {
     });
 
   async function replan(): Promise<void> {
-    const selected = [...state.channels.entries()].filter(([, on]) => on).map(([ch]) => ch);
+    // refresh the channel/host candidate sets for the range first, so the
+    // selection below (and the zero-channels check) sees the reconciled pickers
+    try {
+      await ensureFacets();
+    } catch (err) {
+      state.error = err instanceof Error ? err.message : String(err);
+      render();
+      return;
+    }
+    const selected = selectedChannels();
     state.plan = null;
     state.error = undefined;
     if (selected.length === 0) {
@@ -266,7 +294,6 @@ export function renderScanbar(container: HTMLElement): void {
         endMs: state.endMs,
         hosts: hostFilter(),
       });
-      reconcileHosts(state.plan.allHosts);
     } catch (err) {
       state.error = err instanceof Error ? err.message : String(err);
     }
@@ -524,32 +551,37 @@ export function renderScanbar(container: HTMLElement): void {
     return pop;
   }
 
+  /** A channel/host pill-dropdown over the range's candidate values. */
+  function facetPicker(
+    label: string,
+    id: 'channels' | 'hosts',
+    map: Map<string, boolean>,
+  ): HTMLElement {
+    const values = [...map.keys()].sort();
+    const selected = new Set(values.filter((v) => map.get(v)));
+    return renderMultiselect({
+      label,
+      values,
+      selected,
+      open: openPicker === id,
+      onToggleOpen: () => {
+        openPicker = openPicker === id ? null : id;
+        render();
+      },
+      onChange: (sel) => {
+        for (const v of map.keys()) map.set(v, sel.has(v));
+        void replan();
+      },
+    });
+  }
+
   function render(): void {
     clear(container);
     const bar = el('div', { className: 'scanbar' });
 
-    // channels
-    const channelGroup = el('div', { className: 'group' }, [
-      el('span', { className: 'label', text: 'Channels' }),
-    ]);
-    if (state.channels.size === 0 && !state.error) {
-      channelGroup.append(el('span', { className: 'faint', text: 'discovering…' }));
-    }
-    for (const [ch, on] of state.channels) {
-      channelGroup.append(
-        el('button', {
-          className: on ? 'chip on' : 'chip',
-          text: ch,
-          on: {
-            click: () => {
-              state.channels.set(ch, !on);
-              void replan();
-            },
-          },
-        }),
-      );
-    }
-    bar.append(channelGroup);
+    // channels + hosts: pill-dropdown multiselects over the range's facets
+    bar.append(facetPicker('Channels', 'channels', state.channels));
+    bar.append(facetPicker('Hosts', 'hosts', state.hosts));
 
     // range: one pill, opening a popover with presets + custom datetimes
     const dateGroup = el('div', { className: 'group range-wrap' }, [

@@ -270,6 +270,28 @@ const ops: Record<string, OpHandler> = {
   // ---- scanbar ----
   listChannels: (s) => s.bucket.listChannels(),
   latestInterval: (s, a) => s.bucket.latestInterval(a.channels as string[]),
+  /** The complete unique channel + host sets present in a time range — the
+   *  candidate options for the channel/host pickers (independent of selection). */
+  listFacets: async (s, a) => {
+    const startMs = a.startMs as number;
+    const endMs = a.endMs as number;
+    const channels = await s.bucket.listChannels();
+    const startDate = new Date(startMs).toISOString().slice(0, 10);
+    const endDate = new Date(endMs).toISOString().slice(0, 10);
+    const listings = await Promise.all(channels.map((ch) => s.bucket.listChannelRange(ch, startDate, endDate)));
+    const chSet = new Set<string>();
+    const hostSet = new Set<string>();
+    for (const listing of listings) {
+      for (const obj of listing) {
+        const p = parseKey(obj.key, obj.size, obj.lastModified, obj.etag);
+        if (p && overlapsRange(p, startMs, endMs)) {
+          chSet.add(p.channel);
+          hostSet.add(p.host);
+        }
+      }
+    }
+    return { channels: [...chSet].sort(), hosts: [...hostSet].sort() };
+  },
   planScan: async (s, a) => {
     const plan = await planScan(
       s.bucket,

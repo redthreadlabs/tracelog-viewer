@@ -1770,3 +1770,66 @@ th.sortable.on {
   font-size: 12px;
   color: var(--ink-faint);
 }
+
+/* ---------- pill-dropdown multiselect (channel / host filters) ---------- */
+
+.multiselect-wrap {
+  position: relative;
+}
+
+.multiselect-pill .caret {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.multiselect-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  min-width: 180px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--surface-raised);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.multiselect-actions {
+  display: flex;
+  gap: 6px;
+  padding: 2px 2px 8px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+}
+
+.multiselect-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 5px 8px;
+  border-radius: var(--radius);
+  color: var(--ink-soft);
+  cursor: pointer;
+  user-select: none;
+}
+
+.multiselect-row:hover {
+  background: var(--thread-wash);
+  color: var(--ink);
+}
+
+.multiselect-row input {
+  accent-color: var(--thread);
+  cursor: pointer;
+}
+
+.multiselect-empty {
+  padding: 4px 8px;
+  font-size: 12px;
+}
