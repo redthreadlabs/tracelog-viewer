@@ -65,7 +65,7 @@ export function renderRecordsView(container: HTMLElement): () => void {
       host: filters.host,
       q: filters.search,
       newestFirst: filters.newestFirst,
-      window: viewState.timeWindow,
+      range: viewState.timeRange,
       offset: page * PAGE_SIZE,
       limit: PAGE_SIZE,
     });

@@ -20,7 +20,7 @@ export function renderScannerView(container: HTMLElement): () => void {
     const t = ++token;
     const doneRender = perf.begin('render', '/scanner');
     const stats = await storeClient.request<ScannerStats>('scannerData', {
-      window: viewState.timeWindow,
+      range: viewState.timeRange,
     });
     if (t !== token || !container.isConnected) return;
     clear(body);

@@ -17,7 +17,7 @@ const SIDECAR_CONCURRENCY = 8;
 
 /**
  * How far back the overview eagerly pre-fetches sidecar metadata on first
- * paint (SPEC §8). Intervals within this horizon of the window end hydrate
+ * paint (SPEC §8). Intervals within this horizon of the range end hydrate
  * before the chart draws; older intervals still in the operating range fill in
  * the background, recent-first. ~75 days (2.5 months).
  */
@@ -120,7 +120,7 @@ async function fetchAndParse(
   return { result, fromCache };
 }
 
-type Window = [number, number] | null;
+type TimeRange = [number, number] | null;
 
 /** One file's loaded result — decompressed records + their byte size. */
 export interface LoadedFile {
@@ -139,19 +139,19 @@ export type FileLoader = (file: ParsedKey) => Promise<LoadedFile>;
 /**
  * The working-set loader (SPEC §7). A *working set* is the set of files implied
  * by the current selection — the active channels × the selected time-range —
- * optionally narrowed by a zoom window. The controller continuously pursues
+ * optionally narrowed by a focused range. The controller continuously pursues
  * that set, a few files at a time, appending records as each lands.
  *
- * It is re-scopable: when the window changes (zoom), `resync()` recomputes the
+ * It is re-scopable: when the range changes, `resync()` recomputes the
  * working set and re-pumps. Files no longer in the set are simply never picked
  * (their *pending* loads are cancelled), while in-flight fetches finish and are
  * kept — nothing already loaded is evicted. A channel/range change is a *new
  * plan*: `reset(plan)` clears and reloads from scratch. The load denominator
- * (progress.bytesTotal) tracks the working set, so it shrinks as you zoom in.
+ * (progress.bytesTotal) tracks the working set, so it shrinks as you narrow the range.
  */
 export class LoadController {
   private plan: ParsedKey[] = [];
-  private ws: ParsedKey[] = []; // cached working set (plan ∩ window)
+  private ws: ParsedKey[] = []; // cached working set (plan ∩ range)
   private inFlight = new Set<string>();
   private active = 0;
   private cached = 0; // cumulative cache hits, for the scan detail
@@ -166,7 +166,7 @@ export class LoadController {
     private bucket: LogBucket,
     private mem: MemBytes,
     private cacheLimitBytes: number | null,
-    private getWindow: () => Window,
+    private getRange: () => TimeRange,
     loadFile?: FileLoader,
   ) {
     this.loadFile =
@@ -196,12 +196,12 @@ export class LoadController {
   }
 
   /**
-   * Window changed (zoom), or a load finished: recompute the working set,
+   * Range changed, or a load finished: recompute the working set,
    * update progress, and pump workers toward its unloaded files. Out-of-set
    * pending files are never picked; in-flight ones finish and are kept.
    */
   resync(): void {
-    const w = this.getWindow();
+    const w = this.getRange();
     this.ws = w ? this.plan.filter((f) => overlapsRange(f, w[0], w[1])) : this.plan;
     this.updateProgress();
     this.pump();
@@ -216,7 +216,7 @@ export class LoadController {
 
   private nextPending(): ParsedKey | null {
     // the plan is newest-first, so the first unloaded match is the newest one —
-    // and within a multi-interval window this naturally favours its covering files
+    // and within a multi-interval range this naturally favours its covering files
     for (const f of this.ws) {
       if (!this.store.files.has(f.key) && !this.inFlight.has(f.key)) return f;
     }

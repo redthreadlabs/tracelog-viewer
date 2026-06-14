@@ -9,7 +9,7 @@ import { setUtcMode, isUtcMode } from './format';
 import { profiles } from './profiles';
 import { renderConfig } from './config';
 import { renderScanbar } from './scanbar';
-import { readHash, setView, setParams, parseWindowParam, getParam } from './hashstate';
+import { readHash, setView, setParams, parseRangeParam, getParam } from './hashstate';
 import { viewState, resetViewState } from '../state';
 import { storeClient } from '../data/storeclient';
 import type { Profile } from './profiles';
@@ -235,7 +235,7 @@ export function startApp(root: HTMLElement): void {
   window.addEventListener('hashchange', route);
 
   // restore a shared time window (`w=t0-t1`) on boot
-  viewState.timeWindow = parseWindowParam(getParam('w'));
+  viewState.timeRange = parseRangeParam(getParam('w'));
 
   connect();
   route();

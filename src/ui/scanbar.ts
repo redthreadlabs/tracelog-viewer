@@ -5,7 +5,7 @@
  *
  * Granularity note: S3 files are daily, so the listing/fetch is driven by
  * the UTC *days* covering the range; the time-of-day component narrows the
- * viewed window instead (viewState.timeWindow — the same mechanism as the
+ * viewed window instead (viewState.timeRange — the same mechanism as the
  * chart brush, encoded in the `w` hash param). Quick presets ("15 min")
  * scan the covering day(s) and window down to the precise range.
  *
@@ -20,7 +20,7 @@ import { intervalSpan } from '../s3/keys';
 import { storeClient } from '../data/storeclient';
 import { viewState, resetViewState } from '../state';
 import { fmtBytesRough } from './format';
-import { getParam, setParams, pushParams, setView, parseWindowParam, windowParam, readHash, RANGE_NAV_EVENT } from './hashstate';
+import { getParam, setParams, pushParams, setView, parseRangeParam, rangeParam, readHash, RANGE_NAV_EVENT } from './hashstate';
 import { renderBucketPicker } from './bucketpicker';
 import { renderMultiselect } from './multiselect';
 import { profiles } from './profiles';
@@ -124,7 +124,7 @@ export function renderScanbar(container: HTMLElement): void {
 
   // initial range: a shared URL's precise window wins; else its day params;
   // else today (a placeholder until we auto-detect the latest interval).
-  const sharedWindow = parseWindowParam(getParam('w'));
+  const sharedWindow = parseRangeParam(getParam('w'));
   const fromDay = getParam('from');
   const toDay = getParam('to');
   // a fresh arrival pins no range — that's when we auto-detect the latest
@@ -411,12 +411,12 @@ export function renderScanbar(container: HTMLElement): void {
   /** Narrow (or clear) the viewed time window to match the selected range. */
   function applyWindow(): void {
     if (state.wholeDays) {
-      viewState.timeWindow = null;
+      viewState.timeRange = null;
       setParams({ w: null });
     } else {
-      // sub-day precision: narrow the viewed window, same as a brush
-      viewState.timeWindow = [state.startMs, state.endMs];
-      setParams({ w: windowParam(viewState.timeWindow) });
+      // sub-day precision: narrow the viewed range, same as a chart drag
+      viewState.timeRange = [state.startMs, state.endMs];
+      setParams({ w: rangeParam(viewState.timeRange) });
     }
   }
 
@@ -430,15 +430,15 @@ export function renderScanbar(container: HTMLElement): void {
   /**
    * Re-derive the whole working set from the URL — range AND selection — and
    * reload if anything changed. The browser history IS the navigation stack:
-   * brushing pushes a range entry, closing a picker pushes a selection entry,
-   * and Back/Forward restore prior states (hashchange). All land here, so a
-   * zoom, a filter change, and a history step take the same path.
+   * dragging the chart pushes a range entry, closing a picker pushes a selection
+   * entry, and Back/Forward restore prior states (hashchange). All land here, so
+   * a range change, a filter change, and a history step take the same path.
    */
   async function syncFromUrl(): Promise<void> {
     let changed = false;
 
     // range
-    const w = parseWindowParam(getParam('w'));
+    const w = parseRangeParam(getParam('w'));
     const fromDay = getParam('from');
     const toDay = getParam('to');
     let startMs = state.startMs;
@@ -472,7 +472,7 @@ export function renderScanbar(container: HTMLElement): void {
   /** Actually load a plan (no budget check — runScan gates before this). */
   function executePlan(plan: ScanPlan): void {
     loadedSignature = planSignature(plan);
-    resetViewState(); // a new scan invalidates any brushed window / deep link
+    resetViewState(); // a new scan invalidates any prior range / deep link
     // hand the worker the active window so it loads overlapping files first
     const window = state.wholeDays ? null : [state.startMs, state.endMs];
     void storeClient.request('executeScan', { plan, window });
@@ -810,7 +810,7 @@ export function renderScanbar(container: HTMLElement): void {
     if (!budget || filesTotal === 0) return;
     if (running) {
       // the worker reports the working-set total (channels × range, narrowed by
-      // any zoom window) — so this denominator shrinks when you zoom in
+      // any focused range) — so this denominator shrinks when you narrow the range
       const total = bytesTotal;
       clearEl(budget);
       budget.append(

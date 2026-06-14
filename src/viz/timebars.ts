@@ -1,8 +1,8 @@
 /**
  * Stacked time-series bar chart (SPEC §7 design language): record volume
  * per bucket, stacked by kind in the fixed kind palette. Colors come from
- * CSS tokens at render time — never hard-coded. Brush horizontally to zoom
- * the time window; double-click to reset.
+ * CSS tokens at render time — never hard-coded. Drag horizontally to set the
+ * time range (Back returns to the previous range).
  */
 import { select } from 'd3-selection';
 import { scaleUtc, scaleTime, scaleLinear } from 'd3-scale';
@@ -20,7 +20,7 @@ const HEIGHT = 170;
 const MARGIN = { top: 18, right: 12, bottom: 22, left: 56 };
 
 export interface TimebarsCallbacks {
-  onWindow: (window: [number, number] | null) => void;
+  onRange: (window: [number, number] | null) => void;
 }
 
 export function renderTimebars(
@@ -134,7 +134,7 @@ export function renderTimebars(
       if (!event.selection || !event.sourceEvent) return;
       const [x0, x1] = event.selection as [number, number];
       if (x1 - x0 < 4) return;
-      callbacks.onWindow([x.invert(x0).getTime(), x.invert(x1).getTime()]);
+      callbacks.onRange([x.invert(x0).getTime(), x.invert(x1).getTime()]);
     });
 
   g.append('g')

@@ -96,7 +96,7 @@ export function renderEventsView(container: HTMLElement): () => void {
       user: filters.user,
       q: filters.search,
       newestFirst: filters.newestFirst,
-      window: viewState.timeWindow,
+      range: viewState.timeRange,
       contextWindow: filters.contextWindow,
       offset: page * PAGE_SIZE,
       limit: PAGE_SIZE,

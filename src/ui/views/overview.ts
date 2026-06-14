@@ -10,7 +10,7 @@ import { perf } from '../../data/perf';
 import { sortTxnGroups, type TxnGroup, type TxnSortKey, type BucketResult } from '../../data/aggregate';
 import { renderTimebars } from '../../viz/timebars';
 import { viewState } from '../../state';
-import { pushParams, setView, windowParam, RANGE_NAV_EVENT } from '../hashstate';
+import { pushParams, setView, rangeParam, RANGE_NAV_EVENT } from '../hashstate';
 import { chosenBucketMs, bucketLabel } from '../bucketpicker';
 import { fmtBytes, fmtCount, fmtDuration, isUtcMode } from '../format';
 
@@ -60,15 +60,15 @@ export function renderOverview(container: HTMLElement): () => void {
 
     const t = ++token;
     const doneRender = perf.begin('render', '/overview');
-    const window = viewState.timeWindow;
+    const range = viewState.timeRange;
     const res = await storeClient.request<{
       bucketed: BucketResult;
       fromMetadata: boolean;
       ghostSpans: [number, number][];
       groups: TxnGroup[];
-      inWindow: number;
+      inRange: number;
       markers: unknown;
-    }>('overviewData', { window, bucketMs: chosenBucketMs(), utc: isUtcMode() });
+    }>('overviewData', { range, bucketMs: chosenBucketMs(), utc: isUtcMode() });
     if (t !== token || !container.isConnected) return;
     groups = res.groups;
 
@@ -87,7 +87,7 @@ export function renderOverview(container: HTMLElement): () => void {
     // --- chart head ---
     clear(chartHead);
     chartHead.append(el('span', { className: 'label', text: 'Volume' }));
-    if (!window) {
+    if (!range) {
       chartHead.append(
         el('span', {
           className: 'budget faint',
@@ -115,12 +115,12 @@ export function renderOverview(container: HTMLElement): () => void {
 
     // --- chart ---
     renderTimebars(chartHost, data, {
-      onWindow: (w) => {
+      onRange: (w) => {
         if (!w) return;
         // dragging sets the time range: push a history entry (so Back returns to
         // the previous range) and let the scanbar adopt it + reload that range
-        viewState.timeWindow = w; // optimistic, so the chart doesn't flash the old range
-        pushParams({ w: windowParam(w) });
+        viewState.timeRange = w; // optimistic, so the chart doesn't flash the old range
+        pushParams({ w: rangeParam(w) });
         globalThis.dispatchEvent(new Event(RANGE_NAV_EVENT));
       },
     }, res.ghostSpans);

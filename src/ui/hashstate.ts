@@ -103,7 +103,7 @@ export function getParam(name: string): string | null {
 }
 
 /** `w=t0-t1` ⇄ [t0, t1] */
-export function parseWindowParam(value: string | null): [number, number] | null {
+export function parseRangeParam(value: string | null): [number, number] | null {
   if (!value) return null;
   const match = /^(\d+)-(\d+)$/.exec(value);
   if (!match) return null;
@@ -112,6 +112,6 @@ export function parseWindowParam(value: string | null): [number, number] | null 
   return t1 > t0 ? [t0, t1] : null;
 }
 
-export function windowParam(window: [number, number] | null): string | null {
+export function rangeParam(window: [number, number] | null): string | null {
   return window ? `${Math.round(window[0])}-${Math.round(window[1])}` : null;
 }

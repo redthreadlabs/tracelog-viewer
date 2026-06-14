@@ -5,7 +5,7 @@
  */
 export const viewState = {
   /** [t0, t1] epoch-ms, or null for the full scanned range */
-  timeWindow: null as [number, number] | null,
+  timeRange: null as [number, number] | null,
   /**
    * Set by the scanbar when the selection exceeds the memory budget (it loaded
    * the newest files that fit). `estBytes` is the full selection's estimated
@@ -26,7 +26,7 @@ export const viewState = {
 };
 
 export function resetViewState(): void {
-  viewState.timeWindow = null;
+  viewState.timeRange = null;
   viewState.pendingRecordsSearch = null;
   viewState.userContext = null;
   viewState.pendingEventsUser = null;

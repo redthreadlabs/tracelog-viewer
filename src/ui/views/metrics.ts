@@ -49,7 +49,7 @@ export function renderMetricsView(container: HTMLElement): () => void {
       breakdown: BreakdownResult;
       markers: DeploymentMarker[];
     }>('metricsData', {
-      window: viewState.timeWindow,
+      range: viewState.timeRange,
       bucketMs: chosenBucketMs(),
       sampleNames: SERIES.map((spec) => spec.key),
       utc: isUtcMode(),
@@ -87,7 +87,7 @@ export function renderMetricsView(container: HTMLElement): () => void {
         t1 = Math.max(t1, series[series.length - 1].t);
       }
     }
-    const domain: [number, number] = viewState.timeWindow ?? [t0, t1 === t0 ? t0 + 60_000 : t1];
+    const domain: [number, number] = viewState.timeRange ?? [t0, t1 === t0 ? t0 + 60_000 : t1];
 
     if (markers.length > 0) {
       body.append(

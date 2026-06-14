@@ -46,7 +46,7 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
     const doneRender = perf.begin('render', `/txn/${name}`);
     const stats = await storeClient.request<TxnDetail>('txnDetail', {
       name,
-      window: viewState.timeWindow,
+      range: viewState.timeRange,
     });
     if (t !== token || !container.isConnected) return;
     renderHead();

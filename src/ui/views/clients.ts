@@ -33,7 +33,7 @@ export function renderClientsView(container: HTMLElement): () => void {
       versions: AppVersionStat[];
       slow: Rec[];
       types: EventTypeStat[];
-    }>('clientsData', { window: viewState.timeWindow });
+    }>('clientsData', { range: viewState.timeRange });
     if (t !== token || !container.isConnected) return;
     clear(body);
     const profiles = data.profiles;

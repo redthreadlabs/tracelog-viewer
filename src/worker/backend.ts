@@ -54,7 +54,7 @@ import {
 import { scannerStats } from '../data/scanner-traffic';
 import { recordListing, estimatePlan, ledgerRecords } from '../data/ledger';
 
-type Window = [number, number] | null;
+type TimeRange = [number, number] | null;
 
 /** what every tab can read synchronously between events */
 export interface Snapshot {
@@ -112,10 +112,10 @@ class Session {
    *  by metadata-served charts (may exceed what the loader is loading if the
    *  load was clamped to a memory budget) */
   currentPlan: ParsedKey[] = [];
-  /** the user's focused time window (brush) — narrows the loader's working set
+  /** the user's focused time range (brush) — narrows the loader's working set
    *  so a zoom loads (and reports progress for) only its covering files */
-  currentWindow: Window = null;
-  /** the working-set loader — re-scoped on window change, reset on new plan */
+  currentRange: TimeRange = null;
+  /** the working-set loader — re-scoped on range change, reset on new plan */
   loader: LoadController;
   /** the plan a background sidecar fill is currently running for — dedupes
    *  overlapping fills and lets one abort when the plan changes */
@@ -130,7 +130,7 @@ class Session {
       this.bucket,
       this.mem,
       this.cacheLimitBytes,
-      () => this.currentWindow,
+      () => this.currentRange,
     );
     this.live = new LiveUpdater(this.store, this.bucket, () => this.liveChannels);
     this.store.addEventListener('data', () => this.broadcast('data'));
@@ -250,20 +250,20 @@ function sampleInstances(instances: Rec[]): { rows: Rec[]; sample?: SampleNote }
 const CHART_HOUR_MS = 3_600_000;
 /** Min gap between background-metadata-fill re-render notifications. */
 const META_NOTIFY_MS = 500;
-// Below this window span, the 1h metadata fallback isn't worth it — it'd be one
+// Below this range span, the 1h metadata fallback isn't worth it — it'd be one
 // or two coarse bars over-extending the brush — so go straight to the finer
 // records-based bucket regardless of load state.
 const MIN_METADATA_FALLBACK_MS = 2 * CHART_HOUR_MS;
 
 /**
- * Whether every file overlapping the window is already loaded — so a sub-hour
- * (records-only) chart of that window would be complete, not partial or empty.
+ * Whether every file overlapping the range is already loaded — so a sub-hour
+ * (records-only) chart of that range would be complete, not partial or empty.
  * Used to gate auto-downgrading the bucket below the 1h metadata floor.
  */
-function windowFullyLoaded(s: Session, window: Window): boolean {
-  if (!window) return true;
+function rangeFullyLoaded(s: Session, range: TimeRange): boolean {
+  if (!range) return true;
   for (const f of s.currentPlan) {
-    if (overlapsRange(f, window[0], window[1]) && !s.store.files.has(f.key)) return false;
+    if (overlapsRange(f, range[0], range[1]) && !s.store.files.has(f.key)) return false;
   }
   return true;
 }
@@ -351,20 +351,20 @@ interface MetaVolume {
 
 async function metadataVolume(
   s: Session,
-  window: Window,
+  range: TimeRange,
   bucketMs: number | null,
   utc: boolean,
 ): Promise<MetaVolume | null> {
   if (s.currentPlan.length === 0) return null;
   // Bound the blocking first paint: eagerly hydrate only the sidecars the
-  // current view needs — the visible window, but no more than the recency
+  // current view needs — the visible range, but no more than the recency
   // horizon back from its end (anchored to the latest interval present, so a
   // dormant bucket still shows its newest slice). The rest of the operating
   // range hydrates in the background, recent-first (startMetaFill), so a
   // yearlong selection paints now instead of stalling behind 10k GETs.
   const [earliestStart, latestEnd] = operatingRange(s);
-  const winStart = window ? window[0] : earliestStart;
-  const winEnd = window ? window[1] : latestEnd;
+  const winStart = range ? range[0] : earliestStart;
+  const winEnd = range ? range[1] : latestEnd;
   const eagerStart = Math.max(winStart, winEnd - SIDECAR_PREFETCH_HORIZON_MS);
   const eager: ParsedKey[] = [];
   const deferred: ParsedKey[] = [];
@@ -413,10 +413,10 @@ async function metadataVolume(
   // first paint and bars fill in as the background hydration lands.
   if (hists.length === 0 && unfilledIntervals.length === 0) return null;
 
-  // domain = the intended view (the window, or the whole operating range) so
+  // domain = the intended view (the range, or the whole operating range) so
   // the chart spans the full range and the ghost band has room to render even
   // where no sidecar has landed yet
-  const bucketed = bucketBySidecar(hists, window ?? [earliestStart, latestEnd], bucketMs, utc);
+  const bucketed = bucketBySidecar(hists, range ?? [earliestStart, latestEnd], bucketMs, utc);
   if (!bucketed) return null; // sub-hourly: hourly histograms can't resolve it
   return { bucketed, unfilled: mergeSpans(unfilledIntervals, winStart, winEnd) };
 }
@@ -481,15 +481,8 @@ const ops: Record<string, OpHandler> = {
   executeScan: (s, a) => {
     // a channel/range change is a *new plan*: reset the working-set loader to
     // the executed plan (possibly a memory-clamped subset of the selection)
-    if ('window' in a) s.currentWindow = (a.window as Window) ?? null;
+    if ('range' in a) s.currentRange = (a.range as TimeRange) ?? null;
     s.loader.reset((a.plan as ScanPlan).files);
-  },
-  /** The user zoomed: re-scope the working set so the loader cancels pending
-   *  out-of-window fetches and prioritizes the new window's covering files —
-   *  in-flight loads finish and nothing already loaded is evicted. */
-  setWindow: (s, a) => {
-    s.currentWindow = (a.window as Window) ?? null;
-    s.loader.resync();
   },
   clearStore: (s) => {
     s.currentPlan = [];
@@ -563,24 +556,24 @@ const ops: Record<string, OpHandler> = {
 
   // ---- views ----
   overviewData: async (s, a) => {
-    const window = a.window as Window;
+    const range = a.range as TimeRange;
     let bucketMs = a.bucketMs as number | null;
     const utc = a.utc !== false; // align the bucket grid to the active display zone
     const txns = s.store.kindRecords('transaction');
 
     // Data-aware auto bucketing: a sub-hour bucket can only come from loaded
     // records, so don't *automatically* drop below the 1h metadata floor for a
-    // window whose records aren't all in yet — that would render empty. Hold at
+    // range whose records aren't all in yet — that would render empty. Hold at
     // 1h (complete, from metadata) and let it refine to the finer bucket once
-    // the window's records finish loading. An explicit choice (bucketMs set) is
+    // the range's records finish loading. An explicit choice (bucketMs set) is
     // always honored — the user waits for it the old-fashioned way.
-    if (bucketMs === null && window) {
-      const span = Math.max(window[1] - window[0], 1);
+    if (bucketMs === null && range) {
+      const span = Math.max(range[1] - range[0], 1);
       const natural = chooseBucketMs(span);
       if (
         natural < CHART_HOUR_MS &&
         span >= MIN_METADATA_FALLBACK_MS &&
-        !windowFullyLoaded(s, window)
+        !rangeFullyLoaded(s, range)
       ) {
         bucketMs = CHART_HOUR_MS;
       }
@@ -591,7 +584,7 @@ const ops: Record<string, OpHandler> = {
     // metadata: instant, complete (all selected files), and works even when
     // the records aren't loaded (or are too big to load). Sub-hour buckets
     // fall back to the records path. The transaction table stays records-based.
-    const meta = await metadataVolume(s, window, bucketMs, utc);
+    const meta = await metadataVolume(s, range, bucketMs, utc);
     let bucketed: BucketResult;
     let fromMetadata: boolean;
     // ghostSpans: where the working set is unfulfilled within the view (SPEC
@@ -608,7 +601,7 @@ const ops: Record<string, OpHandler> = {
       // records path: blank any interval still missing files, so a bucket is
       // fully populated or blank — never a misleadingly short partial bar
       bucketed = blankPartialBuckets(
-        bucketByTime(s.store.records, window, bucketMs, utc),
+        bucketByTime(s.store.records, range, bucketMs, utc),
         incompleteSpans(s),
       );
       fromMetadata = false;
@@ -619,9 +612,9 @@ const ops: Record<string, OpHandler> = {
       bucketed,
       fromMetadata,
       ghostSpans,
-      groups: groupTransactions(txns, window),
-      inWindow: (() => {
-        const [lo, hi] = windowBounds(s.store.records, window);
+      groups: groupTransactions(txns, range),
+      inRange: (() => {
+        const [lo, hi] = windowBounds(s.store.records, range);
         return hi - lo;
       })(),
       markers: deploymentMarkers(s.store.records),
@@ -629,16 +622,16 @@ const ops: Record<string, OpHandler> = {
   },
 
   txnDetail: (s, a) => {
-    const window = a.window as Window;
+    const range = a.range as TimeRange;
     const stats = transactionStats(
       s.store.transactionsNamed(a.name as string),
       a.name as string,
-      window,
+      range,
     );
     // the drill-down is records-based, so over-budget intervals (records the
     // budget refused) are simply absent — surface them as the ghost band so
     // the scatter/histogram don't pass off a partial view as complete (SPEC §7)
-    const [lo, hi] = window ?? operatingRange(s);
+    const [lo, hi] = range ?? operatingRange(s);
     const ghostSpans = mergeSpans(budgetRefusedSpans(s), lo, hi);
     const durations = stats.instances
       .map((r) => r.duration)
@@ -673,7 +666,7 @@ const ops: Record<string, OpHandler> = {
     const channel = a.channel as string | null;
     const host = (a.host as string | null) ?? null;
     const q = ((a.q as string) ?? '').toLowerCase();
-    const pool = windowSlice(s.store.records, a.window as Window);
+    const pool = windowSlice(s.store.records, a.range as TimeRange);
     const filtered = pool.filter((r) => {
       if (!kinds.has(r.kind)) return false;
       if (r.kind === 'event' && r.level && !levels.has(r.level)) return false;
@@ -698,10 +691,10 @@ const ops: Record<string, OpHandler> = {
     const channel = a.channel as string | null;
     const user = ((a.user as string) ?? '').trim();
     const q = ((a.q as string) ?? '').toLowerCase();
-    const window = (a.contextWindow as Window) ?? (a.window as Window);
+    const range = (a.contextWindow as TimeRange) ?? (a.range as TimeRange);
     const pool = windowSlice(
       mergeByTime(s.store.kindRecords('event'), s.store.kindRecords('error')),
-      window,
+      range,
     );
     const typeCounts = new Map<string, number>();
     const levelCounts = new Map<string, number>();
@@ -734,32 +727,32 @@ const ops: Record<string, OpHandler> = {
   },
 
   metricsData: (s, a) => {
-    const window = a.window as Window;
+    const range = a.range as TimeRange;
     const utc = a.utc !== false; // align the breakdown bucket grid to the active zone
     const sets = s.store.kindRecords('metricset');
     const series = new Map<string, Map<string, { t: number; v: number }[]>>();
     for (const name of a.sampleNames as string[]) {
-      series.set(name, runtimeSeries(sets, name, window));
+      series.set(name, runtimeSeries(sets, name, range));
     }
     return {
       series,
-      breakdown: breakdownSelfTime(sets, window, a.bucketMs as number | null, utc),
+      breakdown: breakdownSelfTime(sets, range, a.bucketMs as number | null, utc),
       markers: deploymentMarkers(s.store.records),
     };
   },
 
   clientsData: (s, a) => {
-    const window = a.window as Window;
+    const range = a.range as TimeRange;
     const pool = mergeByTime(s.store.kindRecords('event'), s.store.kindRecords('error'));
     return {
-      profiles: clientProfiles(pool, window),
-      versions: appVersions(pool, window),
-      slow: slowClientEvents(pool, window).slice(0, MAX_SLOW_EVENTS),
-      types: clientEventTypes(pool, window),
+      profiles: clientProfiles(pool, range),
+      versions: appVersions(pool, range),
+      slow: slowClientEvents(pool, range).slice(0, MAX_SLOW_EVENTS),
+      types: clientEventTypes(pool, range),
     };
   },
 
-  scannerData: (s, a) => scannerStats(s.store.kindRecords('transaction'), a.window as Window),
+  scannerData: (s, a) => scannerStats(s.store.kindRecords('transaction'), a.range as TimeRange),
 
   /** raw body for the drawer: retained line, cached file, or the bucket */
   rawBody: async (s, a) => {
