@@ -80,7 +80,7 @@ function readHeap(): PerformanceMemory | null {
 }
 
 export function renderStoreView(container: HTMLElement): () => void {
-  const body = el('div', { className: 'txn-detail-body' });
+  const body = el('div', { className: 'txn-detail-body store-body' });
   const tip = el('div', { className: 'chart-tooltip fixed' });
   const drawer = el('div', { className: 'drawer' }); // sidecar JSON, opened by a row tap
   container.append(body, tip, drawer);
@@ -418,7 +418,7 @@ export function renderStoreView(container: HTMLElement): () => void {
         ]),
       );
     }
-    body.append(el('div', { className: 'txn-wrap', attrs: { style: 'flex:none' } }, [table]));
+    body.append(el('div', { className: 'txn-wrap' }, [table])); // flex:1 → fills + scrolls
 
     // pager — windows the flattened item list; "older" pages backward in time
     const pages = maxPage(items.length) + 1;
@@ -426,7 +426,7 @@ export function renderStoreView(container: HTMLElement): () => void {
       const groupCount = items.filter((i) => i.kind === 'header').length;
       const pager = el('div', {
         className: 'pagerbar',
-        attrs: { style: 'margin:0 0 16px;border-radius:var(--radius-lg)' },
+        attrs: { style: 'margin:0;border-radius:var(--radius-lg)' },
       });
       const btn = (text: string, target: number, disabled: boolean) => {
         const b = el('button', {

@@ -1990,3 +1990,20 @@ th.sortable.on {
 .store-files tbody tr.nested td:first-child {
   padding-left: 32px;
 }
+
+/* store inspector: a self-contained viewport panel — top chrome (tabs, summary,
+   group-by) fixed, the file table fills + scrolls, the pager pinned at bottom */
+.txn-detail-body.store-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.store-body > * {
+  flex: none;
+}
+
+.store-body > .txn-wrap {
+  flex: 1;
+  min-height: 0;
+}
