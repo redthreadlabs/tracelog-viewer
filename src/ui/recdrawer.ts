@@ -73,6 +73,12 @@ export function renderRecDrawer(
       el('span', { className: 'mono', text: value }),
     );
   };
+  // lead with where this line came from: the source log file and its 1-based line number
+  metaRow('file', rec.sourceKey);
+  metaRow('line', String(rec.line + 1));
+  metaRow('channel', rec.channel);
+  metaRow('host', rec.host);
+  metaRow('service', rec.meta.serviceVersion && `${rec.meta.serviceName} ${rec.meta.serviceVersion}`);
   metaRow('kind', rec.kind);
   metaRow('time', `${fmtDateTime(rec.ts)} ${zoneLabel()}`);
   // client events carry the device's own UTC offset: show the local wall-clock
@@ -80,12 +86,6 @@ export function renderRecDrawer(
   if (rec.tzOffset != null) {
     metaRow('client time', `${localWallClock(rec.ts, rec.tzOffset)} (UTC${fmtOffset(rec.tzOffset)})`);
   }
-  // where this line came from: the source log file and its 1-based line number
-  metaRow('file', rec.sourceKey);
-  metaRow('line', String(rec.line + 1));
-  metaRow('channel', rec.channel);
-  metaRow('host', rec.host);
-  metaRow('service', rec.meta.serviceVersion && `${rec.meta.serviceName} ${rec.meta.serviceVersion}`);
   metaRow('trace', rec.traceId);
   metaRow('user', rec.userId);
 
