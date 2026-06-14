@@ -271,7 +271,7 @@ export function renderStoreView(container: HTMLElement): () => void {
       el('p', { className: 'store-budget-note' }, [
         el('span', {
           text:
-            'Your working-set is bigger than your memory limit, so your results are ' +
+            'Your working set is bigger than your memory limit, so your results are ' +
             'truncated. Raise your memory limit to ',
         }),
         recLink,
