@@ -33,17 +33,6 @@ const SLOW_MS: Record<PerfCategory, number> = {
   stall: 0, // a stall is slow by definition
 };
 
-/** Chrome's non-standard per-tab JS heap numbers (absent elsewhere). */
-interface PerformanceMemory {
-  usedJSHeapSize: number;
-  totalJSHeapSize: number;
-  jsHeapSizeLimit: number;
-}
-
-function readHeap(): PerformanceMemory | null {
-  const mem = (performance as unknown as { memory?: PerformanceMemory }).memory;
-  return mem && typeof mem.usedJSHeapSize === 'number' ? mem : null;
-}
 
 /** total bytes / total seconds across entries that carried bytes */
 function throughput(entries: PerfEntry[]): string {
@@ -65,7 +54,7 @@ export function renderPerfView(container: HTMLElement): () => void {
 
   let page = 0;
 
-  // --- summary: session ledger | throughput | tab heap ---
+  // --- summary: session ledger | throughput ---
 
   function sgridCol(title: string): { col: HTMLElement; srow: (l: string, v: string) => void } {
     const col = el('div', { className: 'sgrid' });
@@ -82,33 +71,6 @@ export function renderPerfView(container: HTMLElement): () => void {
     };
   }
 
-  const heapCol = el('div', { className: 'sgrid' });
-  function renderMemory(): void {
-    clear(heapCol);
-    const heap = readHeap();
-    heapCol.append(el('div', { className: 'label scol-title', text: 'Tab heap' }));
-    if (!heap) {
-      heapCol.append(
-        el('div', {
-          className: 'faint',
-          text: 'unavailable in this browser (Chromium only)',
-          attrs: { style: 'font-size:12px' },
-        }),
-      );
-      return;
-    }
-    const srow = (label: string, value: string) =>
-      heapCol.append(
-        el('div', { className: 'srow' }, [
-          el('span', { className: 'label', text: label }),
-          el('span', { className: 'num', text: value }),
-        ]),
-      );
-    srow('used', fmtBytes(heap.usedJSHeapSize));
-    srow('allocated', fmtBytes(heap.totalJSHeapSize));
-    srow('of limit', `${Math.round((heap.usedJSHeapSize / heap.jsHeapSizeLimit) * 100)}%`);
-  }
-  const memTimer = setInterval(renderMemory, 2000);
 
   function render(): void {
     clear(body);
@@ -138,14 +100,11 @@ export function renderPerfView(container: HTMLElement): () => void {
     speed.srow('local cache', cacheFetches.length > 0 ? throughput(cacheFetches) : '—');
     speed.srow('parse', parses.length > 0 ? throughput(parses) : '—');
 
-    renderMemory();
     body.append(
       el('div', { className: 'store-summary' }, [
         session.col,
         el('div', { className: 'sdivider' }),
         speed.col,
-        el('div', { className: 'sdivider' }),
-        heapCol,
       ]),
     );
 
@@ -315,7 +274,6 @@ export function renderPerfView(container: HTMLElement): () => void {
   render();
 
   return () => {
-    clearInterval(memTimer);
     perf.removeEventListener('entry', onEntry);
     if (raf) cancelAnimationFrame(raf);
   };
