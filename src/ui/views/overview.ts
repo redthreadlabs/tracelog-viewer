@@ -64,6 +64,7 @@ export function renderOverview(container: HTMLElement): () => void {
     const res = await storeClient.request<{
       bucketed: BucketResult;
       fromMetadata: boolean;
+      ghostSpans: [number, number][];
       groups: TxnGroup[];
       inWindow: number;
       markers: unknown;

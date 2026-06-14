@@ -41,6 +41,7 @@ import {
   transactionStats,
   resultFamily,
   logHistogram,
+  type BucketResult,
 } from '../data/aggregate';
 import { assembleTrace } from '../data/trace';
 import { deploymentMarkers, runtimeSeries, breakdownSelfTime } from '../data/metrics';
@@ -278,12 +279,34 @@ function incompleteSpans(s: Session): [number, number][] {
   return spans;
 }
 
+/** Clip spans to [lo, hi], drop empties, and merge overlapping/adjacent ones. */
+function mergeSpans(spans: [number, number][], lo: number, hi: number): [number, number][] {
+  const clipped = spans
+    .map(([a, b]) => [Math.max(a, lo), Math.min(b, hi)] as [number, number])
+    .filter(([a, b]) => b > a)
+    .sort((x, y) => x[0] - y[0]);
+  const out: [number, number][] = [];
+  for (const [a, b] of clipped) {
+    const last = out[out.length - 1];
+    if (last && a <= last[1]) last[1] = Math.max(last[1], b);
+    else out.push([a, b]);
+  }
+  return out;
+}
+
+/** The volume chart from sidecars, plus the unfilled (ghost) spans within the
+ *  view whose sidecars haven't all been probed yet. */
+interface MetaVolume {
+  bucketed: BucketResult;
+  unfilled: [number, number][];
+}
+
 async function metadataVolume(
   s: Session,
   window: Window,
   bucketMs: number | null,
   utc: boolean,
-): Promise<ReturnType<typeof bucketBySidecar>> {
+): Promise<MetaVolume | null> {
   if (s.currentPlan.length === 0) return null;
   // Bound the blocking first paint: eagerly hydrate only the sidecars the
   // current view needs — the visible window, but no more than the recency
@@ -310,13 +333,48 @@ async function metadataVolume(
   await hydrateSidecars(s.bucket, eager); // one-time per file; cheap after
   s.startMetaFill(deferred); // fill the rest of the operating range in the background
   const byId = new Map((await ledgerRecords(s.bucket.bucket)).map((r) => [r.id, r]));
-  const hists: Record<string, Record<string, number>>[] = [];
+
+  // Group the in-view selection by interval. An interval's bar is drawn only
+  // when ALL its files' sidecars have been probed (sidecarChecked) — a
+  // partially-probed interval would undercount, a misleadingly short bar — so
+  // those become *unfilled* ghost spans (SPEC §7) that fill in as the
+  // background hydration reaches them.
+  const byInterval = new Map<
+    string,
+    { checked: number; total: number; hists: Record<string, Record<string, number>>[] }
+  >();
   for (const f of s.currentPlan) {
-    const h = byId.get(s.bucket.bucket + SEP + f.key)?.intervals;
-    if (h) hists.push(h);
+    if (!overlapsRange(f, winStart, winEnd)) continue; // outside the view
+    const rec = byId.get(s.bucket.bucket + SEP + f.key);
+    const e = byInterval.get(f.interval) ?? { checked: 0, total: 0, hists: [] };
+    e.total++;
+    if (rec?.sidecarChecked) {
+      e.checked++;
+      if (rec.intervals) e.hists.push(rec.intervals);
+    }
+    byInterval.set(f.interval, e);
   }
+
+  const hists: Record<string, Record<string, number>>[] = [];
+  const unfilledIntervals: [number, number][] = [];
+  for (const [interval, e] of byInterval) {
+    if (e.checked === e.total) {
+      hists.push(...e.hists); // fully probed — its bar is accurate
+    } else {
+      const span = intervalSpan(interval);
+      if (span) unfilledIntervals.push(span);
+    }
+  }
+
+  // No histograms yet → fall back to the records path (as before). Once the
+  // eager slice has landed this is non-empty and we serve from metadata.
+  // (Step 3 will instead keep the metadata path here and let the ghost band
+  // cover the whole intended range from first paint.)
   if (hists.length === 0) return null;
-  return bucketBySidecar(hists, window, bucketMs, utc);
+
+  const bucketed = bucketBySidecar(hists, window, bucketMs, utc);
+  if (!bucketed) return null; // sub-hourly: hourly histograms can't resolve it
+  return { bucketed, unfilled: mergeSpans(unfilledIntervals, winStart, winEnd) };
 }
 
 type OpHandler = (session: Session, args: Record<string, unknown>) => Promise<unknown> | unknown;
@@ -489,20 +547,31 @@ const ops: Record<string, OpHandler> = {
     // metadata: instant, complete (all selected files), and works even when
     // the records aren't loaded (or are too big to load). Sub-hour buckets
     // fall back to the records path. The transaction table stays records-based.
-    let bucketed = await metadataVolume(s, window, bucketMs, utc);
-    const fromMetadata = bucketed !== null;
-    if (!bucketed) {
+    const meta = await metadataVolume(s, window, bucketMs, utc);
+    let bucketed: BucketResult;
+    let fromMetadata: boolean;
+    // ghostSpans: where the working set is unfulfilled within the view — the
+    // metadata path's not-yet-probed intervals (SPEC §7). The over-budget
+    // records case folds in here in a later step.
+    let ghostSpans: [number, number][] = [];
+    if (meta) {
+      bucketed = meta.bucketed;
+      fromMetadata = true;
+      ghostSpans = meta.unfilled;
+    } else {
       // records path: blank any interval still missing files, so a bucket is
       // fully populated or blank — never a misleadingly short partial bar
       bucketed = blankPartialBuckets(
         bucketByTime(s.store.records, window, bucketMs, utc),
         incompleteSpans(s),
       );
+      fromMetadata = false;
     }
 
     return {
       bucketed,
       fromMetadata,
+      ghostSpans,
       groups: groupTransactions(txns, window),
       inWindow: (() => {
         const [lo, hi] = windowBounds(s.store.records, window);
