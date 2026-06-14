@@ -143,7 +143,7 @@ export function renderOverview(container: HTMLElement): () => void {
           globalThis.history.back(); // double-click = zoom out one step
         }
       },
-    });
+    }, res.ghostSpans);
 
     renderTable();
     updateSpinners();

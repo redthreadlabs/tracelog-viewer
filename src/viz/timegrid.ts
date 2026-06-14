@@ -116,6 +116,61 @@ export function chooseTiers(
   };
 }
 
+let ghostPatternSeq = 0;
+
+/**
+ * Draw the "unfulfilled working set" overlay (SPEC §7): a muted diagonal-hatch
+ * band over each time span where the working set isn't satisfied — metadata
+ * still streaming in, or (later) records the memory budget refused. Drawn as a
+ * chart-background layer, so call it BEFORE the grid/bars; where a bar is also
+ * drawn the hatch shows behind it (counts real, records absent), and where no
+ * bar exists the hatch stands alone (loading).
+ */
+export function drawGhostBand(
+  g: Selection<SVGGElement, unknown, null, undefined>,
+  x: (d: Date) => number,
+  spans: [number, number][],
+  innerW: number,
+  innerH: number,
+  styles: CSSStyleDeclaration,
+): void {
+  if (spans.length === 0) return;
+  const ink = styles.getPropertyValue('--ink').trim() || '#000';
+  const id = `ghost-hatch-${ghostPatternSeq++}`;
+  const pattern = g
+    .append('defs')
+    .append('pattern')
+    .attr('id', id)
+    .attr('patternUnits', 'userSpaceOnUse')
+    .attr('width', 6)
+    .attr('height', 6)
+    .attr('patternTransform', 'rotate(45)');
+  pattern.append('rect').attr('width', 6).attr('height', 6).attr('fill', ink).attr('fill-opacity', 0.03);
+  pattern
+    .append('line')
+    .attr('x1', 0)
+    .attr('y1', 0)
+    .attr('x2', 0)
+    .attr('y2', 6)
+    .attr('stroke', ink)
+    .attr('stroke-opacity', 0.11)
+    .attr('stroke-width', 1);
+
+  const band = g.append('g').attr('class', 'ghost-band');
+  for (const [a, b] of spans) {
+    const x0 = Math.max(0, x(new Date(a)));
+    const x1 = Math.min(innerW, x(new Date(b)));
+    if (x1 - x0 < 0.5) continue;
+    band
+      .append('rect')
+      .attr('x', x0)
+      .attr('y', 0)
+      .attr('width', x1 - x0)
+      .attr('height', innerH)
+      .attr('fill', `url(#${id})`);
+  }
+}
+
 /** Round `t` down to the start of its step boundary. */
 function startOf(t: number, step: Step, utc: boolean): number {
   const d = new Date(t);

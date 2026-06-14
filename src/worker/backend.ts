@@ -168,14 +168,24 @@ class Session {
     if (deferred.length === 0 || this.metaFillPlan === this.currentPlan) return;
     const plan = this.currentPlan;
     this.metaFillPlan = plan;
-    void hydrateSidecarsInBackground(
-      this.bucket,
-      deferred,
-      () => this.store.markChanged(),
-      () => this.currentPlan === plan,
-    ).catch(() => {
-      /* best-effort: a network error just leaves the tail to estimate/retry */
-    });
+    // Each landed chunk re-renders the overview (which re-reads the ledger), so
+    // throttle the intermediate notifications and always flush once at the end
+    // — the ghost band still fills smoothly without hundreds of ledger scans.
+    let lastNotify = 0;
+    const notify = (): void => {
+      const now = performance.now();
+      if (now - lastNotify >= META_NOTIFY_MS) {
+        lastNotify = now;
+        this.store.markChanged();
+      }
+    };
+    void hydrateSidecarsInBackground(this.bucket, deferred, notify, () => this.currentPlan === plan)
+      .then(() => {
+        if (this.currentPlan === plan) this.store.markChanged(); // final flush
+      })
+      .catch(() => {
+        /* best-effort: a network error just leaves the tail to estimate/retry */
+      });
   }
 }
 
@@ -238,6 +248,8 @@ function sampleInstances(instances: Rec[]): { rows: Rec[]; sample?: SampleNote }
  * sub-hourly) — the caller falls back to bucketByTime over loaded records.
  */
 const CHART_HOUR_MS = 3_600_000;
+/** Min gap between background-metadata-fill re-render notifications. */
+const META_NOTIFY_MS = 500;
 // Below this window span, the 1h metadata fallback isn't worth it — it'd be one
 // or two coarse bars over-extending the brush — so go straight to the finer
 // records-based bucket regardless of load state.
@@ -366,13 +378,16 @@ async function metadataVolume(
     }
   }
 
-  // No histograms yet → fall back to the records path (as before). Once the
-  // eager slice has landed this is non-empty and we serve from metadata.
-  // (Step 3 will instead keep the metadata path here and let the ghost band
-  // cover the whole intended range from first paint.)
-  if (hists.length === 0) return null;
+  // Nothing to show and nothing pending (e.g. a sidecarless bucket) → fall back
+  // to the records path. Otherwise stay on the metadata path even with zero
+  // histograms so far: the ghost band covers the whole intended range from
+  // first paint and bars fill in as the background hydration lands.
+  if (hists.length === 0 && unfilledIntervals.length === 0) return null;
 
-  const bucketed = bucketBySidecar(hists, window, bucketMs, utc);
+  // domain = the intended view (the window, or the whole operating range) so
+  // the chart spans the full range and the ghost band has room to render even
+  // where no sidecar has landed yet
+  const bucketed = bucketBySidecar(hists, window ?? [earliestStart, latestEnd], bucketMs, utc);
   if (!bucketed) return null; // sub-hourly: hourly histograms can't resolve it
   return { bucketed, unfilled: mergeSpans(unfilledIntervals, winStart, winEnd) };
 }

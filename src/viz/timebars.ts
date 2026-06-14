@@ -13,7 +13,7 @@ import { RECORD_KINDS, type RecordKind } from '../data/types';
 import type { BucketResult } from '../data/aggregate';
 import { fmtCount, fmtDateTime, isUtcMode } from '../ui/format';
 import { contentWidth } from './ticks';
-import { drawTimeGrid } from './timegrid';
+import { drawTimeGrid, drawGhostBand } from './timegrid';
 
 const HEIGHT = 170;
 const MARGIN = { top: 18, right: 12, bottom: 22, left: 56 };
@@ -26,6 +26,8 @@ export function renderTimebars(
   container: HTMLElement,
   data: BucketResult,
   callbacks: TimebarsCallbacks,
+  /** spans where the working set is unfulfilled — drawn as the ghost band */
+  ghostSpans: [number, number][] = [],
 ): void {
   clear(container);
   if (data.buckets.length === 0) return;
@@ -54,6 +56,8 @@ export function renderTimebars(
   const maxTotal = Math.max(1, ...data.buckets.map((b) => b.total));
   const y = scaleLinear().domain([0, maxTotal]).nice().range([innerH, 0]);
 
+  // ghost band first (chart background) — where the working set is unfulfilled
+  drawGhostBand(g, x as (d: Date) => number, ghostSpans, innerW, innerH, styles);
   // time axis: background gridlines + humane labels (drawn first, behind bars)
   drawTimeGrid(g, x as (d: Date) => number, data.domain, innerW, innerH, styles, data.bucketMs);
 
