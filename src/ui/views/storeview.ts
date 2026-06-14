@@ -22,16 +22,14 @@ import { sidecarKey, type SidecarMeta } from '@redthreadlabs/tracelog-schema';
 const PAGE_SIZE = 50;
 const MB = 1024 * 1024;
 
-/** Dimensions the file listing can be rolled up by (in display/column order). */
+/** Dimensions the file listing can be grouped by (in display/column order). */
 type RollupDim = 'interval' | 'channel' | 'host';
-const ROLLUP_DIMS: { key: RollupDim; label: string }[] = [
-  { key: 'interval', label: 'by interval' },
-  { key: 'channel', label: 'by channel' },
-  { key: 'host', label: 'by host' },
-];
+const ROLLUP_DIMS: RollupDim[] = ['interval', 'channel', 'host'];
 
 interface RollupGroup {
+  id: string; // stable key for expand/collapse (keyParts joined)
   keyParts: string[];
+  rows: FileRow[]; // member files, in listing order (newest first)
   files: number; // all files in the group (from the listing)
   loaded: number; // files currently in memory
   records: number; // FACTUAL total records (sidecar), all files
@@ -39,6 +37,13 @@ interface RollupGroup {
   decompressed: number; // FACTUAL decompressed bytes (sidecar), all files
   cached: number;
 }
+
+/** A row in the rendered listing: a group header, or a file (under a group, or
+ *  bare in the flat list). The flattened, currently-expanded tree of these is
+ *  what gets paginated. */
+type DisplayItem =
+  | { kind: 'header'; group: RollupGroup }
+  | { kind: 'file'; row: FileRow; group: RollupGroup | null };
 
 /** Factual per-file sizes/records from sidecars, keyed by logical S3 key. */
 type FileFacts = Record<string, { decompressed?: number; records?: number }>;
@@ -86,10 +91,10 @@ export function renderStoreView(container: HTMLElement): () => void {
   let page = 0;
   let openSidecar: string | null = null; // key of the file whose sidecar is shown
   const inFlight = new Set<string>();
-  // file-listing rollups: a [Rollups] toggle reveals by-interval/channel/host
-  // checkboxes; any checked dimension switches the listing to aggregated totals
-  let rollupsOpen = false;
-  const rollupDims = new Set<RollupDim>();
+  // Group-by: pick 0+ of interval/channel/host. None = the flat file list; any
+  // selected groups the listing, with expandable headers that reveal their files.
+  const groupDims = new Set<RollupDim>();
+  const expanded = new Set<string>(); // ids of groups currently expanded
   // factual per-file sizes/records from sidecars (filled after the listing,
   // then the rollups become real instead of estimated)
   let facts: FileFacts = {};
@@ -207,8 +212,8 @@ export function renderStoreView(container: HTMLElement): () => void {
     return new Map(storeClient.snapshot.files.map((f) => [f.key, f]));
   }
 
-  function maxPage(rows: FileRow[]): number {
-    return Math.max(0, Math.ceil(rows.length / PAGE_SIZE) - 1);
+  function maxPage(n: number): number {
+    return Math.max(0, Math.ceil(n / PAGE_SIZE) - 1);
   }
 
   /**
@@ -288,7 +293,6 @@ export function renderStoreView(container: HTMLElement): () => void {
     clear(body);
     body.append(internalsTabs('/internals/store'));
     const rows = buildRows();
-    page = Math.min(page, maxPage(rows));
 
     // --- summary panel: store ledger | heap ledger | kinds ---
     const storeCol = el('div', { className: 'sgrid' });
@@ -324,13 +328,17 @@ export function renderStoreView(container: HTMLElement): () => void {
     const bp = budgetPanel();
     if (bp) body.append(bp);
 
-    // --- file inventory (optionally rolled up by interval/channel/host) ---
-    const activeDims = ROLLUP_DIMS.filter((d) => rollupDims.has(d.key)).map((d) => d.key);
-    const rollupActive = rollupsOpen && activeDims.length > 0;
+    // --- file inventory: flat, or grouped by interval/channel/host with
+    //     expandable headers. Pagination windows the flattened, expanded tree,
+    //     so it's one widget at every group-by setting. ---
+    const dims = activeDims();
+    const items = displayItems(rows);
+    page = Math.min(page, maxPage(items.length));
+
     body.append(
       el('div', { className: 'section-head' }, [
         el('span', { className: 'label', text: 'Files in S3' }),
-        rollupButton(),
+        groupByControl(),
         el('span', { className: 'masthead-spacer' }),
         el('span', {
           className: 'budget faint',
@@ -338,13 +346,12 @@ export function renderStoreView(container: HTMLElement): () => void {
             listError ??
             (available === null
               ? 'listing the bucket…'
-              : rollupActive
-                ? 'rolled up — compressed/decompressed/records are factual for every file (from sidecars); loaded = files currently in memory'
+              : dims.length
+                ? 'tap a group to reveal its files; totals are factual (from sidecars)'
                 : 'newest first — ⌂ = cached locally (free to load); live snapshots are never cached'),
         }),
       ]),
     );
-    if (rollupsOpen) body.append(rollupControls());
 
     if (rows.length === 0) {
       body.append(
@@ -356,20 +363,11 @@ export function renderStoreView(container: HTMLElement): () => void {
       return;
     }
 
-    if (rollupActive) {
-      body.append(
-        el('div', { className: 'txn-wrap', attrs: { style: 'flex:none' } }, [
-          rollupTable(rows, activeDims),
-        ]),
-      );
-      return;
-    }
-
     const table = el('table', { className: 'records txn-table' });
     table.append(
       el('thead', {}, [
         el('tr', {}, [
-          th('file', ''),
+          th(dims.length ? 'group / file' : 'file', ''),
           th('modified', 'width:110px'),
           th('records', 'width:90px;text-align:right'),
           th('kinds', 'width:18%'),
@@ -382,15 +380,50 @@ export function renderStoreView(container: HTMLElement): () => void {
     );
     const tbody = el('tbody');
     const start = page * PAGE_SIZE;
-    for (const row of rows.slice(start, start + PAGE_SIZE)) {
-      tbody.append(fileRow(row));
+    const pageItems = items.slice(start, start + PAGE_SIZE);
+    // contextual header: if the page opens partway through an expanded group,
+    // repeat that group's header (marked "continued") so you keep your bearings
+    const lead = pageItems[0];
+    if (lead && lead.kind === 'file' && lead.group) {
+      tbody.append(groupHeaderRow(lead.group, true));
+    }
+    for (const item of pageItems) {
+      if (item.kind === 'header') {
+        tbody.append(groupHeaderRow(item.group));
+      } else {
+        const tr = fileRow(item.row);
+        if (item.group) tr.classList.add('nested');
+        tbody.append(tr);
+      }
     }
     table.append(tbody);
+
+    // factual grand total across every file (not just this page), when grouped
+    if (dims.length) {
+      const t = grandTotals(rows);
+      const num = (text: string, style = 'text-align:right') =>
+        el('td', { className: 'num', text, attrs: { style } });
+      table.append(
+        el('tfoot', {}, [
+          el('tr', { className: 'rollup-total' }, [
+            el('td', { className: 'label', text: `all · ${fmtCount(t.files)} files` }),
+            el('td', {}),
+            num(t.records > 0 ? fmtCount(t.records) : '—'),
+            el('td', {}),
+            num(fmtBytes(t.compressed)),
+            num(t.decompressed > 0 ? fmtBytes(t.decompressed) : '—'),
+            num(`${fmtCount(t.cached)}/${fmtCount(t.files)}`, 'text-align:center'),
+            num(t.loaded > 0 ? `${fmtCount(t.loaded)}/${fmtCount(t.files)}` : ''),
+          ]),
+        ]),
+      );
+    }
     body.append(el('div', { className: 'txn-wrap', attrs: { style: 'flex:none' } }, [table]));
 
-    // pager — newest first, so "older" pages backward in time
-    const pages = maxPage(rows) + 1;
+    // pager — windows the flattened item list; "older" pages backward in time
+    const pages = maxPage(items.length) + 1;
     if (pages > 1) {
+      const groupCount = items.filter((i) => i.kind === 'header').length;
       const pager = el('div', {
         className: 'pagerbar',
         attrs: { style: 'margin:0 0 16px;border-radius:var(--radius-lg)' },
@@ -409,14 +442,20 @@ export function renderStoreView(container: HTMLElement): () => void {
         b.disabled = disabled;
         return b;
       };
+      const last = maxPage(items.length);
       pager.append(
-        el('span', { className: 'budget', text: `${fmtCount(rows.length)} files` }),
+        el('span', {
+          className: 'budget',
+          text: dims.length
+            ? `${fmtCount(rows.length)} files · ${fmtCount(groupCount)} groups`
+            : `${fmtCount(rows.length)} files`,
+        }),
         el('span', { className: 'masthead-spacer' }),
         btn('⇤', 0, page === 0),
         btn('‹ newer', page - 1, page === 0),
         el('span', { className: 'budget', text: `page ${fmtCount(page + 1)} of ${fmtCount(pages)}` }),
-        btn('older ›', page + 1, page >= maxPage(rows)),
-        btn('⇥', maxPage(rows), page >= maxPage(rows)),
+        btn('older ›', page + 1, page >= last),
+        btn('⇥', last, page >= last),
       );
       body.append(pager);
     }
@@ -613,34 +652,78 @@ export function renderStoreView(container: HTMLElement): () => void {
     return bar;
   }
 
-  // ---------------------------------------------------------------- rollups
-  function rollupButton(): HTMLElement {
-    return el('button', {
-      className: rollupsOpen ? 'btn btn-quiet on' : 'btn btn-quiet',
-      text: 'Rollups',
-      title: 'aggregate the file listing by interval, channel, and/or host',
-      on: {
-        click: () => {
-          rollupsOpen = !rollupsOpen;
-          render();
-        },
-      },
-    });
+  // ----------------------------------------------------------- group-by + tree
+  /** The active group-by dimensions, in display order ([] = flat list). */
+  function activeDims(): RollupDim[] {
+    return ROLLUP_DIMS.filter((d) => groupDims.has(d));
   }
 
-  function rollupControls(): HTMLElement {
-    const wrap = el('div', { className: 'rollup-controls' });
+  /** "Group by:" checkboxes — choosing dimensions turns the flat list into an
+   *  expandable grouped tree. */
+  function groupByControl(): HTMLElement {
+    const wrap = el('div', { className: 'groupby-controls' }, [
+      el('span', { className: 'label', text: 'group by' }),
+    ]);
     for (const d of ROLLUP_DIMS) {
       const cb = el('input', { attrs: { type: 'checkbox' } }) as HTMLInputElement;
-      cb.checked = rollupDims.has(d.key);
+      cb.checked = groupDims.has(d);
       cb.addEventListener('change', () => {
-        if (cb.checked) rollupDims.add(d.key);
-        else rollupDims.delete(d.key);
+        if (cb.checked) groupDims.add(d);
+        else groupDims.delete(d);
+        expanded.clear(); // group ids change → forget which were open
+        page = 0;
         render();
       });
-      wrap.append(el('label', { className: 'rollup-check' }, [cb, el('span', { text: d.label })]));
+      wrap.append(el('label', { className: 'rollup-check' }, [cb, el('span', { text: d })]));
     }
     return wrap;
+  }
+
+  function toggleExpand(id: string): void {
+    if (expanded.has(id)) expanded.delete(id);
+    else expanded.add(id);
+    render();
+  }
+
+  /** Flatten the grouped tree (or the flat list) into the row sequence that gets
+   *  paginated: each group header, followed by its files when expanded. */
+  function displayItems(rows: FileRow[]): DisplayItem[] {
+    const dims = activeDims();
+    if (dims.length === 0) return rows.map((row) => ({ kind: 'file', row, group: null }));
+    const items: DisplayItem[] = [];
+    for (const g of buildRollups(rows, dims)) {
+      items.push({ kind: 'header', group: g });
+      if (expanded.has(g.id)) for (const row of g.rows) items.push({ kind: 'file', row, group: g });
+    }
+    return items;
+  }
+
+  /** A group header row (disclosure + label + aggregate totals), spanning the
+   *  same columns as file rows. `continued` marks the repeated header shown when
+   *  a page begins partway through an expanded group. */
+  function groupHeaderRow(g: RollupGroup, continued = false): HTMLElement {
+    const open = expanded.has(g.id);
+    const num = (text: string, style = 'text-align:right') =>
+      el('td', { className: 'num', text, attrs: { style } });
+    const tr = el('tr', { className: 'rollup-header' }, [
+      el('td', {}, [
+        el('span', { className: 'disclosure', text: open ? '▾' : '▸' }),
+        el('span', { className: 'mono', text: g.keyParts.join(' / ') }),
+        el('span', {
+          className: 'budget faint',
+          text: ` · ${fmtCount(g.files)} file${g.files === 1 ? '' : 's'}${continued ? ' (continued)' : ''}`,
+        }),
+      ]),
+      el('td', {}), // modified
+      num(g.records > 0 ? fmtCount(g.records) : '—'),
+      el('td', {}), // kinds
+      num(fmtBytes(g.compressed)),
+      num(g.decompressed > 0 ? fmtBytes(g.decompressed) : '—'),
+      num(`${fmtCount(g.cached)}/${fmtCount(g.files)}`, 'text-align:center'),
+      num(g.loaded > 0 ? `${fmtCount(g.loaded)}/${fmtCount(g.files)}` : ''),
+    ]);
+    tr.addEventListener('click', () => toggleExpand(g.id));
+    return tr;
   }
 
   function dimValue(p: ParsedKey, d: RollupDim): string {
@@ -651,11 +734,13 @@ export function renderStoreView(container: HTMLElement): () => void {
     const map = new Map<string, RollupGroup>();
     for (const r of rows) {
       const parts = dims.map((d) => dimValue(r.parsed, d));
-      const id = parts.join(' ');
+      const id = JSON.stringify(parts);
       let g = map.get(id);
       if (!g) {
         g = {
+          id,
           keyParts: parts,
+          rows: [],
           files: 0,
           loaded: 0,
           records: 0,
@@ -665,6 +750,7 @@ export function renderStoreView(container: HTMLElement): () => void {
         };
         map.set(id, g);
       }
+      g.rows.push(r);
       g.files++;
       g.compressed += r.parsed.size;
       if (r.cached) g.cached++;
@@ -688,68 +774,10 @@ export function renderStoreView(container: HTMLElement): () => void {
     });
   }
 
-  function rollupTable(rows: FileRow[], dims: RollupDim[]): HTMLElement {
-    const groups = buildRollups(rows, dims);
-    const num = (text: string) =>
-      el('td', { className: 'num', text, attrs: { style: 'text-align:right' } });
-
-    const table = el('table', { className: 'records txn-table' });
-    table.append(
-      el('thead', {}, [
-        el('tr', {}, [
-          ...dims.map((d) => th(d, '')),
-          th('files', 'width:60px;text-align:right'),
-          th('compressed', 'width:100px;text-align:right'),
-          th('decompressed', 'width:110px;text-align:right'),
-          th('records', 'width:90px;text-align:right'),
-          th('loaded', 'width:60px;text-align:right'),
-          th('cached', 'width:70px;text-align:right'),
-        ]),
-      ]),
-    );
-    const tbody = el('tbody');
-    for (const g of groups) {
-      tbody.append(
-        el('tr', {}, [
-          ...g.keyParts.map((v) => el('td', { className: 'mono', text: v })),
-          num(fmtCount(g.files)),
-          num(fmtBytes(g.compressed)),
-          num(g.decompressed > 0 ? fmtBytes(g.decompressed) : '—'),
-          num(g.records > 0 ? fmtCount(g.records) : '—'),
-          num(g.loaded > 0 ? fmtCount(g.loaded) : '—'),
-          num(`${fmtCount(g.cached)}/${fmtCount(g.files)}`),
-        ]),
-      );
-    }
-    table.append(tbody);
-
-    if (groups.length > 1) {
-      const t = groups.reduce(
-        (a, g) => ({
-          files: a.files + g.files,
-          compressed: a.compressed + g.compressed,
-          decompressed: a.decompressed + g.decompressed,
-          records: a.records + g.records,
-          loaded: a.loaded + g.loaded,
-          cached: a.cached + g.cached,
-        }),
-        { files: 0, compressed: 0, decompressed: 0, records: 0, loaded: 0, cached: 0 },
-      );
-      table.append(
-        el('tfoot', {}, [
-          el('tr', { className: 'rollup-total' }, [
-            el('td', { className: 'label', text: 'all', attrs: { colspan: String(dims.length) } }),
-            num(fmtCount(t.files)),
-            num(fmtBytes(t.compressed)),
-            num(t.decompressed > 0 ? fmtBytes(t.decompressed) : '—'),
-            num(t.records > 0 ? fmtCount(t.records) : '—'),
-            num(t.loaded > 0 ? fmtCount(t.loaded) : '—'),
-            num(fmtCount(t.cached)),
-          ]),
-        ]),
-      );
-    }
-    return table;
+  /** Factual grand totals across every file (not just the page) for the tfoot. */
+  function grandTotals(rows: FileRow[]): RollupGroup {
+    const all = buildRollups(rows, []); // one group over everything
+    return all[0] ?? { id: '', keyParts: [], rows: [], files: 0, loaded: 0, records: 0, compressed: 0, decompressed: 0, cached: 0 };
   }
 
   const onData = () => void refreshKindCounts();

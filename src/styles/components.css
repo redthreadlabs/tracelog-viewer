@@ -103,14 +103,6 @@
   border-color: color-mix(in srgb, var(--thread) 45%, var(--line-strong));
 }
 
-/* store inspector: file-listing rollup controls */
-.rollup-controls {
-  display: flex;
-  gap: 20px;
-  align-items: center;
-  padding: 2px 2px 12px;
-}
-
 .rollup-check {
   display: inline-flex;
   align-items: center;
@@ -1953,4 +1945,35 @@ th.sortable.on {
 .store-budget.over .btn-primary:hover:not(:disabled) {
   background: #fff;
   color: #92400e;
+}
+
+/* ---------- store inspector: grouped file tree ---------- */
+
+.groupby-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* group header rows: a tappable disclosure with the group's aggregate totals */
+table.records tbody tr.rollup-header td {
+  font-weight: 600;
+  background: var(--thread-wash);
+  cursor: pointer;
+}
+
+table.records tbody tr.rollup-header:hover td {
+  background: color-mix(in srgb, var(--thread) 14%, var(--surface));
+}
+
+.disclosure {
+  display: inline-block;
+  width: 15px;
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+
+/* files nested under an expanded group: indent the leading cell */
+tr.nested td:first-child {
+  padding-left: 32px;
 }
