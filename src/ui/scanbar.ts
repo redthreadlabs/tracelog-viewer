@@ -754,33 +754,13 @@ export function renderScanbar(container: HTMLElement): void {
 
     container.append(bar);
 
-    // progress thread under the bar
-    const progress = el('div', { className: 'progress-thread' });
-    const fill = el('div', { className: 'fill' });
-    progress.append(fill);
-    container.append(progress);
-    updateFill(fill);
-
     // the loaded pill is part of the render, not just a store-event side
     // effect — otherwise any re-render (route change, range fiddling)
     // leaves the budget span empty until the next data event
     updateLoadedText();
   }
 
-  function updateFill(fill: HTMLElement): void {
-    const { filesTotal, filesDone, running } = storeClient.snapshot.progress;
-    const pct = filesTotal > 0 ? (filesDone / filesTotal) * 100 : 0;
-    fill.style.insetInlineEnd = `${100 - (running || pct > 0 ? pct : 0)}%`;
-    if (!running && pct >= 100) {
-      setTimeout(() => {
-        fill.style.insetInlineEnd = '100%';
-      }, 600);
-    }
-  }
-
   const onProgress = (): void => {
-    const fill = container.querySelector<HTMLElement>('.progress-thread .fill');
-    if (fill) updateFill(fill);
     const btn = container.querySelector<HTMLButtonElement>('.btn-primary');
     if (btn) {
       btn.disabled =

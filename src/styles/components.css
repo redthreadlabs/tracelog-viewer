@@ -5,8 +5,8 @@
   align-items: baseline;
   gap: 16px;
   padding: 18px 28px 14px;
-  /* a clean rule underlining the masthead, matching the scanbar's
-     progress-thread track (.progress-thread) below it */
+  /* a clean grey rule underlining the masthead, matching the scanbar's
+     border-bottom below it */
   border-bottom: 2px solid var(--line);
 }
 
@@ -176,6 +176,8 @@
   flex-wrap: wrap;
   gap: 10px;
   padding: 12px 28px;
+  /* a static grey rule, matching the masthead's underline above */
+  border-bottom: 2px solid var(--line);
 }
 
 .scanbar .group {
@@ -567,20 +569,6 @@ pre.json .b {
 }
 
 /* ---------- progress thread ---------- */
-
-.progress-thread {
-  height: 2px;
-  background: var(--line);
-  position: relative;
-  overflow: hidden;
-}
-
-.progress-thread .fill {
-  position: absolute;
-  inset: 0 100% 0 0;
-  background: var(--thread);
-  transition: inset-inline-end 200ms ease;
-}
 
 /* ---------- masthead nav ---------- */
 
