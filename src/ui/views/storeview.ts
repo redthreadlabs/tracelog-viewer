@@ -271,8 +271,8 @@ export function renderStoreView(container: HTMLElement): () => void {
         ]),
       );
     const loadedRows = allRows.filter((r) => r.total > 0);
-    srow('records', fmtCount(storeClient.snapshot.recordCount));
-    srow('files', `${fmtCount(loadedRows.length)} of ${fmtCount(allRows.length)}`);
+    srow('records in memory', fmtCount(storeClient.snapshot.recordCount));
+    srow('files in memory', `${fmtCount(loadedRows.length)} of ${fmtCount(allRows.length)}`);
     srow(
       'compressed → parsed',
       `${fmtBytes(loadedRows.reduce((s, r) => s + r.parsed.size, 0))} → ${fmtBytes(loadedRows.reduce((s, r) => s + r.sizeUncompressed, 0))}`,
