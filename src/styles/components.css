@@ -1191,24 +1191,14 @@ th.sortable.on {
   border-color: var(--thread-strong);
 }
 
-/* over-budget readout: a caution-amber variant of the store pill */
+/* over-budget readout: a quiet caution-amber outline, filling on hover */
 .store-pill.over-budget {
-  background: #b45309;
+  background: transparent;
   border-color: #b45309;
+  color: #b45309;
 }
 
 .store-pill.over-budget:hover {
-  background: #92400e;
-  border-color: #92400e;
-}
-
-.raise-chip {
-  font-size: 12px;
-  color: #b45309;
-  border-color: #b45309;
-}
-
-.raise-chip:hover {
   background: #b45309;
   border-color: #b45309;
   color: #fff;

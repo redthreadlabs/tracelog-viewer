@@ -529,16 +529,6 @@ export function renderScanbar(container: HTMLElement): void {
     });
   }
 
-  /** Raise the memory limit to fit the whole selection, then reload. Saving the
-   *  profile re-inits the scanbar from the URL (selection preserved), which
-   *  replans at the new limit and loads it all. */
-  function raiseLimitToFit(): void {
-    const p = profiles.active();
-    if (!p || !overBudget) return;
-    const newMb = Math.ceil(overBudget.estBytes / MB);
-    overBudget = null;
-    profiles.save({ ...p, memoryLimitMb: newMb });
-  }
 
   function currentPresetLabel(): string | null {
     const now = Date.now();
@@ -841,20 +831,21 @@ export function renderScanbar(container: HTMLElement): void {
     // so report the decompressed bytes it's holding — a real proxy for it
     const inMemory = snap.files.reduce((s, f) => s + f.sizeUncompressed, 0);
     if (overBudget) {
-      // over budget: we loaded the newest slice that fits — say so, and offer to
-      // raise the limit (narrowing any picker or going Back also resolves it)
-      const pill = storePill(
-        `OVER BUDGET · ${fmtBytesRough(inMemory)} of ~${fmtBytesRough(overBudget.estBytes)}`,
-        'the selection exceeds the memory budget — showing the newest data that fits; narrow a filter, go back, or raise the limit',
-      );
-      pill.classList.add('over-budget');
-      const raise = el('button', {
-        className: 'chip raise-chip',
-        text: `raise to ${Math.ceil(overBudget.estBytes / MB)} MB`,
-        title: 'raise the memory limit to fit the whole selection and reload',
-        on: { click: () => raiseLimitToFit() },
+      // a compact, tappable readout: we loaded the newest slice that fits — tap
+      // to adjust the budget in config (narrowing a filter or Back also resolves)
+      const pill = el('a', {
+        className: 'store-pill over-budget',
+        text: `over budget · ${fmtBytesRough(inMemory)} / ${fmtBytesRough(overBudget.estBytes)}`,
+        title: 'showing the newest data that fits — tap to adjust the memory budget (or narrow a filter / go back)',
+        attrs: { href: '#/config' },
+        on: {
+          click: (e) => {
+            e.preventDefault();
+            setView('/config');
+          },
+        },
       });
-      budget.append(pill, raise);
+      budget.append(pill);
       return;
     }
     budget.append(
