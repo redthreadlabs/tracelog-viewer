@@ -10,9 +10,13 @@
  *
  * Steps (each skippable):
  *   bucket    create (private, public-access-blocked) or adopt
+ *   headers   create/adopt+update a CloudFront response-headers-policy
+ *             carrying the Content-Security-Policy (+ security headers). The
+ *             CSP is report-only by default — pass --csp-enforce to enforce.
  *   distro    adopt --distribution ID, or find by --domain alias, or
  *             create: OAC + CloudFront (apex + wildcard aliases, ACM cert
- *             auto-discovered in us-east-1 unless --cert given)
+ *             auto-discovered in us-east-1 unless --cert given). The headers
+ *             policy is attached to the default cache behavior either way.
  *   dns       UPSERT alias A/AAAA for the domain (+ wildcard) when the
  *             Route53 zone exists in this account
  *   deploy    vite build → upload (immutable assets, fresh index.html) →
@@ -20,8 +24,9 @@
  *
  * Flags: --bucket NAME  --domain HOST  --cert ARN  --distribution ID
  *        --no-wildcard  --skip-infra  --skip-dns  --skip-build
- *        --skip-upload
- * Without --domain, infra stops at the bucket and you front it yourself.
+ *        --skip-upload  --skip-headers  --csp-enforce
+ * Without --domain, infra stops at the bucket and you front it yourself
+ * (the CSP step needs a CloudFront distribution, so it is skipped too).
  */
 import { spawnSync } from 'node:child_process';
 
@@ -37,10 +42,39 @@ const DOMAIN = flag('domain') ?? null;
 const WILDCARD = !has('no-wildcard');
 let DISTRIBUTION = flag('distribution') ?? process.env.DISTRIBUTION_ID ?? null;
 let CERT = flag('cert') ?? null;
+let POLICY_ID = null; // CloudFront response-headers-policy carrying the CSP
 if (!BUCKET) {
   console.error('--bucket is required (the S3 bucket that holds the site)');
   process.exit(1);
 }
+
+/**
+ * The viewer's Content-Security-Policy. The single relaxation is
+ * `style-src 'unsafe-inline'`: the UI sets dynamic inline styles (computed
+ * colors and bar widths) that can't be hashed. `script-src` stays strict
+ * 'self' — the code base has no eval/Function/wasm and no inline scripts — so
+ * the only directive that could enable data exfiltration stays locked.
+ *
+ * The trust guarantee lives in connect-src/default-src/form-action: the page
+ * (and its same-origin worker, which is where the S3 SDK runs) can reach only
+ * this origin and Amazon S3 — the user's own log bucket — and nowhere else.
+ * Adjust `connect-src` if your logs live behind a custom domain or an
+ * S3-compatible endpoint (Cloudflare R2, MinIO, …).
+ */
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "worker-src 'self'",
+  "connect-src 'self' https://*.amazonaws.com",
+  "img-src 'self' data:",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'none'",
+  "frame-src 'none'",
+  "frame-ancestors 'none'",
+].join('; ');
 
 function sh(cmd, args, opts = {}) {
   const res = spawnSync(cmd, args, { encoding: 'utf8', ...opts });
@@ -56,6 +90,72 @@ function aws(args, { json = true, allowFail = false } = {}) {
   return json && res.out ? JSON.parse(res.out) : res.out;
 }
 const step = (msg) => console.log(`\n— ${msg}`);
+const ENFORCE = has('csp-enforce');
+
+// The response-headers-policy config: the CSP rides as a custom header so we
+// can toggle report-only vs. enforced by name (CloudFront's built-in
+// SecurityHeadersConfig.ContentSecurityPolicy can only enforce). The static
+// hardening headers ride alongside it.
+function headersPolicyConfig() {
+  return {
+    Name: `${BUCKET}-headers`,
+    Comment: 'CSP + security headers for the tracelog viewer',
+    SecurityHeadersConfig: {
+      ContentTypeOptions: { Override: true }, // X-Content-Type-Options: nosniff
+      FrameOptions: { FrameOption: 'DENY', Override: true }, // mirrors frame-ancestors 'none'
+      ReferrerPolicy: { ReferrerPolicy: 'same-origin', Override: true }, // no Referer leaks cross-origin
+    },
+    CustomHeadersConfig: {
+      Quantity: 1,
+      Items: [
+        {
+          Header: ENFORCE ? 'Content-Security-Policy' : 'Content-Security-Policy-Report-Only',
+          Value: CSP,
+          Override: true,
+        },
+      ],
+    },
+  };
+}
+
+// Create the policy, or adopt an existing one by name and overwrite it to match
+// this script's intent (so flipping --csp-enforce and re-running just works).
+function ensureHeadersPolicy() {
+  const cfg = headersPolicyConfig();
+  const mode = ENFORCE ? 'enforced' : 'report-only';
+  const items = aws(['cloudfront', 'list-response-headers-policies', '--type', 'custom'])
+    ?.ResponseHeadersPolicyList?.Items ?? [];
+  const hit = items.find((i) => i.ResponseHeadersPolicy?.ResponseHeadersPolicyConfig?.Name === cfg.Name);
+  if (hit) {
+    const id = hit.ResponseHeadersPolicy.Id;
+    const etag = aws(['cloudfront', 'get-response-headers-policy', '--id', id]).ETag;
+    aws(['cloudfront', 'update-response-headers-policy', '--id', id, '--if-match', etag,
+      '--response-headers-policy-config', JSON.stringify(cfg)], { json: false });
+    console.log(`  ${id} — updated (CSP ${mode})`);
+    return id;
+  }
+  const created = aws(['cloudfront', 'create-response-headers-policy',
+    '--response-headers-policy-config', JSON.stringify(cfg)]).ResponseHeadersPolicy;
+  console.log(`  ${created.Id} — created (CSP ${mode})`);
+  return created.Id;
+}
+
+// Point an existing distribution's default cache behavior at the policy. The
+// policy applies to *every* response (not just index.html) on purpose: the
+// SharedWorker runs the S3 SDK, and a worker's fetches are governed by the CSP
+// on its own script response — so the worker .js must carry connect-src too.
+function attachHeadersPolicy(distId, policyId) {
+  const res = aws(['cloudfront', 'get-distribution-config', '--id', distId]);
+  const dc = res.DistributionConfig;
+  if (dc.DefaultCacheBehavior.ResponseHeadersPolicyId === policyId) {
+    console.log('  distribution already references the policy');
+    return;
+  }
+  dc.DefaultCacheBehavior.ResponseHeadersPolicyId = policyId;
+  aws(['cloudfront', 'update-distribution', '--id', distId, '--if-match', res.ETag,
+    '--distribution-config', JSON.stringify(dc)], { json: false });
+  console.log('  attached to distribution (propagating ~5 min)');
+}
 
 // ---------------------------------------------------------------- bucket
 if (!has('skip-infra')) {
@@ -69,6 +169,13 @@ if (!has('skip-infra')) {
       'BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true'], { json: false });
     console.log('  created (private; CloudFront reads via OAC)');
   }
+}
+
+// ------------------------------------------- response-headers-policy (CSP)
+// Created before the distribution so a fresh distribution can reference it.
+if (!has('skip-infra') && !has('skip-headers') && (DOMAIN || DISTRIBUTION)) {
+  step('response-headers-policy (CSP + security headers)');
+  POLICY_ID = ensureHeadersPolicy();
 }
 
 // ---------------------------------------------------- distribution (+ OAC)
@@ -112,6 +219,7 @@ if (!has('skip-infra') && !DISTRIBUTION && DOMAIN) {
         TargetOriginId: 'site', ViewerProtocolPolicy: 'redirect-to-https', Compress: true,
         AllowedMethods: { Quantity: 2, Items: ['GET', 'HEAD'], CachedMethods: { Quantity: 2, Items: ['GET', 'HEAD'] } },
         CachePolicyId: '658327ea-f89d-4fab-a63d-7e88639e58f6',
+        ...(POLICY_ID ? { ResponseHeadersPolicyId: POLICY_ID } : {}),
       },
       CustomErrorResponses: {
         Quantity: 2,
@@ -131,6 +239,15 @@ if (!has('skip-infra') && !DISTRIBUTION && DOMAIN) {
     })], { json: false });
     console.log(`  created ${DISTRIBUTION} → ${dist.DomainName} (global deploy takes ~5 min)`);
   }
+}
+
+// ------------------------------------------- attach headers policy to distro
+// Covers the adopt path (the policy is referenced at create time, but an
+// already-existing distribution — e.g. tracelog.org — must be updated to point
+// at it, and to pick up a report-only → enforce flip on re-run).
+if (!has('skip-infra') && !has('skip-headers') && DISTRIBUTION && POLICY_ID) {
+  step('attach headers policy');
+  attachHeadersPolicy(DISTRIBUTION, POLICY_ID);
 }
 
 // -------------------------------------------------------------------- dns
