@@ -1876,6 +1876,7 @@ th.sortable.on {
 .store-budget.over {
   display: flex;
   align-items: center;
+  justify-content: center;
   flex-wrap: wrap;
   gap: 10px 14px;
   margin: 16px 0;
