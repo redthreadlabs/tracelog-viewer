@@ -706,12 +706,13 @@ pre.json .b {
   margin-bottom: 5px;
 }
 
-/* footnote: hovering a ghost-shaded region (incomplete backing data) */
+/* footnote: hovering a ghost-shaded region (partial backing data) */
 .chart-tooltip .tt-foot {
   margin-top: 5px;
   max-width: 200px;
-  font-size: 10px;
+  font-size: 9px;
   font-style: italic;
+  letter-spacing: 0.05em;
   line-height: 1.35;
   color: var(--level-warn);
 }
