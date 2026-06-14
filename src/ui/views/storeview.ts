@@ -218,79 +218,64 @@ export function renderStoreView(container: HTMLElement): () => void {
     const p = profiles.active();
     const ob = viewState.overBudget;
     if (!p || !ob) return null; // a convenience that surfaces only when over budget
-    const inMemory = storeClient.snapshot.files.reduce((s, f) => s + f.sizeUncompressed, 0);
     const recommendMb = Math.ceil(ob.estBytes / MB);
 
-    const numInput = (value: number | undefined): HTMLInputElement =>
-      el('input', {
-        className: 'input mono',
-        attrs: {
-          type: 'text',
-          inputmode: 'numeric',
-          placeholder: 'blank = no limit',
-          value: value != null ? String(value) : '',
-        },
-      }) as HTMLInputElement;
-    const memInput = numInput(p.memoryLimitMb);
-    const cacheInput = numInput(p.cacheLimitMb);
+    const memInput = el('input', {
+      className: 'input mono',
+      attrs: {
+        type: 'text',
+        inputmode: 'numeric',
+        placeholder: 'blank = no limit',
+        value: p.memoryLimitMb != null ? String(p.memoryLimitMb) : '',
+      },
+    }) as HTMLInputElement;
     const err = el('div', { className: 'field-error' });
 
     const apply = (): void => {
-      const e = limitError(memInput.value) || limitError(cacheInput.value);
+      const e = limitError(memInput.value);
       err.textContent = e;
       if (e) return;
-      profiles.save({
-        ...p,
-        memoryLimitMb: parseLimit(memInput.value),
-        cacheLimitMb: parseLimit(cacheInput.value),
-      });
+      // canonical home is the workspace config; saving re-inits the scanbar
+      // (connect) → replan + reload at the new limit, and this view re-renders
+      // on the reload's data. Only the memory limit is relevant to over-budget.
+      profiles.save({ ...p, memoryLimitMb: parseLimit(memInput.value) });
     };
-    for (const input of [memInput, cacheInput]) {
-      input.addEventListener('keydown', (ev) => {
-        if ((ev as KeyboardEvent).key === 'Enter') apply();
-      });
-    }
-
-    const fieldEl = (label: string, input: HTMLInputElement): HTMLElement =>
-      el('label', { className: 'budget-field' }, [el('span', { className: 'label', text: label }), input]);
+    memInput.addEventListener('keydown', (ev) => {
+      if ((ev as KeyboardEvent).key === 'Enter') apply();
+    });
 
     const controls = el('div', { className: 'budget-controls' }, [
-      fieldEl('memory (MB)', memInput),
-      fieldEl('cache (MB)', cacheInput),
-      ...(recommendMb
-        ? [
-            el('button', {
-              className: 'btn btn-quiet',
-              text: `use ${fmtCount(recommendMb)}`,
-              title: 'fill the memory limit with the amount needed to load the whole selection',
-              on: {
-                click: () => {
-                  memInput.value = String(recommendMb);
-                  err.textContent = '';
-                },
-              },
-            }),
-          ]
-        : []),
+      el('label', { className: 'budget-field' }, [
+        el('span', { className: 'label', text: 'memory limit (MB)' }),
+        memInput,
+      ]),
+      el('button', {
+        className: 'btn btn-quiet',
+        text: `use ${fmtCount(recommendMb)}`,
+        title: `≈ ${fmtBytes(ob.estBytes)} — enough to load the whole selection`,
+        on: {
+          click: () => {
+            memInput.value = String(recommendMb);
+            err.textContent = '';
+          },
+        },
+      }),
       el('button', { className: 'btn btn-primary', text: 'Update', on: { click: apply } }),
     ]);
 
-    const wrap = el('div', { className: 'store-budget over' });
-    wrap.append(
+    return el('div', { className: 'store-budget over' }, [
       el('div', { className: 'store-budget-note' }, [
-        el('strong', { text: 'Over budget — ' }),
+        el('strong', { text: 'Over budget. ' }),
         el('span', {
           text:
-            `showing the newest ${fmtBytes(inMemory)} that fit your ` +
-            `${p.memoryLimitMb ?? '∞'} MB memory limit, of ~${fmtBytes(ob.estBytes)} the current ` +
-            `selection needs. Raise the limit to load it all (≈ ${fmtCount(recommendMb)} MB), ` +
-            `or narrow the channels, hosts, or range.`,
+            'This selection is larger than your memory limit, so you’re seeing the ' +
+            'newest data that fits. Raise the limit to load it all, or narrow the ' +
+            'channels, hosts, or range.',
         }),
       ]),
       controls,
       err,
-    );
-    return wrap;
+    ]);
   }
 
   function render(): void {
