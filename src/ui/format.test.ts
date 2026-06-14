@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { fmtCount, fmtHumane, setUtcMode } from './format';
+import { fmtCount, fmtHumane, setUtcMode, fmtBytesRough } from './format';
+
+describe('fmtBytesRough', () => {
+  it('shows one decimal below 10, whole numbers at 10+', () => {
+    expect(fmtBytesRough(4 * 1024 ** 3)).toBe('4.0 GB');
+    expect(fmtBytesRough(4.6 * 1024 ** 3)).toBe('4.6 GB');
+    expect(fmtBytesRough(12 * 1024 ** 3)).toBe('12 GB');
+    expect(fmtBytesRough(7 * 1024 ** 2)).toBe('7.0 MB');
+    expect(fmtBytesRough(412 * 1024)).toBe('412 KB');
+    expect(fmtBytesRough(512)).toBe('512 B');
+  });
+});
 
 describe('fmtCount', () => {
   it('groups with commas', () => {

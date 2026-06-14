@@ -59,11 +59,16 @@ export function fmtBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
-/** bytes → whole-number units (`1 GB` / `412 KB`) — for at-a-glance readouts */
+/**
+ * bytes → coarse units for at-a-glance readouts (`4.0 GB` / `412 KB`): one
+ * decimal below 10 so a single-digit value never reads as a bare integer,
+ * whole numbers at 10+.
+ */
 export function fmtBytesRough(bytes: number): string {
-  if (bytes >= 1024 * 1024 * 1024) return `${Math.round(bytes / (1024 * 1024 * 1024))} GB`;
-  if (bytes >= 1024 * 1024) return `${Math.round(bytes / (1024 * 1024))} MB`;
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  const unit = (v: number): string => (v < 10 ? v.toFixed(1) : String(Math.round(v)));
+  if (bytes >= 1024 * 1024 * 1024) return `${unit(bytes / (1024 * 1024 * 1024))} GB`;
+  if (bytes >= 1024 * 1024) return `${unit(bytes / (1024 * 1024))} MB`;
+  if (bytes >= 1024) return `${unit(bytes / 1024)} KB`;
   return `${bytes} B`;
 }
 
