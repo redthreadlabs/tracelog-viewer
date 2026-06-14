@@ -219,61 +219,60 @@ export function renderStoreView(container: HTMLElement): () => void {
     const ob = viewState.overBudget;
     if (!p || !ob) return null; // a convenience that surfaces only when over budget
     const recommendMb = Math.ceil(ob.estBytes / MB);
+    const original = p.memoryLimitMb != null ? String(p.memoryLimitMb) : '';
 
+    // memory-limit input with an "MB" affix inside its right edge
     const memInput = el('input', {
-      className: 'input mono',
-      attrs: {
-        type: 'text',
-        inputmode: 'numeric',
-        placeholder: 'blank = no limit',
-        value: p.memoryLimitMb != null ? String(p.memoryLimitMb) : '',
-      },
+      attrs: { type: 'text', inputmode: 'numeric', value: original },
     }) as HTMLInputElement;
-    const err = el('div', { className: 'field-error' });
+    const affix = el('div', { className: 'affix-input' }, [
+      memInput,
+      el('span', { className: 'affix', text: 'MB' }),
+    ]);
 
+    const updateBtn = el('button', { className: 'btn btn-primary', text: 'Update' }) as HTMLButtonElement;
+    const sync = (): void => {
+      // enabled only with a valid value that differs from the saved limit
+      updateBtn.disabled = memInput.value.trim() === original || !!limitError(memInput.value);
+    };
     const apply = (): void => {
-      const e = limitError(memInput.value);
-      err.textContent = e;
-      if (e) return;
-      // canonical home is the workspace config; saving re-inits the scanbar
-      // (connect) → replan + reload at the new limit, and this view re-renders
-      // on the reload's data. Only the memory limit is relevant to over-budget.
+      if (updateBtn.disabled) return;
+      // canonical home is config; saving re-inits the scanbar (connect) →
+      // replan + reload at the new limit; this view re-renders on the reload.
       profiles.save({ ...p, memoryLimitMb: parseLimit(memInput.value) });
     };
+    memInput.addEventListener('input', sync);
     memInput.addEventListener('keydown', (ev) => {
       if ((ev as KeyboardEvent).key === 'Enter') apply();
     });
+    updateBtn.addEventListener('click', apply);
+    sync(); // starts disabled (input equals the current limit)
 
-    const controls = el('div', { className: 'budget-controls' }, [
-      el('label', { className: 'budget-field' }, [
-        el('span', { className: 'label', text: 'memory limit (MB)' }),
-        memInput,
-      ]),
-      el('button', {
-        className: 'btn btn-quiet',
-        text: `use ${fmtCount(recommendMb)}`,
-        title: `≈ ${fmtBytes(ob.estBytes)} — enough to load the whole selection`,
-        on: {
-          click: () => {
-            memInput.value = String(recommendMb);
-            err.textContent = '';
-          },
+    // the recommended limit lives inline in the prose as a link that fills the field
+    const recLink = el('a', {
+      className: 'budget-rec-link',
+      text: `${fmtCount(recommendMb)} MB`,
+      title: `≈ ${fmtBytes(ob.estBytes)} — enough to load the whole selection`,
+      attrs: { href: '#' },
+      on: {
+        click: (e) => {
+          e.preventDefault();
+          memInput.value = String(recommendMb);
+          sync();
+          memInput.focus();
         },
-      }),
-      el('button', { className: 'btn btn-primary', text: 'Update', on: { click: apply } }),
-    ]);
+      },
+    });
 
     return el('div', { className: 'store-budget over' }, [
       el('h2', { className: 'store-budget-title', text: 'Over Budget' }),
-      el('p', {
-        className: 'store-budget-note',
-        text:
-          'This selection is larger than your memory limit, so you’re seeing the ' +
-          'newest data that fits. Raise the limit to load it all, or narrow the ' +
-          'channels, hosts, or range.',
-      }),
-      controls,
-      err,
+      affix,
+      updateBtn,
+      el('p', { className: 'store-budget-note' }, [
+        el('span', { text: 'Showing the newest data that fits your memory limit. Raise it to ' }),
+        recLink,
+        el('span', { text: ' to load the whole selection, or narrow the channels, hosts, or range.' }),
+      ]),
     ]);
   }
 
