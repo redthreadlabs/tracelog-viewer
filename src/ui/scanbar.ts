@@ -30,6 +30,9 @@ const MB = 1024 * 1024;
 
 interface ScanbarState {
   channels: Map<string, boolean>;
+  /** host filter, parallel to channels — discovered per channels+range from
+   *  plan.allHosts, reconciled on each replan (the picker UI lands later) */
+  hosts: Map<string, boolean>;
   /** the selected range, epoch-ms (end may be "now" for quick presets) */
   startMs: number;
   endMs: number;
@@ -130,6 +133,7 @@ export function renderScanbar(container: HTMLElement): void {
   const state: ScanbarState = sharedWindow
     ? {
         channels: new Map(),
+        hosts: new Map(),
         startMs: sharedWindow[0],
         endMs: sharedWindow[1],
         wholeDays: false,
@@ -140,6 +144,7 @@ export function renderScanbar(container: HTMLElement): void {
       }
     : {
         channels: new Map(),
+        hosts: new Map(),
         startMs: fromDay ? Date.parse(`${fromDay}T00:00:00Z`) : utcDayStart(0),
         endMs: toDay ? Date.parse(`${toDay}T00:00:00Z`) + DAY_MS - 1 : Date.now(),
         wholeDays: true,
@@ -151,6 +156,43 @@ export function renderScanbar(container: HTMLElement): void {
 
   const selectedChannels = () =>
     [...state.channels.entries()].filter(([, on]) => on).map(([ch]) => ch);
+  const selectedHosts = () =>
+    [...state.hosts.entries()].filter(([, on]) => on).map(([h]) => h);
+
+  // the URL's host filter intent, applied once the candidate hosts are known:
+  // host=a,b narrows; an absent param = all; host= (empty) = none — like `ch`
+  const hostParam = getParam('host');
+  let hostsFromUrl: Set<string> | null =
+    hostParam === null ? null : new Set(hostParam.split(',').filter(Boolean));
+
+  /** Reconcile the host picker against the plan's candidate hosts: keep prior
+   *  toggles, default a newly-seen host on (unless a deep link excludes it),
+   *  and drop hosts no longer present in the channels+range. */
+  function reconcileHosts(allHosts: string[]): void {
+    for (const h of allHosts) {
+      if (!state.hosts.has(h)) state.hosts.set(h, !hostsFromUrl || hostsFromUrl.has(h));
+    }
+    for (const h of [...state.hosts.keys()]) {
+      if (!allHosts.includes(h)) state.hosts.delete(h);
+    }
+    hostsFromUrl = null; // the URL intent is consumed once applied
+  }
+
+  /** The host filter for planScan: undefined (all) when every candidate is
+   *  selected, else the selected subset ([] = none). Before the first plan
+   *  populates the picker, honor the deep-link intent. */
+  function hostFilter(): string[] | undefined {
+    if (state.hosts.size === 0) return hostsFromUrl ? [...hostsFromUrl] : undefined;
+    const sel = selectedHosts();
+    return sel.length === state.hosts.size ? undefined : sel;
+  }
+
+  /** The `host=` URL param mirroring the selection: null (omit) when all on. */
+  function hostUrlParam(): string | null {
+    if (state.hosts.size === 0) return hostsFromUrl ? [...hostsFromUrl].join(',') : null;
+    const sel = selectedHosts();
+    return sel.length === state.hosts.size ? null : sel.join(',');
+  }
 
   // identity of the currently loaded plan, so range fiddling that resolves
   // to the same data doesn't reload, and new data auto-loads at most once
@@ -212,6 +254,7 @@ export function renderScanbar(container: HTMLElement): void {
     state.planning = true;
     setParams({
       ch: selected.length === state.channels.size ? null : selected.join(','),
+      host: hostUrlParam(),
       from: utcDayOf(state.startMs),
       to: utcDayOf(state.endMs),
     });
@@ -221,7 +264,9 @@ export function renderScanbar(container: HTMLElement): void {
         channels: selected,
         startMs: state.startMs,
         endMs: state.endMs,
+        hosts: hostFilter(),
       });
+      reconcileHosts(state.plan.allHosts);
     } catch (err) {
       state.error = err instanceof Error ? err.message : String(err);
     }
@@ -364,6 +409,7 @@ export function renderScanbar(container: HTMLElement): void {
           files,
           totalBytes: files.reduce((sum, f) => sum + f.size, 0),
           hosts: [...new Set(files.map((f) => f.host))].sort(),
+          allHosts: plan.allHosts, // the candidate set is unchanged by clamping
           channels: [...new Set(files.map((f) => f.channel))].sort(),
         });
       },

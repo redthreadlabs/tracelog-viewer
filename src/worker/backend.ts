@@ -271,7 +271,13 @@ const ops: Record<string, OpHandler> = {
   listChannels: (s) => s.bucket.listChannels(),
   latestInterval: (s, a) => s.bucket.latestInterval(a.channels as string[]),
   planScan: async (s, a) => {
-    const plan = await planScan(s.bucket, a.channels as string[], a.startMs as number, a.endMs as number);
+    const plan = await planScan(
+      s.bucket,
+      a.channels as string[],
+      a.startMs as number,
+      a.endMs as number,
+      a.hosts as string[] | undefined,
+    );
     s.currentPlan = plan.files; // the active selection — for metadata charts + load priority
     // ledger: remember the compressed size of every file in range, even
     // those we never fetch — so we can reason about cost later
