@@ -1191,17 +1191,15 @@ th.sortable.on {
   border-color: var(--thread-strong);
 }
 
-/* over-budget readout: a quiet caution-amber outline, filling on hover */
+/* over-budget readout: a filled amber caution pill (white text from .store-pill) */
 .store-pill.over-budget {
-  background: transparent;
-  border-color: #b45309;
-  color: #b45309;
+  background: #d97706;
+  border-color: #d97706;
 }
 
 .store-pill.over-budget:hover {
   background: #b45309;
   border-color: #b45309;
-  color: #fff;
 }
 
 /* ---------- store summary panel ---------- */
