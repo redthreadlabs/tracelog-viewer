@@ -104,6 +104,15 @@ describe('bucketByTime', () => {
     expect(buckets.reduce((s, b) => s + b.total, 0)).toBe(1);
   });
 
+  it('a window ending exactly on a bucket boundary adds no empty trailing bucket', () => {
+    const H = 3_600_000;
+    const records = [rec({ ts: 30 * 60_000 })]; // 00:30, inside [00:00, 01:00)
+    const res = bucketByTime(records, [0, H], H); // window ends exactly on the 1h edge
+    expect(res.domain[1]).toBe(H); // not 2h
+    expect(res.buckets).toHaveLength(1);
+    expect(res.buckets[0].total).toBe(1);
+  });
+
   it('ignores zero/garbage timestamps for the domain', () => {
     const records = [rec({ ts: 0 }), rec({ ts: 120_000 })];
     const { domain } = bucketByTime(records);

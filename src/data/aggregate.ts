@@ -104,7 +104,13 @@ export function bucketByTime(
   // number of buckets
   const anchor = zoneMidnight(min, utc);
   const start = anchor + Math.floor((min - anchor) / bucketMs) * bucketMs;
-  const end = anchor + Math.floor((max - anchor) / bucketMs) * bucketMs + bucketMs;
+  // A windowed end is exclusive: round UP to the next boundary, so a range
+  // ending exactly on a bucket edge (e.g. 4pm) adds no empty trailing bucket.
+  // Without a window the end must include the last record's own bucket.
+  let end = window
+    ? anchor + Math.ceil((max - anchor) / bucketMs) * bucketMs
+    : anchor + Math.floor((max - anchor) / bucketMs) * bucketMs + bucketMs;
+  if (end <= start) end = start + bucketMs; // at least one bucket
   const n = Math.round((end - start) / bucketMs);
 
   const buckets: TimeBucket[] = Array.from({ length: n }, (_, i) => ({
@@ -200,7 +206,12 @@ export function bucketBySidecar(
 
   const anchor = zoneMidnight(min, utc);
   const start = anchor + Math.floor((min - anchor) / bucketMs) * bucketMs;
-  const end = anchor + Math.floor((max - anchor) / bucketMs) * bucketMs + bucketMs;
+  // windowed end is exclusive — round UP so a range ending on a bucket edge
+  // adds no empty trailing bucket (see bucketByTime)
+  let end = window
+    ? anchor + Math.ceil((max - anchor) / bucketMs) * bucketMs
+    : anchor + Math.floor((max - anchor) / bucketMs) * bucketMs + bucketMs;
+  if (end <= start) end = start + bucketMs;
   const n = Math.round((end - start) / bucketMs);
   const buckets: TimeBucket[] = Array.from({ length: n }, (_, i) => ({
     t0: start + i * bucketMs,
