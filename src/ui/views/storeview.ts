@@ -339,8 +339,8 @@ export function renderStoreView(container: HTMLElement): () => void {
       el('p', {
         className: 'inspector-note',
         text:
-          'Loading and eviction happen automatically within your memory and cache ' +
-          'limits — these controls are just for inspecting the store.',
+          'Loading and eviction happen automatically, to optimize your memory and ' +
+          'cache within the limits you set.',
       }),
     );
 
