@@ -1955,15 +1955,28 @@ th.sortable.on {
   gap: 12px;
 }
 
-/* group header rows: a tappable disclosure with the group's aggregate totals */
-table.records tbody tr.rollup-header td {
+/* uniform row height across header + file rows (the load/evict button would
+   otherwise make file rows taller than the text-only headers) */
+.store-files tbody td {
+  height: 30px;
+  box-sizing: border-box;
+}
+
+.store-files tbody .btn {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+/* group header rows: a tappable disclosure + the group's aggregate totals,
+   on a pale neutral-grey fill */
+.store-files tbody tr.rollup-header td {
   font-weight: 600;
-  background: var(--thread-wash);
+  background: color-mix(in srgb, var(--ink) 6%, var(--surface));
   cursor: pointer;
 }
 
-table.records tbody tr.rollup-header:hover td {
-  background: color-mix(in srgb, var(--thread) 14%, var(--surface));
+.store-files tbody tr.rollup-header:hover td {
+  background: color-mix(in srgb, var(--ink) 11%, var(--surface));
 }
 
 .disclosure {
@@ -1974,6 +1987,6 @@ table.records tbody tr.rollup-header:hover td {
 }
 
 /* files nested under an expanded group: indent the leading cell */
-tr.nested td:first-child {
+.store-files tbody tr.nested td:first-child {
   padding-left: 32px;
 }

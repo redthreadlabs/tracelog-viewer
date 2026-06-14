@@ -363,7 +363,7 @@ export function renderStoreView(container: HTMLElement): () => void {
       return;
     }
 
-    const table = el('table', { className: 'records txn-table' });
+    const table = el('table', { className: 'records txn-table store-files' });
     table.append(
       el('thead', {}, [
         el('tr', {}, [
