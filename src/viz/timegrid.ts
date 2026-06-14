@@ -124,8 +124,8 @@ const GHOST_HATCH = {
   fallback: '#f59b1e',
   tile: 10, // px tile → spacing between the diagonal lines (bigger = further apart)
   width: 5, // line thickness — half the tile, so stripe and gap are equal
-  lineOpacity: 0.2,
-  fillOpacity: 0.05, // faint wash between the lines
+  lineOpacity: 0.15,
+  fillOpacity: 0.035, // faint wash between the lines
 };
 
 /** Append the diagonal-hatch pattern to `g`, returning its `url(#…)`. */
