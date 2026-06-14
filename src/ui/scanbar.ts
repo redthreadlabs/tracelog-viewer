@@ -203,6 +203,8 @@ export function renderScanbar(container: HTMLElement): void {
   /** the ch/host params when the open picker was opened — so closing it pushes a
    *  single history entry for the whole session (Back undoes it in one step) */
   let pickerSnapshot: { ch: string | null; host: string | null } | null = null;
+  /** a toggle happened in the open picker — defer the plan + load until close */
+  let pickerDirty = false;
   /** set when the selection exceeds the memory budget: we loaded the newest
    *  files that fit, and the scanbar shows an over-budget indicator */
   let overBudget: { estBytes: number } | null = null;
@@ -218,8 +220,13 @@ export function renderScanbar(container: HTMLElement): void {
   function setOpenPicker(next: 'channels' | 'hosts' | null): void {
     if (openPicker === next) return;
     if (openPicker && pickerSnapshot) commitPickerHistory(pickerSnapshot);
+    const fullyClosed = openPicker !== null && next === null;
     openPicker = next;
     pickerSnapshot = next ? selectionParams() : null;
+    if (fullyClosed && pickerDirty) {
+      pickerDirty = false;
+      void replan(); // commit on close: plan + load the chosen selection, once
+    }
     render();
   }
 
@@ -354,7 +361,9 @@ export function renderScanbar(container: HTMLElement): void {
     // the worker now knows the selection's files — let metadata-served views
     // (the overview Volume chart) render before any records are loaded
     if (state.plan) storeClient.dispatchEvent(new Event('plan'));
-    maybeAutoLoad();
+    // never auto-load while a picker is open — the user is still choosing; the
+    // load fires when they close it (setOpenPicker)
+    if (!openPicker) maybeAutoLoad();
     render();
   }
 
@@ -630,8 +639,12 @@ export function renderScanbar(container: HTMLElement): void {
       open: openPicker === id,
       onToggleOpen: () => setOpenPicker(openPicker === id ? null : id),
       onChange: (sel) => {
+        // edit locally while the picker is open — the checkboxes + summary update
+        // immediately, but plan + load (and the history entry) wait for close, so
+        // exploring options never kicks off (and abandons) a background load
         for (const v of map.keys()) map.set(v, sel.has(v));
-        void replan();
+        pickerDirty = true;
+        render();
       },
     });
   }
