@@ -7,7 +7,7 @@ import { el, clear } from './dom';
 import type { Rec } from '../data/types';
 import { parseRaw } from '../data/parse';
 import { storeClient } from '../data/storeclient';
-import { fmtDateTime, zoneLabel } from './format';
+import { fmtDateTime, zoneLabel, fmtDuration } from './format';
 
 export interface DrawerAction {
   label: string;
@@ -73,20 +73,48 @@ export function renderRecDrawer(
       el('span', { className: 'mono', text: value }),
     );
   };
-  // lead with where this line came from: the source log file and its 1-based line number
+  // The grid climbs from physical to semantic, ending with the keys that
+  // reference things outside this record. Each row drops out when its value is
+  // absent, so a given kind only fills in its own slice.
+
+  // ── where it lives: the exact byte address on disk ──
   metaRow('file', rec.sourceKey);
   metaRow('line', String(rec.line + 1));
+
+  // ── where it came from: pipeline, machine, software, emitting runtime ──
   metaRow('channel', rec.channel);
   metaRow('host', rec.host);
   metaRow('service', rec.meta.serviceVersion && `${rec.meta.serviceName} ${rec.meta.serviceVersion}`);
+  metaRow('app version', rec.appVersion);
+  metaRow('device', rec.device);
+  metaRow('os', rec.os);
+
+  // ── what it is: the record's own substance, the request it served, and when ──
   metaRow('kind', rec.kind);
+  metaRow('level', rec.level);
+  metaRow('outcome', rec.outcome);
+  metaRow('result', rec.result);
+  metaRow('duration', rec.duration != null ? fmtDuration(rec.duration) : undefined);
+  metaRow('message', rec.message);
+  metaRow(
+    'samples',
+    rec.samples && Object.entries(rec.samples).map(([k, v]) => `${k} ${v}`).join(', '),
+  );
+  metaRow('path', rec.path);
+  metaRow('agent', rec.agent);
+  metaRow('ip', rec.ip);
   metaRow('time', `${fmtDateTime(rec.ts)} ${zoneLabel()}`);
   // client events carry the device's own UTC offset: show the local wall-clock
   // time where the event actually happened
   if (rec.tzOffset != null) {
     metaRow('client time', `${localWallClock(rec.ts, rec.tzOffset)} (UTC${fmtOffset(rec.tzOffset)})`);
   }
+
+  // ── what it connects to: outward references to other records and people ──
   metaRow('trace', rec.traceId);
+  metaRow('transaction', rec.transactionId);
+  metaRow('parent', rec.parentId);
+  metaRow('id', rec.selfId);
   metaRow('user', rec.userId);
 
   const body = el('div', { className: 'drawer-body' }, [meta]);
