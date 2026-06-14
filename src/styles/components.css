@@ -2034,3 +2034,9 @@ th.sortable.on {
   flex: 1;
   min-height: 0;
 }
+
+.inspector-note {
+  margin: 2px 0 10px;
+  font-size: 12px;
+  color: var(--ink-faint);
+}

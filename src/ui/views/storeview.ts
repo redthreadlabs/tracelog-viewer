@@ -329,6 +329,15 @@ export function renderStoreView(container: HTMLElement): () => void {
     const bp = budgetPanel();
     if (bp) body.append(bp);
 
+    body.append(
+      el('p', {
+        className: 'inspector-note',
+        text:
+          'Loading and eviction happen automatically within your memory and cache ' +
+          'limits — these controls are just for inspecting the store.',
+      }),
+    );
+
     // --- file inventory: flat, or grouped by interval/channel/host with
     //     expandable headers. Pagination windows the flattened, expanded tree,
     //     so it's one widget at every group-by setting. ---
@@ -723,6 +732,23 @@ export function renderStoreView(container: HTMLElement): () => void {
     const open = expanded.has(g.id);
     const num = (text: string, style = 'text-align:right') =>
       el('td', { className: 'num', text, attrs: { style } });
+    // action cell: evict the group's loaded files in one go (a batch diagnostic)
+    const action = el('td', { attrs: { style: 'text-align:right' } });
+    if (g.loaded > 0) {
+      action.append(
+        el('button', {
+          className: 'btn btn-quiet',
+          text: `evict ${fmtCount(g.loaded)}`,
+          title: `drop this group's ${fmtCount(g.loaded)} loaded file${g.loaded === 1 ? '' : 's'} from memory`,
+          on: {
+            click: (ev) => {
+              ev.stopPropagation(); // don't toggle the group open/closed
+              evictGroup(g);
+            },
+          },
+        }),
+      );
+    }
     const tr = el('tr', { className: 'rollup-header' }, [
       el('td', {}, [
         el('span', { className: 'disclosure', text: open ? '▾' : '▸' }),
@@ -738,10 +764,17 @@ export function renderStoreView(container: HTMLElement): () => void {
       num(fmtBytes(g.compressed)),
       num(g.decompressed > 0 ? fmtBytes(g.decompressed) : '—'),
       num(`${fmtCount(g.cached)}/${fmtCount(g.files)}`, 'text-align:center'),
-      num(g.loaded > 0 ? `${fmtCount(g.loaded)}/${fmtCount(g.files)}` : ''),
+      action,
     ]);
     tr.addEventListener('click', () => toggleExpand(g.id));
     return tr;
+  }
+
+  /** Drop every loaded file in a group from memory (cache untouched). */
+  function evictGroup(g: RollupGroup): void {
+    for (const r of g.rows) {
+      if (r.total > 0) void storeClient.request('dropFile', { key: r.parsed.key });
+    }
   }
 
   function dimValue(p: ParsedKey, d: RollupDim): string {
