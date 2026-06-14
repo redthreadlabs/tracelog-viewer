@@ -5,6 +5,7 @@
  * connection (editing); "Delete & Purge" wipes everything this origin stores.
  */
 import { el, clear } from './dom';
+import { setView } from './hashstate';
 import { profiles, type Profile } from './profiles';
 import { cacheWipeAll } from '../data/cache';
 import {
@@ -14,6 +15,29 @@ import {
   recordCurrentWorkspaceIfNew,
   clearLocalWorkspaceState,
 } from '../data/workspaces';
+
+/**
+ * Whether the page was entered from the same site — the same host, or another
+ * workspace (a sibling subdomain) on the same registrable domain. Drives Cancel:
+ * intra-site → Back (return to wherever, incl. another workspace); external or
+ * direct → Overview (so Cancel never walks off the site). The registrable-domain
+ * check is the last two labels (good for foo.example.com; a multi-part TLD like
+ * co.uk would over-match, an acceptable edge).
+ */
+function arrivedIntraSite(): boolean {
+  const ref = document.referrer;
+  if (!ref) return false; // direct load / external with no referrer
+  let refHost: string;
+  try {
+    refHost = new URL(ref).hostname;
+  } catch {
+    return false;
+  }
+  const here = location.hostname;
+  if (refHost === here) return true;
+  const apex = (h: string): string => h.split('.').slice(-2).join('.');
+  return apex(refHost) === apex(here);
+}
 
 export function renderConfig(container: HTMLElement, onDone: () => void, flash = ''): void {
   clear(container);
@@ -156,24 +180,33 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
       ]),
     ]),
     el('div', { className: 'actions' }, [
+      // destructive action anchored to the lower-left, away from Save
       el('button', {
         className: 'btn btn-danger',
         text: 'Delete & Purge',
         attrs: { type: 'button', title: 'wipe this workspace’s connection and cached files' },
         on: { click: () => purge() },
       }),
-      // editing an existing workspace: Cancel just goes back where you came from
-      ...(existing
-        ? [
-            el('button', {
-              className: 'btn btn-quiet',
-              text: 'Cancel',
-              attrs: { type: 'button' },
-              on: { click: () => globalThis.history.back() },
-            }),
-          ]
-        : []),
-      saveBtn,
+      el('div', { className: 'actions-right' }, [
+        // editing an existing workspace: Cancel returns to the prior in-app /
+        // intra-site page, or Overview if we arrived from outside the site
+        ...(existing
+          ? [
+              el('button', {
+                className: 'btn btn-quiet',
+                text: 'Cancel',
+                attrs: { type: 'button' },
+                on: {
+                  click: () => {
+                    if (arrivedIntraSite()) globalThis.history.back();
+                    else setView('/overview');
+                  },
+                },
+              }),
+            ]
+          : []),
+        saveBtn,
+      ]),
     ]),
     purgeMsg,
   ]);
