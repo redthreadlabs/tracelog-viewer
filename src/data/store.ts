@@ -54,6 +54,8 @@ export interface ScanProgress {
   filesTotal: number;
   filesDone: number;
   bytesDone: number;
+  /** total compressed bytes of the current working-set — the load denominator */
+  bytesTotal: number;
   filesFromCache: number;
   running: boolean;
   error?: string;
@@ -70,6 +72,7 @@ export class Store extends EventTarget {
     filesTotal: 0,
     filesDone: 0,
     bytesDone: 0,
+    bytesTotal: 0,
     filesFromCache: 0,
     running: false,
   };
@@ -230,7 +233,7 @@ export class Store extends EventTarget {
     this.levelCounts.clear();
     this.hosts.clear();
     this.files.clear();
-    this.progress = { filesTotal: 0, filesDone: 0, bytesDone: 0, filesFromCache: 0, running: false };
+    this.progress = { filesTotal: 0, filesDone: 0, bytesDone: 0, bytesTotal: 0, filesFromCache: 0, running: false };
     this.generation++;
     this.emitData(true); // emptying views must never be throttled away
     this.dispatchEvent(new Event('progress'));

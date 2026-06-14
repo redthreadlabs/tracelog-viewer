@@ -18,7 +18,7 @@ import type { FileInfo, ScanProgress } from '../data/store';
 import { LogBucket } from '../s3/client';
 import type { Profile } from '../ui/profiles';
 import { planScan, type ScanPlan } from '../s3/scanner';
-import { executeScan, loadOneFile, hydrateSidecars } from '../data/scan';
+import { LoadController, loadOneFile, hydrateSidecars } from '../data/scan';
 import { LiveUpdater } from '../data/live';
 import { perf, type PerfEntry } from '../data/perf';
 import { cacheKeys, cacheWipeBucket, SEP } from '../data/cache';
@@ -100,17 +100,27 @@ class Session {
   cacheLimitBytes: number | null;
   /** hot decompressed-byte cache, bounded by the workspace memory limit */
   mem: MemBytes;
-  /** the current selection's files (set by planScan) — drives metadata-served
-   *  charts and window-prioritized loading without re-listing */
+  /** the current selection's files (set by planScan) — the FULL selection, used
+   *  by metadata-served charts (may exceed what the loader is loading if the
+   *  load was clamped to a memory budget) */
   currentPlan: ParsedKey[] = [];
-  /** the user's focused time window (brush) — the scan loads overlapping files
-   *  first; updated live via setWindow so brushing reprioritizes mid-scan */
+  /** the user's focused time window (brush) — narrows the loader's working-set
+   *  so a zoom loads (and reports progress for) only its covering files */
   currentWindow: Window = null;
+  /** the working-set loader — re-scoped on window change, reset on new plan */
+  loader: LoadController;
 
   constructor(profile: Profile) {
     this.bucket = new LogBucket(profile);
     this.cacheLimitBytes = mbToBytes(profile.cacheLimitMb);
     this.mem = new MemBytes(mbToBytes(profile.memoryLimitMb));
+    this.loader = new LoadController(
+      this.store,
+      this.bucket,
+      this.mem,
+      this.cacheLimitBytes,
+      () => this.currentWindow,
+    );
     this.live = new LiveUpdater(this.store, this.bucket, () => this.liveChannels);
     this.store.addEventListener('data', () => this.broadcast('data'));
     this.store.addEventListener('progress', () => this.broadcast('progress'));
@@ -258,24 +268,21 @@ const ops: Record<string, OpHandler> = {
     );
   },
   executeScan: (s, a) => {
+    // a channel/range change is a *new plan*: reset the working-set loader to
+    // the executed plan (possibly a memory-clamped subset of the selection)
     if ('window' in a) s.currentWindow = (a.window as Window) ?? null;
-    return executeScan(
-      s.store,
-      s.bucket,
-      a.plan as ScanPlan,
-      s.cacheLimitBytes,
-      s.mem,
-      () => s.currentWindow,
-    );
+    s.loader.reset((a.plan as ScanPlan).files);
   },
-  /** Update the focused window so an in-progress scan reprioritizes to load
-   *  files overlapping it first (the user brushed/zoomed). */
+  /** The user zoomed: re-scope the working-set so the loader cancels pending
+   *  out-of-window fetches and prioritizes the new window's covering files —
+   *  in-flight loads finish and nothing already loaded is evicted. */
   setWindow: (s, a) => {
     s.currentWindow = (a.window as Window) ?? null;
+    s.loader.resync();
   },
   clearStore: (s) => {
-    s.store.clear();
-    s.mem.clear();
+    s.currentPlan = [];
+    s.loader.reset([]); // clears store + mem, empties the working-set
   },
   setLive: (s, a) => {
     s.liveChannels = a.channels as string[];

@@ -612,11 +612,13 @@ export function renderScanbar(container: HTMLElement): void {
 
   function updateLoadedText(): void {
     if (state.planning || state.error) return; // those states own the text
-    const { running, filesTotal, bytesDone } = storeClient.snapshot.progress;
+    const { running, filesTotal, bytesDone, bytesTotal } = storeClient.snapshot.progress;
     const budget = container.querySelector<HTMLElement>('.budget');
     if (!budget || filesTotal === 0) return;
     if (running) {
-      const total = state.plan?.totalBytes ?? 0;
+      // the worker reports the working-set total (channels × range, narrowed by
+      // any zoom window) — so this denominator shrinks when you zoom in
+      const total = bytesTotal;
       clearEl(budget);
       budget.append(
         storePill(

@@ -3,7 +3,6 @@
  * time, appending records as each file lands (stream-render, SPEC §7).
  */
 import type { LogBucket } from '../s3/client';
-import type { ScanPlan } from '../s3/scanner';
 import { type ParsedKey, overlapsRange } from '../s3/keys';
 import { parseFile } from './parse';
 import { cachedDecompressed, storeFetched, type MemBytes } from './blobs';
@@ -90,93 +89,153 @@ async function fetchAndParse(
   return { result, fromCache };
 }
 
-export async function executeScan(
-  store: Store,
-  bucket: LogBucket,
-  plan: ScanPlan,
-  cacheLimitBytes: number | null,
-  mem: MemBytes,
-  getWindow: () => [number, number] | null = () => null,
-): Promise<void> {
-  store.clear();
-  // a fresh view supersedes the old working set; the memory budget governs
-  // the decompressed bytes of *this* view, so drop the prior hot bytes
-  mem.clear();
-  store.setProgress({
-    filesTotal: plan.files.length,
-    filesDone: 0,
-    bytesDone: 0,
-    filesFromCache: 0,
-    running: true,
-    error: undefined,
-  });
+type Window = [number, number] | null;
 
-  const doneScan = perf.begin('scan', `scan s3://${bucket.bucket}`);
-  // a sparse queue (entries nulled as taken) so we can pick by priority each
-  // iteration; the plan is newest-first, so the first match is the newest one
-  const queue: (ParsedKey | null)[] = [...plan.files];
-  let failed: string | undefined;
-  let parsedBytes = 0;
+/**
+ * The working-set loader (SPEC §7). A *working-set* is the set of files implied
+ * by the current selection — the active channels × the selected time-range —
+ * optionally narrowed by a zoom window. The controller continuously pursues
+ * that set, a few files at a time, appending records as each lands.
+ *
+ * It is re-scopable: when the window changes (zoom), `resync()` recomputes the
+ * working-set and re-pumps. Files no longer in the set are simply never picked
+ * (their *pending* loads are cancelled), while in-flight fetches finish and are
+ * kept — nothing already loaded is evicted. A channel/range change is a *new
+ * plan*: `reset(plan)` clears and reloads from scratch. The load denominator
+ * (progress.bytesTotal) tracks the working-set, so it shrinks as you zoom in.
+ */
+export class LoadController {
+  private plan: ParsedKey[] = [];
+  private ws: ParsedKey[] = []; // cached working-set (plan ∩ window)
+  private inFlight = new Set<string>();
+  private active = 0;
+  private cached = 0; // cumulative cache hits, for the scan detail
+  private failed?: string;
+  private epoch = 0; // bumped on reset; stale in-flight results are discarded
+  private dirty = false; // records added since the last sort
+  private doneScan: ((info: Record<string, unknown>) => void) | null = null;
 
-  // Pick the next file to load: a file overlapping the user's current window
-  // first (read live, so brushing reprioritizes mid-scan), else plan order.
-  function takeNext(): ParsedKey | null {
-    const w = getWindow();
-    if (w) {
-      for (let i = 0; i < queue.length; i++) {
-        const f = queue[i];
-        if (f && overlapsRange(f, w[0], w[1])) {
-          queue[i] = null;
-          return f;
-        }
-      }
-    }
-    for (let i = 0; i < queue.length; i++) {
-      const f = queue[i];
-      if (f) {
-        queue[i] = null;
-        return f;
-      }
+  constructor(
+    private store: Store,
+    private bucket: LogBucket,
+    private mem: MemBytes,
+    private cacheLimitBytes: number | null,
+    private getWindow: () => Window,
+  ) {}
+
+  /** New plan (channel/range change): drop the old working set and reload. */
+  reset(plan: ParsedKey[]): void {
+    this.epoch++; // in-flight loads from the old plan will be discarded on land
+    this.plan = plan;
+    this.cached = 0;
+    this.failed = undefined;
+    this.dirty = false;
+    // a fresh view supersedes the old working set; the memory budget governs
+    // the decompressed bytes of *this* view, so drop the prior hot bytes
+    this.store.clear();
+    this.mem.clear();
+    this.doneScan = perf.begin('scan', `scan s3://${this.bucket.bucket}`);
+    this.resync();
+  }
+
+  /**
+   * Window changed (zoom), or a load finished: recompute the working-set,
+   * update progress, and pump workers toward its unloaded files. Out-of-set
+   * pending files are never picked; in-flight ones finish and are kept.
+   */
+  resync(): void {
+    const w = this.getWindow();
+    this.ws = w ? this.plan.filter((f) => overlapsRange(f, w[0], w[1])) : this.plan;
+    this.updateProgress();
+    this.pump();
+  }
+
+  private nextPending(): ParsedKey | null {
+    // the plan is newest-first, so the first unloaded match is the newest one —
+    // and within a multi-interval window this naturally favours its covering files
+    for (const f of this.ws) {
+      if (!this.store.files.has(f.key) && !this.inFlight.has(f.key)) return f;
     }
     return null;
   }
 
-  async function worker(): Promise<void> {
-    for (;;) {
-      const file = takeNext();
-      if (!file || failed) return;
-      try {
-        // Finalized files are immutable: ETag-checked cache hits skip S3
-        // entirely (SPEC §8). _current snapshots are never cached.
-        const { result, fromCache } = await fetchAndParse(bucket, file, mem);
-        parsedBytes += result.byteLength;
-        store.registerFile(file, result.byteLength);
-        store.addBatch(result.records);
-        store.setProgress({
-          filesDone: store.progress.filesDone + 1,
-          bytesDone: store.progress.bytesDone + file.size,
-          filesFromCache: store.progress.filesFromCache + (fromCache ? 1 : 0),
-        });
-      } catch (err) {
-        failed = err instanceof Error ? err.message : String(err);
+  private pump(): void {
+    while (this.active < CONCURRENCY && !this.failed) {
+      const file = this.nextPending();
+      if (!file) break;
+      this.active++;
+      this.inFlight.add(file.key);
+      void this.loadOne(file, this.epoch);
+    }
+    if (this.active === 0) this.settle();
+  }
+
+  private async loadOne(file: ParsedKey, epoch: number): Promise<void> {
+    try {
+      // Finalized files are immutable: ETag-checked cache hits skip S3 entirely
+      // (SPEC §8). _current snapshots are never cached.
+      const { result, fromCache } = await fetchAndParse(this.bucket, file, this.mem);
+      if (epoch === this.epoch) {
+        this.store.registerFile(file, result.byteLength);
+        this.store.addBatch(result.records);
+        if (fromCache) this.cached++;
+        this.dirty = true;
       }
+    } catch (err) {
+      if (epoch === this.epoch) this.failed = err instanceof Error ? err.message : String(err);
+    } finally {
+      this.inFlight.delete(file.key);
+      this.active--;
+      if (this.cacheLimitBytes != null) {
+        try {
+          await enforceCacheLimit(this.bucket.bucket, this.cacheLimitBytes);
+        } catch {
+          /* eviction is best-effort */
+        }
+      }
+      this.updateProgress();
+      this.pump();
     }
   }
 
-  await Promise.all(
-    Array.from({ length: Math.min(CONCURRENCY, plan.files.length) }, () => worker()),
-  );
+  /** The working-set has drained: a final time-sort + a settled progress emit. */
+  private settle(): void {
+    if (this.dirty) {
+      this.dirty = false;
+      this.store.sortByTime(); // lines arrive roughly ordered; one sort at rest
+    }
+    this.updateProgress();
+    if (this.doneScan) {
+      this.doneScan({
+        detail: `${this.ws.length} files (${this.cached} cached)` + (this.failed ? ` — failed: ${this.failed}` : ''),
+        records: this.store.records.length,
+      });
+      this.doneScan = null;
+    }
+  }
 
-  store.sortByTime();
-  store.setProgress({ running: false, error: failed });
-  doneScan({
-    detail:
-      `${plan.files.length} files (${store.progress.filesFromCache} cached)` +
-      (failed ? ` — failed: ${failed}` : ''),
-    bytes: parsedBytes,
-    records: store.records.length,
-  });
-  if (cacheLimitBytes != null) await enforceCacheLimit(bucket.bucket, cacheLimitBytes);
+  /** Recompute the working-set progress (filesDone/bytes are absolute, not cumulative). */
+  private updateProgress(): void {
+    let bytesTotal = 0;
+    let bytesDone = 0;
+    let filesDone = 0;
+    for (const f of this.ws) {
+      bytesTotal += f.size;
+      if (this.store.files.has(f.key)) {
+        filesDone++;
+        bytesDone += f.size;
+      }
+    }
+    this.store.setProgress({
+      filesTotal: this.ws.length,
+      filesDone,
+      bytesDone,
+      bytesTotal,
+      filesFromCache: this.cached,
+      running: this.active > 0 || this.nextPending() !== null,
+      error: this.failed,
+    });
+  }
 }
 
 /** Load one file into the store (inspector "load" action) — cache-aware. */
