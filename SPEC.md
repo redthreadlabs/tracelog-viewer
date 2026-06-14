@@ -253,6 +253,54 @@ defensive parsing never hurts):
   no fonts, no analytics) — both as a security property and so it works
   offline against cached data.
 
+### 4.1 Transparency and Content-Security-Policy
+
+Because the viewer asks people to point it at their *private, sensitive* logs,
+its trustworthiness must be **verifiable**, not asserted:
+
+- **Readable source.** The build ships source maps (`build.sourcemap: true`),
+  so anyone can open DevTools → Sources and read the original TypeScript —
+  file by file, with comments — rather than a minified blob. We keep
+  minification (it only affects the bytes on the wire; maps are fetched only
+  when DevTools is open) because a minified-but-mapped bundle is both smaller
+  *and* a better audit artifact than an unminified concatenated one.
+- **A Content-Security-Policy as the verifiable half.** Readable source proves
+  intent; the CSP proves the browser *can't* do otherwise. It is delivered as a
+  **CloudFront response-headers-policy** provisioned by `scripts/deploy-site.mjs`
+  (the `headers` step — created/adopted by name, attached to the default cache
+  behavior, idempotent like the rest of the script). The policy:
+
+  ```
+  default-src 'self'; script-src 'self'; worker-src 'self';
+  connect-src 'self' https://*.amazonaws.com; img-src 'self' data:;
+  style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none';
+  base-uri 'self'; form-action 'none'; frame-src 'none'; frame-ancestors 'none'
+  ```
+
+  The anti-exfiltration guarantee lives in `connect-src`/`default-src`/
+  `form-action`: the page **and its same-origin worker** (where the S3 SDK runs)
+  can reach only this origin and Amazon S3 — the user's own log bucket — and
+  nowhere else. The browser physically cannot POST their logs to a third party.
+- **The one relaxation is `style-src 'unsafe-inline'`** — the UI sets dynamic
+  inline styles (computed kind colors, bar widths) that can't be hashed. This
+  does *not* weaken the exfiltration guarantee (that is not a `style-src`
+  concern). The directive that could enable exfiltration, `script-src`, stays
+  strict `'self'`: the code base has no `eval`/`Function`/wasm and no inline
+  scripts (audited), so no `'unsafe-inline'`/`'unsafe-eval'` is needed there.
+- **Applied to *every* response, not just `index.html`.** A worker's fetches
+  are governed by the CSP on its own script response, so the worker `.js` must
+  carry `connect-src` too — otherwise the S3 SDK breaks under enforcement.
+- **Rollout: report-only first.** The policy ships as
+  `Content-Security-Policy-Report-Only` (`--csp-enforce` flips the header name
+  to the enforcing `Content-Security-Policy`). A `<meta>` tag *cannot* express
+  report-only — browsers honor it only as a real header — which is the other
+  reason the policy lives at CloudFront rather than in the HTML.
+- The policy rides alongside `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY` (mirroring `frame-ancestors 'none'`), and
+  `Referrer-Policy: same-origin` (no `Referer` leaks cross-origin to S3).
+- **Tuning for other deployments:** widen `connect-src` if the logs live behind
+  a custom domain or an S3-compatible endpoint (Cloudflare R2, MinIO, …).
+
 ---
 
 ## 5. Architecture
