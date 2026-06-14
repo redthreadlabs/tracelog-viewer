@@ -251,8 +251,8 @@ export function renderStoreView(container: HTMLElement): () => void {
     // the recommended limit lives inline in the prose as a link that fills the field
     const recLink = el('a', {
       className: 'budget-rec-link',
-      text: `${fmtCount(recommendMb)} MB`,
-      title: `≈ ${fmtBytes(ob.estBytes)} — enough to load the whole selection`,
+      text: fmtCount(recommendMb),
+      title: `${fmtCount(recommendMb)} MB ≈ ${fmtBytes(ob.estBytes)} — enough to load the whole selection`,
       attrs: { href: '#' },
       on: {
         click: (e) => {
@@ -269,9 +269,13 @@ export function renderStoreView(container: HTMLElement): () => void {
       affix,
       updateBtn,
       el('p', { className: 'store-budget-note' }, [
-        el('span', { text: 'Showing the newest data that fits your memory limit. Raise it to ' }),
+        el('span', {
+          text:
+            'Your working-set is bigger than your memory limit, so your results are ' +
+            'truncated. Raise your memory limit to ',
+        }),
         recLink,
-        el('span', { text: ' to load the whole selection, or narrow the channels, hosts, or range.' }),
+        el('span', { text: ' to keep working, or reduce your working set.' }),
       ]),
     ]);
   }

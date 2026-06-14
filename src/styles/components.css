@@ -1898,7 +1898,7 @@ th.sortable.on {
   font-size: 13px;
   line-height: 1.45;
   /* sized so the sentence settles into two balanced lines */
-  max-width: 40em;
+  max-width: 44em;
   text-wrap: balance;
 }
 
