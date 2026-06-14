@@ -711,9 +711,9 @@ pre.json .b {
   margin-top: 5px;
   max-width: 200px;
   font-size: 9px;
-  font-style: italic;
   letter-spacing: 0.05em;
   line-height: 1.35;
+  text-align: center;
   color: var(--level-warn);
 }
 
