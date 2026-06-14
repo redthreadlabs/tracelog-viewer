@@ -87,9 +87,9 @@ export function renderStoreView(container: HTMLElement): () => void {
   const inFlight = new Set<string>();
   // Group-by: pick 0+ of interval/channel/host. None = the flat file list; any
   // selected groups the listing, with expandable headers that reveal their files.
-  const groupDims = new Set<RollupDim>();
-  const expanded = new Set<string>(); // ids of groups currently expanded
-  let hideInactive = false; // hide files not currently loaded in memory
+  const groupDims = new Set<RollupDim>(['interval']); // default: group by interval
+  const collapsed = new Set<string>(); // group ids the user collapsed (default: all expanded)
+  let hideInactive = true; // default: hide files not loaded in memory
   // factual per-file sizes/records from sidecars (filled after the listing,
   // then the rollups become real instead of estimated)
   let facts: FileFacts = {};
@@ -646,7 +646,7 @@ export function renderStoreView(container: HTMLElement): () => void {
       opt.addEventListener('click', () => {
         if (groupDims.has(d)) groupDims.delete(d);
         else groupDims.add(d);
-        expanded.clear(); // group ids change → forget which were open
+        collapsed.clear(); // group ids change → back to all-expanded
         page = 0;
         render();
       });
@@ -672,8 +672,8 @@ export function renderStoreView(container: HTMLElement): () => void {
   }
 
   function toggleExpand(id: string): void {
-    if (expanded.has(id)) expanded.delete(id);
-    else expanded.add(id);
+    if (collapsed.has(id)) collapsed.delete(id);
+    else collapsed.add(id);
     render();
   }
 
@@ -685,7 +685,7 @@ export function renderStoreView(container: HTMLElement): () => void {
     const items: DisplayItem[] = [];
     for (const g of buildRollups(rows, dims)) {
       items.push({ kind: 'header', group: g });
-      if (expanded.has(g.id)) for (const row of g.rows) items.push({ kind: 'file', row, group: g });
+      if (!collapsed.has(g.id)) for (const row of g.rows) items.push({ kind: 'file', row, group: g });
     }
     return items;
   }
@@ -694,7 +694,7 @@ export function renderStoreView(container: HTMLElement): () => void {
    *  same columns as file rows. `continued` marks the repeated header shown when
    *  a page begins partway through an expanded group. */
   function groupHeaderRow(g: RollupGroup, continued = false): HTMLElement {
-    const open = expanded.has(g.id);
+    const open = !collapsed.has(g.id);
     const num = (text: string, style = 'text-align:right') =>
       el('td', { className: 'num', text, attrs: { style } });
     // action cell: evict the group's loaded files in one go (a batch diagnostic)
@@ -716,7 +716,7 @@ export function renderStoreView(container: HTMLElement): () => void {
     }
     const tr = el('tr', { className: 'rollup-header' }, [
       el('td', {}, [
-        el('span', { className: 'disclosure', text: open ? '▾' : '▸' }),
+        el('span', { className: open ? 'disclosure open' : 'disclosure', text: '›' }),
         el('span', { className: 'mono', text: g.keyParts.join(' / ') }),
         el('span', {
           className: 'budget faint',

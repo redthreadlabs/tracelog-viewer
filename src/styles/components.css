@@ -2008,9 +2008,18 @@ th.sortable.on {
 
 .disclosure {
   display: inline-block;
-  width: 15px;
+  width: 16px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
   color: var(--ink-soft);
-  font-size: 10px;
+  transition: transform 120ms ease;
+}
+
+/* expanded: the chevron rotates from pointing right (›) to down */
+.disclosure.open {
+  transform: rotate(90deg);
 }
 
 /* files nested under an expanded group: indent the leading cell */
