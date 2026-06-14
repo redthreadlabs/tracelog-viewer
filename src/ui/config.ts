@@ -162,6 +162,17 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
         attrs: { type: 'button', title: 'wipe this workspace’s connection and cached files' },
         on: { click: () => purge() },
       }),
+      // editing an existing workspace: Cancel just goes back where you came from
+      ...(existing
+        ? [
+            el('button', {
+              className: 'btn btn-quiet',
+              text: 'Cancel',
+              attrs: { type: 'button' },
+              on: { click: () => globalThis.history.back() },
+            }),
+          ]
+        : []),
       saveBtn,
     ]),
     purgeMsg,
