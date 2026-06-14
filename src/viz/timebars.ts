@@ -55,7 +55,7 @@ export function renderTimebars(
   const y = scaleLinear().domain([0, maxTotal]).nice().range([innerH, 0]);
 
   // time axis: background gridlines + humane labels (drawn first, behind bars)
-  drawTimeGrid(g, x as (d: Date) => number, data.domain, innerW, innerH, styles);
+  drawTimeGrid(g, x as (d: Date) => number, data.domain, innerW, innerH, styles, data.bucketMs);
 
   g.append('g')
     .call(axisLeft(y).ticks(4).tickFormat((d) => fmtCount(d as number)).tickSizeOuter(0))

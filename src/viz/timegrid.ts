@@ -253,6 +253,8 @@ export function drawTimeGrid(
   innerW: number,
   innerH: number,
   styles: CSSStyleDeclaration,
+  /** bar width, when this is a bar chart: gridlines never subdivide a bar */
+  bucketMs?: number,
 ): void {
   const span = domain[1] - domain[0];
   if (!(span > 0)) return;
@@ -262,7 +264,14 @@ export function drawTimeGrid(
   const inkFaint = styles.getPropertyValue('--ink-faint').trim();
   const inkSoft = styles.getPropertyValue('--ink-soft').trim();
 
-  const minorStep = pickStep(span, innerW, MIN_MINOR_PX);
+  let minorStep = pickStep(span, innerW, MIN_MINOR_PX);
+  // On a bar chart, never draw a gridline finer than the bars — a sub-bar line
+  // would cut through a bar instead of sitting on a bucket edge. (bucketMs is
+  // a BUCKET_STEPS_MS value, all of which are on the ladder.)
+  if (bucketMs) {
+    const barStep = STEPS.find((s) => s.ms >= bucketMs) ?? STEPS[STEPS.length - 1];
+    if (STEPS.indexOf(barStep) > STEPS.indexOf(minorStep)) minorStep = barStep;
+  }
   let labelStep = pickStep(span, innerW, MIN_LABEL_PX);
   if (STEPS.indexOf(labelStep) < STEPS.indexOf(minorStep)) labelStep = minorStep;
 

@@ -46,7 +46,7 @@ export function renderStackbars(container: HTMLElement, data: BreakdownResult): 
   const g = svg.append('g').attr('transform', `translate(${MARGIN.left},${MARGIN.top})`);
 
   // time axis: background gridlines + humane labels (drawn first, behind bars)
-  drawTimeGrid(g, x as (d: Date) => number, [t0, t1], innerW, innerH, styles);
+  drawTimeGrid(g, x as (d: Date) => number, [t0, t1], innerW, innerH, styles, data.bucketMs);
 
   g.append('g')
     .call(

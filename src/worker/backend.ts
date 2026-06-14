@@ -249,6 +249,7 @@ async function metadataVolume(
   s: Session,
   window: Window,
   bucketMs: number | null,
+  utc: boolean,
 ): Promise<ReturnType<typeof bucketBySidecar>> {
   if (s.currentPlan.length === 0) return null;
   await hydrateSidecars(s.bucket, s.currentPlan); // one-time per file; cheap after
@@ -259,7 +260,7 @@ async function metadataVolume(
     if (h) hists.push(h);
   }
   if (hists.length === 0) return null;
-  return bucketBySidecar(hists, window, bucketMs);
+  return bucketBySidecar(hists, window, bucketMs, utc);
 }
 
 type OpHandler = (session: Session, args: Record<string, unknown>) => Promise<unknown> | unknown;
@@ -406,6 +407,7 @@ const ops: Record<string, OpHandler> = {
   overviewData: async (s, a) => {
     const window = a.window as Window;
     let bucketMs = a.bucketMs as number | null;
+    const utc = a.utc !== false; // align the bucket grid to the active display zone
     const txns = s.store.kindRecords('transaction');
 
     // Data-aware auto bucketing: a sub-hour bucket can only come from loaded
@@ -431,12 +433,15 @@ const ops: Record<string, OpHandler> = {
     // metadata: instant, complete (all selected files), and works even when
     // the records aren't loaded (or are too big to load). Sub-hour buckets
     // fall back to the records path. The transaction table stays records-based.
-    let bucketed = await metadataVolume(s, window, bucketMs);
+    let bucketed = await metadataVolume(s, window, bucketMs, utc);
     const fromMetadata = bucketed !== null;
     if (!bucketed) {
       // records path: blank any interval still missing files, so a bucket is
       // fully populated or blank — never a misleadingly short partial bar
-      bucketed = blankPartialBuckets(bucketByTime(s.store.records, window, bucketMs), incompleteSpans(s));
+      bucketed = blankPartialBuckets(
+        bucketByTime(s.store.records, window, bucketMs, utc),
+        incompleteSpans(s),
+      );
     }
 
     return {
@@ -551,6 +556,7 @@ const ops: Record<string, OpHandler> = {
 
   metricsData: (s, a) => {
     const window = a.window as Window;
+    const utc = a.utc !== false; // align the breakdown bucket grid to the active zone
     const sets = s.store.kindRecords('metricset');
     const series = new Map<string, Map<string, { t: number; v: number }[]>>();
     for (const name of a.sampleNames as string[]) {
@@ -558,7 +564,7 @@ const ops: Record<string, OpHandler> = {
     }
     return {
       series,
-      breakdown: breakdownSelfTime(sets, window, a.bucketMs as number | null),
+      breakdown: breakdownSelfTime(sets, window, a.bucketMs as number | null, utc),
       markers: deploymentMarkers(s.store.records),
     };
   },

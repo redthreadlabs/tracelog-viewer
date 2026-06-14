@@ -5,7 +5,7 @@
  */
 import type { Rec } from './types';
 import { windowSlice } from './store';
-import { resolveBucketMs } from './aggregate';
+import { resolveBucketMs, zoneMidnight } from './aggregate';
 
 export interface SeriesPoint {
   t: number;
@@ -74,6 +74,7 @@ export function breakdownSelfTime(
   records: Rec[],
   window?: [number, number] | null,
   chosenBucketMs: number | null = null,
+  utc = true,
 ): BreakdownResult {
   interface Sample {
     t: number;
@@ -98,7 +99,8 @@ export function breakdownSelfTime(
     if (s.t > max) max = s.t;
   }
   const bucketMs = resolveBucketMs(Math.max(max - min, 1), chosenBucketMs);
-  const start = Math.floor(min / bucketMs) * bucketMs;
+  const anchor = zoneMidnight(min, utc);
+  const start = anchor + Math.floor((min - anchor) / bucketMs) * bucketMs;
   const n = Math.floor((max - start) / bucketMs) + 1;
   const buckets: BreakdownBucket[] = Array.from({ length: n }, (_, i) => ({
     t0: start + i * bucketMs,

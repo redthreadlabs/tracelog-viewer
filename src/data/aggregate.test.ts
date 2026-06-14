@@ -3,6 +3,7 @@ import {
   bucketByTime,
   bucketBySidecar,
   blankPartialBuckets,
+  zoneMidnight,
   chooseBucketMs,
   groupTransactions,
   sortTxnGroups,
@@ -107,6 +108,26 @@ describe('bucketByTime', () => {
     const records = [rec({ ts: 0 }), rec({ ts: 120_000 })];
     const { domain } = bucketByTime(records);
     expect(domain[0]).toBe(120_000);
+  });
+
+  it('utc alignment (the default) is the epoch grid', () => {
+    const ts = Date.UTC(2026, 5, 10, 5, 17); // 05:17, mid-bucket
+    const bucketMs = 3 * 3_600_000;
+    const { domain } = bucketByTime([rec({ ts })], null, bucketMs, true);
+    expect(domain[0]).toBe(Math.floor(ts / bucketMs) * bucketMs); // UTC 03:00
+  });
+
+  it('local alignment anchors the grid to local midnight (lines up with the calendar)', () => {
+    // June, so no DST transition between these two local days in any zone
+    const base = Date.parse('2026-06-10T00:00:00'); // local midnight (runner zone)
+    const bucketMs = 3 * 3_600_000;
+    const records = [rec({ ts: base + 3_600_000 }), rec({ ts: base + 30 * 3_600_000 })];
+    const { domain } = bucketByTime(records, null, bucketMs, false);
+    // the grid origin is itself a local midnight + whole buckets
+    expect(zoneMidnight(domain[0], false)).toBe(domain[0]);
+    // and the *next* local midnight falls exactly on a bucket boundary
+    const nextMidnight = zoneMidnight(base + 24 * 3_600_000, false);
+    expect((nextMidnight - domain[0]) % bucketMs).toBe(0);
   });
 
   it('handles empty input', () => {

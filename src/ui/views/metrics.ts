@@ -16,7 +16,7 @@ import { renderStackbars } from '../../viz/stackbars';
 import { spanTypeColorToken } from '../../data/trace';
 import { chosenBucketMs, bucketLabel } from '../bucketpicker';
 import { viewState } from '../../state';
-import { fmtBytes, fmtDuration } from '../format';
+import { fmtBytes, fmtDuration, isUtcMode } from '../format';
 
 interface SeriesSpec {
   key: string;
@@ -52,6 +52,7 @@ export function renderMetricsView(container: HTMLElement): () => void {
       window: viewState.timeWindow,
       bucketMs: chosenBucketMs(),
       sampleNames: SERIES.map((spec) => spec.key),
+      utc: isUtcMode(),
     });
     if (t !== token || !container.isConnected) return;
     clear(body);

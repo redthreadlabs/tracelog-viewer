@@ -12,7 +12,7 @@ import { renderTimebars } from '../../viz/timebars';
 import { viewState } from '../../state';
 import { pushParams, canGoBack, setView, windowParam, RANGE_NAV_EVENT } from '../hashstate';
 import { chosenBucketMs, bucketLabel } from '../bucketpicker';
-import { fmtBytes, fmtCount, fmtDateTime, fmtDuration, zoneLabel } from '../format';
+import { fmtBytes, fmtCount, fmtDateTime, fmtDuration, zoneLabel, isUtcMode } from '../format';
 
 export function renderOverview(container: HTMLElement): () => void {
   let sortKey: TxnSortKey = 'totalDuration';
@@ -67,7 +67,7 @@ export function renderOverview(container: HTMLElement): () => void {
       groups: TxnGroup[];
       inWindow: number;
       markers: unknown;
-    }>('overviewData', { window, bucketMs: chosenBucketMs() });
+    }>('overviewData', { window, bucketMs: chosenBucketMs(), utc: isUtcMode() });
     if (t !== token || !container.isConnected) return;
     groups = res.groups;
 

@@ -58,10 +58,30 @@ export function resolveBucketMs(spanMs: number, chosenMs: number | null): number
   return BUCKET_STEPS_MS[BUCKET_STEPS_MS.length - 1];
 }
 
+/**
+ * Midnight of `ms` in the active display zone — the anchor every bucket grid
+ * hangs off. Aligning to the zone's midnight (not the raw epoch) makes calendar
+ * boundaries — local midnight, the 1st of a month — fall on bar edges, so the
+ * time grid lines up with the bars instead of drifting by the sub-bucket
+ * timezone remainder. Every BUCKET_STEPS_MS width divides a day, so each day's
+ * midnight is itself a bucket boundary. Uniform-ms stepping from the anchor
+ * keeps bucket assignment O(1); the only cost is a ≤1h drift across a DST
+ * transition on multi-day ranges (bounded and rare). With `utc=true` the anchor
+ * is a whole number of days from the epoch — a multiple of every bucket width —
+ * so the grid reduces exactly to the old epoch alignment.
+ */
+export function zoneMidnight(ms: number, utc: boolean): number {
+  const d = new Date(ms);
+  if (utc) d.setUTCHours(0, 0, 0, 0);
+  else d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
 export function bucketByTime(
   records: Rec[],
   window?: [number, number] | null,
   chosenBucketMs: number | null = null,
+  utc = true,
 ): BucketResult {
   records = windowSlice(records, window); // O(log n) on the sorted store
   let min = Infinity;
@@ -80,8 +100,11 @@ export function bucketByTime(
   }
 
   const bucketMs = resolveBucketMs(Math.max(max - min, 1), chosenBucketMs);
-  const start = Math.floor(min / bucketMs) * bucketMs;
-  const end = Math.floor(max / bucketMs) * bucketMs + bucketMs;
+  // one anchor (min's zone-midnight) for both ends so end-start stays a whole
+  // number of buckets
+  const anchor = zoneMidnight(min, utc);
+  const start = anchor + Math.floor((min - anchor) / bucketMs) * bucketMs;
+  const end = anchor + Math.floor((max - anchor) / bucketMs) * bucketMs + bucketMs;
   const n = Math.round((end - start) / bucketMs);
 
   const buckets: TimeBucket[] = Array.from({ length: n }, (_, i) => ({
@@ -140,6 +163,7 @@ export function bucketBySidecar(
   histograms: Record<string, Record<string, number>>[],
   window: [number, number] | null,
   chosenBucketMs: number | null = null,
+  utc = true,
 ): BucketResult | null {
   // sum every file's hourly histogram into one hour → kind-counts map
   const byHour = new Map<number, Partial<Record<RecordKind, number>>>();
@@ -174,8 +198,9 @@ export function bucketBySidecar(
   const bucketMs = resolveBucketMs(Math.max(max - min, 1), chosenBucketMs);
   if (bucketMs < HOUR_MS) return null; // sub-hourly: hourly histograms can't resolve it
 
-  const start = Math.floor(min / bucketMs) * bucketMs;
-  const end = Math.floor(max / bucketMs) * bucketMs + bucketMs;
+  const anchor = zoneMidnight(min, utc);
+  const start = anchor + Math.floor((min - anchor) / bucketMs) * bucketMs;
+  const end = anchor + Math.floor((max - anchor) / bucketMs) * bucketMs + bucketMs;
   const n = Math.round((end - start) / bucketMs);
   const buckets: TimeBucket[] = Array.from({ length: n }, (_, i) => ({
     t0: start + i * bucketMs,
