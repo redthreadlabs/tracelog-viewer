@@ -95,6 +95,7 @@ export function renderStoreView(container: HTMLElement): () => void {
   // selected groups the listing, with expandable headers that reveal their files.
   const groupDims = new Set<RollupDim>();
   const expanded = new Set<string>(); // ids of groups currently expanded
+  let hideInactive = false; // hide files not currently loaded in memory
   // factual per-file sizes/records from sidecars (filled after the listing,
   // then the rollups become real instead of estimated)
   let facts: FileFacts = {};
@@ -292,7 +293,7 @@ export function renderStoreView(container: HTMLElement): () => void {
   function render(): void {
     clear(body);
     body.append(internalsTabs('/internals/store'));
-    const rows = buildRows();
+    const allRows = buildRows();
 
     // --- summary panel: store ledger | heap ledger | kinds ---
     const storeCol = el('div', { className: 'sgrid' });
@@ -304,14 +305,14 @@ export function renderStoreView(container: HTMLElement): () => void {
           el('span', { className: 'num', text: value }),
         ]),
       );
-    const loadedRows = rows.filter((r) => r.total > 0);
+    const loadedRows = allRows.filter((r) => r.total > 0);
     srow('records', fmtCount(storeClient.snapshot.recordCount));
-    srow('files', `${fmtCount(loadedRows.length)} of ${fmtCount(rows.length)}`);
+    srow('files', `${fmtCount(loadedRows.length)} of ${fmtCount(allRows.length)}`);
     srow(
       'compressed → parsed',
       `${fmtBytes(loadedRows.reduce((s, r) => s + r.parsed.size, 0))} → ${fmtBytes(loadedRows.reduce((s, r) => s + r.sizeUncompressed, 0))}`,
     );
-    srow('cached locally', fmtCount(rows.filter((r) => r.cached).length));
+    srow('cached locally', fmtCount(allRows.filter((r) => r.cached).length));
 
     renderMemory();
     body.append(
@@ -331,6 +332,8 @@ export function renderStoreView(container: HTMLElement): () => void {
     // --- file inventory: flat, or grouped by interval/channel/host with
     //     expandable headers. Pagination windows the flattened, expanded tree,
     //     so it's one widget at every group-by setting. ---
+    // "inactive" = not currently loaded in memory; HIDING drops those rows
+    const rows = hideInactive ? allRows.filter((r) => r.total > 0) : allRows;
     const dims = activeDims();
     const items = displayItems(rows);
     page = Math.min(page, maxPage(items.length));
@@ -338,26 +341,24 @@ export function renderStoreView(container: HTMLElement): () => void {
     body.append(
       el('div', { className: 'section-head' }, [
         el('span', { className: 'label', text: 'Files in S3' }),
-        groupByControl(),
         el('span', { className: 'masthead-spacer' }),
-        el('span', {
-          className: 'budget faint',
-          text:
-            listError ??
-            (available === null
-              ? 'listing the bucket…'
-              : dims.length
-                ? 'tap a group to reveal its files; totals are factual (from sidecars)'
-                : 'newest first — ⌂ = cached locally (free to load); live snapshots are never cached'),
-        }),
+        groupByPill(),
+        inactivePill(),
       ]),
     );
 
     if (rows.length === 0) {
+      const why =
+        listError ??
+        (available === null
+          ? 'Listing…'
+          : hideInactive && allRows.length
+            ? 'No loaded files — toggle to show inactive'
+            : 'The bucket is empty');
       body.append(
         el('div', { className: 'empty' }, [
           el('div', { className: 'fleuron', text: '❧' }),
-          el('h3', { text: available === null ? 'Listing…' : 'The bucket is empty' }),
+          el('h3', { text: why }),
         ]),
       );
       return;
@@ -658,25 +659,42 @@ export function renderStoreView(container: HTMLElement): () => void {
     return ROLLUP_DIMS.filter((d) => groupDims.has(d));
   }
 
-  /** "Group by:" checkboxes — choosing dimensions turns the flat list into an
-   *  expandable grouped tree. */
-  function groupByControl(): HTMLElement {
-    const wrap = el('div', { className: 'groupby-controls' }, [
-      el('span', { className: 'label', text: 'group by' }),
+  /** "GROUP BY: a • b • c" pill — each dimension is a link-style toggle; chosen
+   *  ones are full-contrast, the rest dimmed. Choosing any turns the flat list
+   *  into an expandable grouped tree. */
+  function groupByPill(): HTMLElement {
+    const pill = el('div', { className: 'chip groupby-pill' }, [
+      el('span', { className: 'gb-label', text: 'GROUP BY:' }),
     ]);
-    for (const d of ROLLUP_DIMS) {
-      const cb = el('input', { attrs: { type: 'checkbox' } }) as HTMLInputElement;
-      cb.checked = groupDims.has(d);
-      cb.addEventListener('change', () => {
-        if (cb.checked) groupDims.add(d);
-        else groupDims.delete(d);
+    ROLLUP_DIMS.forEach((d, i) => {
+      if (i > 0) pill.append(el('span', { className: 'gb-sep', text: '•' }));
+      const opt = el('span', { className: groupDims.has(d) ? 'gb-opt on' : 'gb-opt', text: d });
+      opt.addEventListener('click', () => {
+        if (groupDims.has(d)) groupDims.delete(d);
+        else groupDims.add(d);
         expanded.clear(); // group ids change → forget which were open
         page = 0;
         render();
       });
-      wrap.append(el('label', { className: 'rollup-check' }, [cb, el('span', { text: d })]));
-    }
-    return wrap;
+      pill.append(opt);
+    });
+    return pill;
+  }
+
+  /** Toggle pill: SHOWING / HIDING files not currently loaded in memory. */
+  function inactivePill(): HTMLElement {
+    return el('button', {
+      className: 'chip inactive-pill',
+      text: `${hideInactive ? 'HIDING' : 'SHOWING'} INACTIVE FILES`,
+      title: 'inactive = not loaded in memory; toggle to show or hide them',
+      on: {
+        click: () => {
+          hideInactive = !hideInactive;
+          page = 0;
+          render();
+        },
+      },
+    });
   }
 
   function toggleExpand(id: string): void {

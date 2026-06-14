@@ -1949,10 +1949,44 @@ th.sortable.on {
 
 /* ---------- store inspector: grouped file tree ---------- */
 
-.groupby-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
+/* GROUP BY pill: link-style dimension toggles — chosen ones full-contrast,
+   the rest dimmed (lowered contrast = not selected) */
+.groupby-pill {
+  cursor: default;
+  gap: 7px;
+}
+
+.groupby-pill:hover {
+  border-color: var(--line-strong);
+}
+
+.gb-label,
+.inactive-pill {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.gb-label {
+  color: var(--ink-faint);
+}
+
+.gb-opt {
+  cursor: pointer;
+  color: var(--ink-faint);
+}
+
+.gb-opt.on,
+.gb-opt:hover {
+  color: var(--ink);
+}
+
+.gb-sep {
+  color: var(--ink-faint);
+  opacity: 0.45;
+}
+
+.inactive-pill {
+  color: var(--ink-soft);
 }
 
 /* uniform row height across header + file rows (the load/evict button would
