@@ -54,7 +54,7 @@ const STEPS: Step[] = [
 ];
 
 /** Opacity of `--ink` per tier rank — relative, not per calendar unit. */
-const TIER_OPACITY = { minor: 0.07, medium: 0.14, major: 0.22 };
+const TIER_OPACITY = { minor: 0.07, medium: 0.14, major: 0.3 };
 
 const MIN_BARS = 4; // minor gridline spans at least this many bars
 const MIN_MINOR_PX = 26; // ...and never finer than this on screen
