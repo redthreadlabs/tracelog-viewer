@@ -92,29 +92,26 @@ function aws(args, { json = true, allowFail = false } = {}) {
 const step = (msg) => console.log(`\n— ${msg}`);
 const ENFORCE = has('csp-enforce');
 
-// The response-headers-policy config: the CSP rides as a custom header so we
-// can toggle report-only vs. enforced by name (CloudFront's built-in
-// SecurityHeadersConfig.ContentSecurityPolicy can only enforce). The static
-// hardening headers ride alongside it.
+// The response-headers-policy config. CloudFront treats `Content-Security-Policy`
+// as a managed security header and *rejects* it as a custom header, but has no
+// built-in slot for the report-only variant — so the two modes take different
+// paths: enforce goes through SecurityHeadersConfig.ContentSecurityPolicy, while
+// report-only rides as a custom `Content-Security-Policy-Report-Only` header.
+// The static hardening headers ride alongside in either mode.
 function headersPolicyConfig() {
+  const security = {
+    ContentTypeOptions: { Override: true }, // X-Content-Type-Options: nosniff
+    FrameOptions: { FrameOption: 'DENY', Override: true }, // mirrors frame-ancestors 'none'
+    ReferrerPolicy: { ReferrerPolicy: 'same-origin', Override: true }, // no Referer leaks cross-origin
+  };
+  if (ENFORCE) security.ContentSecurityPolicy = { ContentSecurityPolicy: CSP, Override: true };
   return {
     Name: `${BUCKET}-headers`,
     Comment: 'CSP + security headers for the tracelog viewer',
-    SecurityHeadersConfig: {
-      ContentTypeOptions: { Override: true }, // X-Content-Type-Options: nosniff
-      FrameOptions: { FrameOption: 'DENY', Override: true }, // mirrors frame-ancestors 'none'
-      ReferrerPolicy: { ReferrerPolicy: 'same-origin', Override: true }, // no Referer leaks cross-origin
-    },
-    CustomHeadersConfig: {
-      Quantity: 1,
-      Items: [
-        {
-          Header: ENFORCE ? 'Content-Security-Policy' : 'Content-Security-Policy-Report-Only',
-          Value: CSP,
-          Override: true,
-        },
-      ],
-    },
+    SecurityHeadersConfig: security,
+    CustomHeadersConfig: ENFORCE
+      ? { Quantity: 0, Items: [] }
+      : { Quantity: 1, Items: [{ Header: 'Content-Security-Policy-Report-Only', Value: CSP, Override: true }] },
   };
 }
 
