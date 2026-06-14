@@ -485,6 +485,16 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
     (in-flight + budget-refused), NOT the ordinary absence of records outside
     the loaded window (records load lazily by window, so most of a long chart
     has none by design and must stay un-ghosted).
+    - **Drill-down (records-based charts).** The transaction detail carries the
+      same primitive for the over-budget (records-refused) case. The
+      duration-over-time **scatter** has a time axis, so it draws the band over
+      the refused spans and extends its domain to cover them (the loaded points
+      compress to a recent sliver, the refused range shows as hatch rather than
+      vanishing). The duration **histogram** has no time axis, so when its
+      instance set is partial the *whole panel* is washed with the same hatch —
+      the honest "this distribution is built on data the budget refused" signal.
+      A hover anywhere in a ghosted region appends a "DATA IS PARTIALLY LOADED"
+      footnote to the tooltip.
 - **Interaction grammar**: brush horizontally to zoom time (double-click to
   reset); hovering any time-axis chart shows a synced crosshair in the
   others; click-through follows the drilldown chain (overview → transaction
