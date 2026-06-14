@@ -12,6 +12,7 @@ import { spanTypeColorToken } from '../data/trace';
 import { fmtDateTime, fmtDuration, isUtcMode } from '../ui/format';
 import { contentWidth } from './ticks';
 import { drawTimeGrid } from './timegrid';
+import { placeTooltip } from './tooltip';
 
 const HEIGHT = 180;
 const MARGIN = { top: 18, right: 12, bottom: 22, left: 56 };
@@ -104,8 +105,7 @@ export function renderStackbars(container: HTMLElement, data: BreakdownResult): 
         );
       tooltip.innerHTML = `<div class="t">${fmtDateTime(bucket.t0)}</div>${rows.join('')}`;
       tooltip.style.display = 'block';
-      tooltip.style.left = `${Math.min(event.clientX - rect.left + 14, width - 190)}px`;
-      tooltip.style.top = `${Math.max(event.clientY - rect.top - 10, 0)}px`;
+      placeTooltip(tooltip, container, event);
     })
     .on('mouseleave', () => {
       tooltip.style.display = 'none';

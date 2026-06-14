@@ -10,6 +10,7 @@ import type { HistBucket } from '../data/aggregate';
 import { fmtCount, fmtDuration } from '../ui/format';
 import { logTicks, contentWidth } from './ticks';
 import { drawGhostFill, GHOST_FOOTNOTE } from './timegrid';
+import { placeTooltip } from './tooltip';
 
 const HEIGHT = 190;
 const MARGIN = { top: 8, right: 10, bottom: 24, left: 44 };
@@ -93,9 +94,7 @@ export function renderHistogram(
           `<div class="t">${fmtDuration(bucket.x0)} – ${fmtDuration(bucket.x1)}</div><span class="row">requests<span class="v">${fmtCount(bucket.count)}</span></span>` +
           (ghostSpans.length > 0 ? GHOST_FOOTNOTE : '');
         tooltip.style.display = 'block';
-        const rect = container.getBoundingClientRect();
-        tooltip.style.left = `${Math.min(event.clientX - rect.left + 12, width - 170)}px`;
-        tooltip.style.top = `${event.clientY - rect.top - 8}px`;
+        placeTooltip(tooltip, container, event);
       })
       .on('mouseleave', () => {
         tooltip.style.display = 'none';

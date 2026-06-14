@@ -21,6 +21,7 @@ import type { Rec } from '../data/types';
 import { fmtDateTime, fmtDuration, isUtcMode } from '../ui/format';
 import { logTicks, contentWidth } from './ticks';
 import { drawTimeGrid, drawGhostBand, inGhost, GHOST_FOOTNOTE } from './timegrid';
+import { placeTooltip } from './tooltip';
 import type { SampleNote } from '../worker/backend';
 
 const HEIGHT = 190;
@@ -289,9 +290,7 @@ export function renderScatter(
         (ghosted ? GHOST_FOOTNOTE : '');
     }
     tooltip.style.display = 'block';
-    const rect = container.getBoundingClientRect();
-    tooltip.style.left = `${Math.min(event.clientX - rect.left + 12, width - 190)}px`;
-    tooltip.style.top = `${event.clientY - rect.top - 8}px`;
+    placeTooltip(tooltip, container, event);
   });
   canvas.addEventListener('pointerleave', () => {
     tooltip.style.display = 'none';

@@ -14,6 +14,7 @@ import type { BucketResult } from '../data/aggregate';
 import { fmtCount, fmtDateTime, isUtcMode } from '../ui/format';
 import { contentWidth } from './ticks';
 import { drawTimeGrid, drawGhostBand, inGhost, GHOST_FOOTNOTE } from './timegrid';
+import { placeTooltip } from './tooltip';
 
 const HEIGHT = 170;
 const MARGIN = { top: 18, right: 12, bottom: 22, left: 56 };
@@ -117,10 +118,7 @@ export function renderTimebars(
       const when = bucket ? bucket.t0 : t;
       tooltip.innerHTML = `<div class="t">${fmtDateTime(when)}</div>${lines.join('')}${ghosted ? GHOST_FOOTNOTE : ''}`;
       tooltip.style.display = 'block';
-      const rect = container.getBoundingClientRect();
-      const left = Math.min(event.clientX - rect.left + 14, width - 180);
-      tooltip.style.left = `${left}px`;
-      tooltip.style.top = `${Math.max(event.clientY - rect.top - 10, 0)}px`;
+      placeTooltip(tooltip, container, event);
     })
     .on('mouseleave', () => {
       tooltip.style.display = 'none';

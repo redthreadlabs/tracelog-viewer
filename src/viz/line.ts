@@ -10,6 +10,7 @@ import type { SeriesPoint, DeploymentMarker } from '../data/metrics';
 import { fmtDateTime, isUtcMode } from '../ui/format';
 import { contentWidth } from './ticks';
 import { drawTimeGrid } from './timegrid';
+import { placeTooltip } from './tooltip';
 
 const HEIGHT = 110;
 const MARGIN = { top: 20, right: 8, bottom: 18, left: 52 };
@@ -116,8 +117,7 @@ export function renderLine(
       }
       tooltip.innerHTML = `<div class="t">${fmtDateTime(best.t)}</div><span class="row">value<span class="v">${options.fmt(best.v)}</span></span>`;
       tooltip.style.display = 'block';
-      tooltip.style.left = `${Math.min(event.clientX - rect.left + 12, width - 170)}px`;
-      tooltip.style.top = `${event.clientY - rect.top - 8}px`;
+      placeTooltip(tooltip, container, event);
     })
     .on('mouseleave', () => {
       tooltip.style.display = 'none';
