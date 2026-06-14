@@ -23,12 +23,13 @@ import { LiveUpdater } from '../data/live';
 import { perf, type PerfEntry } from '../data/perf';
 import { cacheKeys, cacheWipeBucket, SEP } from '../data/cache';
 import { MemBytes, cachedDecompressedAny } from '../data/blobs';
-import { parseKey, dedupeCurrents, overlapsRange, type ParsedKey } from '../s3/keys';
+import { parseKey, dedupeCurrents, overlapsRange, intervalSpan, type ParsedKey } from '../s3/keys';
 import { nthLine } from '../data/parse';
 import type { Rec, RecordKind } from '../data/types';
 import {
   bucketByTime,
   bucketBySidecar,
+  blankPartialBuckets,
   chooseBucketMs,
   groupTransactions,
   transactionStats,
@@ -221,6 +222,29 @@ function windowFullyLoaded(s: Session, window: Window): boolean {
   return true;
 }
 
+/**
+ * The time spans of intervals in the selection (currentPlan) whose files aren't
+ * ALL loaded yet — used to blank partially-loaded buckets in the records-path
+ * chart, so an interval is either fully populated or left blank, never partial.
+ */
+function incompleteSpans(s: Session): [number, number][] {
+  const byInterval = new Map<string, { total: number; loaded: number }>();
+  for (const f of s.currentPlan) {
+    const e = byInterval.get(f.interval) ?? { total: 0, loaded: 0 };
+    e.total++;
+    if (s.store.files.has(f.key)) e.loaded++;
+    byInterval.set(f.interval, e);
+  }
+  const spans: [number, number][] = [];
+  for (const [interval, { total, loaded }] of byInterval) {
+    if (loaded < total) {
+      const span = intervalSpan(interval);
+      if (span) spans.push(span);
+    }
+  }
+  return spans;
+}
+
 async function metadataVolume(
   s: Session,
   window: Window,
@@ -379,7 +403,11 @@ const ops: Record<string, OpHandler> = {
     // fall back to the records path. The transaction table stays records-based.
     let bucketed = await metadataVolume(s, window, bucketMs);
     const fromMetadata = bucketed !== null;
-    if (!bucketed) bucketed = bucketByTime(s.store.records, window, bucketMs);
+    if (!bucketed) {
+      // records path: blank any interval still missing files, so a bucket is
+      // fully populated or blank — never a misleadingly short partial bar
+      bucketed = blankPartialBuckets(bucketByTime(s.store.records, window, bucketMs), incompleteSpans(s));
+    }
 
     return {
       bucketed,

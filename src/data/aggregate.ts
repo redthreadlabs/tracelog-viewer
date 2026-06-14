@@ -100,6 +100,27 @@ export function bucketByTime(
   return { buckets, bucketMs, domain: [start, end] };
 }
 
+/**
+ * Blank (zero) any bucket overlapping a time span whose data is only partially
+ * loaded, so a records-path chart never shows a misleadingly short bar for an
+ * interval still missing files — an interval is either fully populated or left
+ * blank. `incompleteSpans` are [startMs, endMs) ranges of intervals whose files
+ * aren't all loaded. The bucketed input is returned unchanged when nothing is
+ * partial. (The metadata path is always complete, so it doesn't need this.)
+ */
+export function blankPartialBuckets(
+  result: BucketResult,
+  incompleteSpans: [number, number][],
+): BucketResult {
+  if (incompleteSpans.length === 0) return result;
+  const buckets = result.buckets.map((b) => {
+    const t1 = b.t0 + result.bucketMs;
+    const partial = incompleteSpans.some(([s0, s1]) => s0 < t1 && s1 > b.t0);
+    return partial ? { t0: b.t0, counts: {}, total: 0 } : b;
+  });
+  return { ...result, buckets };
+}
+
 const HOUR_MS = 3_600_000;
 
 /** Parse a sidecar hour label 'YYYY-MM-DDTHH' to epoch-ms (UTC), or null. */

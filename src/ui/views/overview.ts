@@ -114,9 +114,10 @@ export function renderOverview(container: HTMLElement): () => void {
     chartHead.append(el('span', { className: 'masthead-spacer' }));
 
     const data = res.bucketed;
-    // when the chart is metadata-served the store may hold fewer (or no)
-    // records than the chart depicts, so count from the buckets themselves
-    const total = res.fromMetadata ? data.buckets.reduce((s, b) => s + b.total, 0) : res.inWindow;
+    // count from the buckets themselves: the chart may depict more than the
+    // store holds (metadata) or less (records path with partial intervals
+    // blanked), so the label should always match what's actually drawn
+    const total = data.buckets.reduce((s, b) => s + b.total, 0);
     chartHead.append(
       el('span', {
         className: 'budget faint',

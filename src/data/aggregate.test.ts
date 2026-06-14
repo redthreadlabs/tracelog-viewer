@@ -2,12 +2,15 @@ import { describe, it, expect } from 'vitest';
 import {
   bucketByTime,
   bucketBySidecar,
+  blankPartialBuckets,
   chooseBucketMs,
   groupTransactions,
   sortTxnGroups,
   percentile,
   transactionStats,
   logHistogram,
+  type BucketResult,
+  type TimeBucket,
 } from './aggregate';
 import type { Rec } from './types';
 
@@ -232,5 +235,37 @@ describe('TxnGroup p95 / avg / errors', () => {
     expect(sortTxnGroups(groups, 'errors', true)[0].name).toBe('a');
     expect(sortTxnGroups(groups, 'p95', true)[0].name).toBe('b');
     expect(sortTxnGroups(groups, 'avg', false)[0].name).toBe('a');
+  });
+});
+
+describe('blankPartialBuckets', () => {
+  const H = 3_600_000;
+  const mk = (t0: number, total: number): TimeBucket => ({ t0, counts: { event: total }, total });
+  const make = (): BucketResult => ({
+    buckets: [mk(0, 10), mk(H, 20), mk(2 * H, 30)],
+    bucketMs: H,
+    domain: [0, 3 * H],
+  });
+
+  it('returns the input unchanged when nothing is partial', () => {
+    const r = make();
+    expect(blankPartialBuckets(r, [])).toBe(r);
+  });
+
+  it('blanks buckets overlapping a partial span and keeps the rest', () => {
+    const out = blankPartialBuckets(make(), [[H, 2 * H]]);
+    expect(out.buckets.map((b) => b.total)).toEqual([10, 0, 30]);
+    expect(out.buckets[1].counts).toEqual({});
+  });
+
+  it('blanks every hour bucket inside a partial day span', () => {
+    const out = blankPartialBuckets(make(), [[0, 3 * H]]);
+    expect(out.buckets.map((b) => b.total)).toEqual([0, 0, 0]);
+  });
+
+  it('does not blank a bucket that merely abuts the span edge (half-open)', () => {
+    // span [0, H) ends exactly where the 2nd bucket starts → no overlap there
+    const out = blankPartialBuckets(make(), [[0, H]]);
+    expect(out.buckets.map((b) => b.total)).toEqual([0, 20, 30]);
   });
 });
