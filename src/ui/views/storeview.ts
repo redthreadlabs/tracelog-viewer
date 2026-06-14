@@ -22,6 +22,12 @@ import { sidecarKey, type SidecarMeta } from '@redthreadlabs/tracelog-schema';
 const PAGE_SIZE = 50;
 const MB = 1024 * 1024;
 
+/** "downloaded / cached locally" indicator: a down-arrow inside a circle */
+const DOWNLOAD_ICON =
+  '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" ' +
+  'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle">' +
+  '<circle cx="12" cy="12" r="9"/><path d="M12 8v6"/><path d="M9 11.5l3 3 3-3"/></svg>';
+
 /** Dimensions the file listing can be grouped by (in display/column order). */
 type RollupDim = 'interval' | 'channel' | 'host';
 const ROLLUP_DIMS: RollupDim[] = ['interval', 'channel', 'host'];
@@ -569,6 +575,20 @@ export function renderStoreView(container: HTMLElement): () => void {
     const cls = [loaded ? '' : 'evicted-row', openSidecar === row.parsed.key ? 'selected' : '']
       .filter(Boolean)
       .join(' ');
+
+    // cached column: the download icon when cached locally, "live" for the
+    // never-cached current snapshot, else blank
+    const cachedCell = el('td', {
+      className: row.cached ? 'num' : 'num faint',
+      title: row.cached
+        ? 'cached locally in IndexedDB — loading this file is free'
+        : row.parsed.current
+          ? 'live snapshot — changes every upload, so it is never cached'
+          : 'will be cached after its first load once finalized',
+      attrs: { style: 'text-align:center' },
+    });
+    if (row.cached) cachedCell.innerHTML = DOWNLOAD_ICON;
+    else cachedCell.textContent = row.parsed.current ? 'live' : '';
     const tr = el('tr', { className: cls }, [
       el('td', { className: 'mono', text: row.parsed.key, title: row.parsed.key }),
       el('td', {
@@ -592,16 +612,7 @@ export function renderStoreView(container: HTMLElement): () => void {
         text: loaded && row.sizeUncompressed > 0 ? fmtBytes(row.sizeUncompressed) : '',
         attrs: { style: 'text-align:right' },
       }),
-      el('td', {
-        className: row.cached ? 'num' : 'num faint',
-        text: row.cached ? '⌂' : row.parsed.current ? 'live' : '',
-        title: row.cached
-          ? 'cached locally in IndexedDB — loading this file is free'
-          : row.parsed.current
-            ? 'live snapshot — changes every upload, so it is never cached'
-            : 'will be cached after its first load once finalized',
-        attrs: { style: 'text-align:center' },
-      }),
+      cachedCell,
       el('td', { attrs: { style: 'text-align:right' } }, [action]),
     ]);
     tr.addEventListener('click', () => void showSidecar(row.parsed));
