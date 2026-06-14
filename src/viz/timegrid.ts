@@ -493,7 +493,7 @@ export function drawTimeGrid(
   const bottomG = g.append('g').attr('transform', `translate(0,${innerH})`);
   let prevB = '';
   for (const t of ticksFor(domain[0], domain[1], bottomStep, utc)) {
-    if (topMarks.has(t)) continue;
+    // a top (date) label on the same line is fine — keep the bottom time too
     const gx = x(new Date(t));
     if (!onScreen(gx)) continue;
     const { text, monthKey } = formatTick(t, bottomStep.level, utc, prevB);
