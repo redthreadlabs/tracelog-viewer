@@ -106,7 +106,9 @@ export function renderLine(
   svg
     .on('mousemove', (event: MouseEvent) => {
       const rect = container.getBoundingClientRect();
-      const mx = event.clientX - rect.left - MARGIN.left;
+      // the SVG sits inside the host's left padding — account for it
+      const padLeft = parseFloat(styles.paddingLeft) || 0;
+      const mx = event.clientX - rect.left - padLeft - MARGIN.left;
       const t = x.invert(mx).getTime();
       let best = points[0];
       for (const p of points) {

@@ -142,6 +142,12 @@ export function renderTimebars(
 
   function pointerInG(event: MouseEvent, host: HTMLElement): [number, number] {
     const rect = host.getBoundingClientRect();
-    return [event.clientX - rect.left - MARGIN.left, event.clientY - rect.top - MARGIN.top];
+    // the SVG sits inside the host's padding, so the g origin is offset by it
+    const padLeft = parseFloat(styles.paddingLeft) || 0;
+    const padTop = parseFloat(styles.paddingTop) || 0;
+    return [
+      event.clientX - rect.left - padLeft - MARGIN.left,
+      event.clientY - rect.top - padTop - MARGIN.top,
+    ];
   }
 }

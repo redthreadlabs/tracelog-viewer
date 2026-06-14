@@ -86,7 +86,9 @@ export function renderStackbars(container: HTMLElement, data: BreakdownResult): 
   svg
     .on('mousemove', (event: MouseEvent) => {
       const rect = container.getBoundingClientRect();
-      const mx = event.clientX - rect.left - MARGIN.left;
+      // the SVG sits inside the host's left padding — account for it
+      const padLeft = parseFloat(styles.paddingLeft) || 0;
+      const mx = event.clientX - rect.left - padLeft - MARGIN.left;
       const t = x.invert(mx).getTime();
       const idx = Math.floor((t - data.buckets[0].t0) / data.bucketMs);
       const bucket = data.buckets[idx];
