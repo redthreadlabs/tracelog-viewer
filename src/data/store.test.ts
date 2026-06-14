@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Store, mergeByTime, windowBounds, windowSlice } from './store';
+import { Store, mergeByTime, rangeBounds, rangeSlice } from './store';
 import type { Rec } from './types';
 
 function rec(partial: Partial<Rec>): Rec {
@@ -192,24 +192,24 @@ describe('mergeByTime', () => {
   });
 });
 
-describe('windowBounds / windowSlice (binary-searched time filters)', () => {
+describe('rangeBounds / rangeSlice (binary-searched time filters)', () => {
   const sorted = [10, 20, 30, 40, 50].map((ts) => rec({ ts }));
 
   it('finds inclusive bounds inside the array', () => {
-    expect(windowBounds(sorted, [20, 40])).toEqual([1, 4]);
-    expect(windowSlice(sorted, [20, 40]).map((r) => r.ts)).toEqual([20, 30, 40]);
+    expect(rangeBounds(sorted, [20, 40])).toEqual([1, 4]);
+    expect(rangeSlice(sorted, [20, 40]).map((r) => r.ts)).toEqual([20, 30, 40]);
   });
 
   it('handles windows between records and past the ends', () => {
-    expect(windowBounds(sorted, [21, 29])).toEqual([2, 2]); // empty run
-    expect(windowBounds(sorted, [0, 5])).toEqual([0, 0]);
-    expect(windowBounds(sorted, [60, 99])).toEqual([5, 5]);
-    expect(windowBounds(sorted, [15, 999])).toEqual([1, 5]);
+    expect(rangeBounds(sorted, [21, 29])).toEqual([2, 2]); // empty run
+    expect(rangeBounds(sorted, [0, 5])).toEqual([0, 0]);
+    expect(rangeBounds(sorted, [60, 99])).toEqual([5, 5]);
+    expect(rangeBounds(sorted, [15, 999])).toEqual([1, 5]);
   });
 
   it('returns the original array (no copy) when nothing is excluded', () => {
-    expect(windowSlice(sorted, null)).toBe(sorted);
-    expect(windowSlice(sorted, [0, 100])).toBe(sorted);
-    expect(windowSlice([], [1, 2])).toEqual([]);
+    expect(rangeSlice(sorted, null)).toBe(sorted);
+    expect(rangeSlice(sorted, [0, 100])).toBe(sorted);
+    expect(rangeSlice([], [1, 2])).toEqual([]);
   });
 });

@@ -5,9 +5,9 @@
  *
  * Granularity note: S3 files are daily, so the listing/fetch is driven by
  * the UTC *days* covering the range; the time-of-day component narrows the
- * viewed window instead (viewState.timeRange — the same mechanism as the
- * chart brush, encoded in the `w` hash param). Quick presets ("15 min")
- * scan the covering day(s) and window down to the precise range.
+ * viewed range instead (viewState.timeRange — the same mechanism as dragging
+ * the chart, encoded in the `r` hash param). Quick presets ("15 min")
+ * scan the covering day(s) and narrow to the precise range.
  *
  * UX rule: files are plumbing. Setting a range *is* the user's intent —
  * the app fetches whatever satisfies it, behind the scenes, with progress
@@ -36,7 +36,7 @@ interface ScanbarState {
   /** the selected range, epoch-ms (end may be "now" for quick presets) */
   startMs: number;
   endMs: number;
-  /** whole-day ranges don't narrow the time window after scanning */
+  /** whole-day ranges don't narrow the time range after scanning */
   wholeDays: boolean;
   rangeOpen: boolean;
   plan: ScanPlan | null;
@@ -122,20 +122,20 @@ export function teardownScanbar(): void {
 export function renderScanbar(container: HTMLElement): void {
   teardownScanbar();
 
-  // initial range: a shared URL's precise window wins; else its day params;
+  // initial range: a shared URL's precise range wins; else its day params;
   // else today (a placeholder until we auto-detect the latest interval).
-  const sharedWindow = parseRangeParam(getParam('w'));
+  const sharedRange = parseRangeParam(getParam('r'));
   const fromDay = getParam('from');
   const toDay = getParam('to');
   // a fresh arrival pins no range — that's when we auto-detect the latest
   // interval in the bucket rather than defaulting to a possibly-empty "today"
-  const rangePinned = !!(getParam('w') || fromDay || toDay);
-  const state: ScanbarState = sharedWindow
+  const rangePinned = !!(getParam('r') || fromDay || toDay);
+  const state: ScanbarState = sharedRange
     ? {
         channels: new Map(),
         hosts: new Map(),
-        startMs: sharedWindow[0],
-        endMs: sharedWindow[1],
+        startMs: sharedRange[0],
+        endMs: sharedRange[1],
         wholeDays: false,
         rangeOpen: false,
         plan: null,
@@ -399,24 +399,24 @@ export function renderScanbar(container: HTMLElement): void {
     }
     if (storeClient.snapshot.progress.running) return;
     if (planSignature(state.plan) === loadedSignature) {
-      // same data, possibly a different slice of it: apply the window and
+      // same data, possibly a different slice of it: apply the range and
       // re-render the views without refetching anything
-      applyWindow();
+      applyRange();
       window.dispatchEvent(new HashChangeEvent('hashchange'));
       return;
     }
     void runScan();
   }
 
-  /** Narrow (or clear) the viewed time window to match the selected range. */
-  function applyWindow(): void {
+  /** Narrow (or clear) the viewed time range to match the selected range. */
+  function applyRange(): void {
     if (state.wholeDays) {
       viewState.timeRange = null;
-      setParams({ w: null });
+      setParams({ r: null });
     } else {
       // sub-day precision: narrow the viewed range, same as a chart drag
       viewState.timeRange = [state.startMs, state.endMs];
-      setParams({ w: rangeParam(viewState.timeRange) });
+      setParams({ r: rangeParam(viewState.timeRange) });
     }
   }
 
@@ -438,7 +438,7 @@ export function renderScanbar(container: HTMLElement): void {
     let changed = false;
 
     // range
-    const w = parseRangeParam(getParam('w'));
+    const w = parseRangeParam(getParam('r'));
     const fromDay = getParam('from');
     const toDay = getParam('to');
     let startMs = state.startMs;
@@ -473,10 +473,10 @@ export function renderScanbar(container: HTMLElement): void {
   function executePlan(plan: ScanPlan): void {
     loadedSignature = planSignature(plan);
     resetViewState(); // a new scan invalidates any prior range / deep link
-    // hand the worker the active window so it loads overlapping files first
-    const window = state.wholeDays ? null : [state.startMs, state.endMs];
-    void storeClient.request('executeScan', { plan, window });
-    applyWindow();
+    // hand the worker the active range so it loads overlapping files first
+    const range = state.wholeDays ? null : [state.startMs, state.endMs];
+    void storeClient.request('executeScan', { plan, range });
+    applyRange();
   }
 
   /**

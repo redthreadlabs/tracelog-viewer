@@ -13,7 +13,7 @@
  * (`sample: {drawn, total, okStep}`), the same disclosure contract as the
  * scatter pill.
  */
-import { Store, mergeByTime, windowBounds, windowSlice } from '../data/store';
+import { Store, mergeByTime, rangeBounds, rangeSlice } from '../data/store';
 import type { FileInfo, ScanProgress } from '../data/store';
 import { LogBucket } from '../s3/client';
 import type { Profile } from '../ui/profiles';
@@ -614,7 +614,7 @@ const ops: Record<string, OpHandler> = {
       ghostSpans,
       groups: groupTransactions(txns, range),
       inRange: (() => {
-        const [lo, hi] = windowBounds(s.store.records, range);
+        const [lo, hi] = rangeBounds(s.store.records, range);
         return hi - lo;
       })(),
       markers: deploymentMarkers(s.store.records),
@@ -666,7 +666,7 @@ const ops: Record<string, OpHandler> = {
     const channel = a.channel as string | null;
     const host = (a.host as string | null) ?? null;
     const q = ((a.q as string) ?? '').toLowerCase();
-    const pool = windowSlice(s.store.records, a.range as TimeRange);
+    const pool = rangeSlice(s.store.records, a.range as TimeRange);
     const filtered = pool.filter((r) => {
       if (!kinds.has(r.kind)) return false;
       if (r.kind === 'event' && r.level && !levels.has(r.level)) return false;
@@ -692,7 +692,7 @@ const ops: Record<string, OpHandler> = {
     const user = ((a.user as string) ?? '').trim();
     const q = ((a.q as string) ?? '').toLowerCase();
     const range = (a.contextWindow as TimeRange) ?? (a.range as TimeRange);
-    const pool = windowSlice(
+    const pool = rangeSlice(
       mergeByTime(s.store.kindRecords('event'), s.store.kindRecords('error')),
       range,
     );

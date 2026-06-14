@@ -3,7 +3,7 @@
  * per-transaction-name rollups. No DOM, no D3 — unit-testable.
  */
 import type { Rec, RecordKind } from './types';
-import { windowSlice } from './store';
+import { rangeSlice } from './store';
 
 export interface TimeBucket {
   /** bucket start, epoch-ms */
@@ -79,11 +79,11 @@ export function zoneMidnight(ms: number, utc: boolean): number {
 
 export function bucketByTime(
   records: Rec[],
-  window?: [number, number] | null,
+  range?: [number, number] | null,
   chosenBucketMs: number | null = null,
   utc = true,
 ): BucketResult {
-  records = windowSlice(records, window); // O(log n) on the sorted store
+  records = rangeSlice(records, range); // O(log n) on the sorted store
   let min = Infinity;
   let max = -Infinity;
   for (const r of records) {
@@ -91,9 +91,9 @@ export function bucketByTime(
     if (r.ts < min) min = r.ts;
     if (r.ts > max) max = r.ts;
   }
-  if (window) {
-    min = window[0];
-    max = window[1];
+  if (range) {
+    min = range[0];
+    max = range[1];
   }
   if (!isFinite(min) || !isFinite(max) || max < min) {
     return { buckets: [], bucketMs: 60_000, domain: [0, 0] };
@@ -106,8 +106,8 @@ export function bucketByTime(
   const start = anchor + Math.floor((min - anchor) / bucketMs) * bucketMs;
   // A windowed end is exclusive: round UP to the next boundary, so a range
   // ending exactly on a bucket edge (e.g. 4pm) adds no empty trailing bucket.
-  // Without a window the end must include the last record's own bucket.
-  let end = window
+  // Without a range the end must include the last record's own bucket.
+  let end = range
     ? anchor + Math.ceil((max - anchor) / bucketMs) * bucketMs
     : anchor + Math.floor((max - anchor) / bucketMs) * bucketMs + bucketMs;
   if (end <= start) end = start + bucketMs; // at least one bucket
@@ -167,7 +167,7 @@ function hourLabelToMs(label: string): number | null {
  */
 export function bucketBySidecar(
   histograms: Record<string, Record<string, number>>[],
-  window: [number, number] | null,
+  range: [number, number] | null,
   chosenBucketMs: number | null = null,
   utc = true,
 ): BucketResult | null {
@@ -179,7 +179,7 @@ export function bucketBySidecar(
     for (const label in hist) {
       const t = hourLabelToMs(label);
       if (t === null) continue;
-      if (window && (t >= window[1] || t + HOUR_MS <= window[0])) continue; // hour fully outside
+      if (range && (t >= range[1] || t + HOUR_MS <= range[0])) continue; // hour fully outside
       if (t < min) min = t;
       if (t > max) max = t;
       let counts = byHour.get(t);
@@ -193,9 +193,9 @@ export function bucketBySidecar(
       }
     }
   }
-  if (window) {
-    min = window[0];
-    max = window[1];
+  if (range) {
+    min = range[0];
+    max = range[1];
   }
   if (!isFinite(min) || !isFinite(max) || max < min) {
     return { buckets: [], bucketMs: HOUR_MS, domain: [0, 0] };
@@ -208,7 +208,7 @@ export function bucketBySidecar(
   const start = anchor + Math.floor((min - anchor) / bucketMs) * bucketMs;
   // windowed end is exclusive — round UP so a range ending on a bucket edge
   // adds no empty trailing bucket (see bucketByTime)
-  let end = window
+  let end = range
     ? anchor + Math.ceil((max - anchor) / bucketMs) * bucketMs
     : anchor + Math.floor((max - anchor) / bucketMs) * bucketMs + bucketMs;
   if (end <= start) end = start + bucketMs;
@@ -265,10 +265,10 @@ export type TxnSortKey = 'name' | 'count' | 'totalDuration' | 'avg' | 'p95' | 'e
 
 export function groupTransactions(
   records: Rec[],
-  window?: [number, number] | null,
+  range?: [number, number] | null,
 ): TxnGroup[] {
   const groups = new Map<string, TxnGroup & { durations: number[] }>();
-  for (const r of windowSlice(records, window)) {
+  for (const r of rangeSlice(records, range)) {
     if (r.kind !== 'transaction') continue;
     let group = groups.get(r.name);
     if (!group) {
@@ -318,9 +318,9 @@ export interface TxnStats {
 export function transactionStats(
   records: Rec[],
   name: string,
-  window?: [number, number] | null,
+  range?: [number, number] | null,
 ): TxnStats {
-  const instances = windowSlice(records, window)
+  const instances = rangeSlice(records, range)
     .filter((r) => r.kind === 'transaction' && r.name === name)
     .sort((a, b) => a.ts - b.ts);
 

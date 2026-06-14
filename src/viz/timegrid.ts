@@ -79,7 +79,7 @@ export interface Tiers {
  * Pick the minor / medium / major intervals for a viewport. Pure and
  * unit-testable. `major` prefers a *date* boundary (day/week/month/year) that
  * actually appears, so the top row is always a date; if none is in view (a
- * pure sub-day window) it falls back to the coarsest sub-day step that fits.
+ * pure sub-day range) it falls back to the coarsest sub-day step that fits.
  */
 export function chooseTiers(
   domain: [number, number],

@@ -7,7 +7,7 @@
  * honored as a secondary hint. Deliberately small. Pure logic.
  */
 import type { Rec } from './types';
-import { windowSlice } from './store';
+import { rangeSlice } from './store';
 
 const UNKNOWN_ROUTE = /^[A-Z]+ unknown route$/;
 
@@ -33,10 +33,10 @@ export interface ScannerStats {
 
 export function scannerStats(
   records: Rec[],
-  window?: [number, number] | null,
+  range?: [number, number] | null,
   topN = 15,
 ): ScannerStats {
-  const probes = windowSlice(records, window).filter((r) => isScannerRec(r) && r.ts > 0);
+  const probes = rangeSlice(records, range).filter((r) => isScannerRec(r) && r.ts > 0);
 
   const perDayMap = new Map<string, number>();
   const paths = new Map<string, number>();

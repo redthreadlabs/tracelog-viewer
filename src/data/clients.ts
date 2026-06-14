@@ -8,7 +8,7 @@
  * Pure logic.
  */
 import type { Rec } from './types';
-import { windowSlice } from './store';
+import { rangeSlice } from './store';
 
 /** A gap longer than this splits a user's events into separate sessions. */
 export const SESSION_GAP_MS = 15 * 60_000;
@@ -39,16 +39,16 @@ export function isClientRec(r: Rec): boolean {
   );
 }
 
-function clientEvents(records: Rec[], window?: [number, number] | null): Rec[] {
-  return windowSlice(records, window).filter((r) => isClientRec(r) && r.ts > 0);
+function clientEvents(records: Rec[], range?: [number, number] | null): Rec[] {
+  return rangeSlice(records, range).filter((r) => isClientRec(r) && r.ts > 0);
 }
 
 export function clientProfiles(
   records: Rec[],
-  window?: [number, number] | null,
+  range?: [number, number] | null,
 ): ClientProfile[] {
   const byUser = new Map<string, Rec[]>();
-  for (const r of clientEvents(records, window)) {
+  for (const r of clientEvents(records, range)) {
     const user = r.userId ?? '(anonymous)';
     const list = byUser.get(user) ?? [];
     list.push(r);
@@ -94,10 +94,10 @@ export interface AppVersionStat {
 
 export function appVersions(
   records: Rec[],
-  window?: [number, number] | null,
+  range?: [number, number] | null,
 ): AppVersionStat[] {
   const byVersion = new Map<string, { users: Set<string>; events: number }>();
-  for (const r of clientEvents(records, window)) {
+  for (const r of clientEvents(records, range)) {
     const version = r.appVersion;
     if (!version) continue;
     let stat = byVersion.get(version);
@@ -116,10 +116,10 @@ export function appVersions(
 /** Client events at/above the slow threshold, slowest first. */
 export function slowClientEvents(
   records: Rec[],
-  window?: [number, number] | null,
+  range?: [number, number] | null,
   thresholdMs = SLOW_EVENT_MS,
 ): Rec[] {
-  return clientEvents(records, window)
+  return clientEvents(records, range)
     .filter((r) => r.duration !== undefined && r.duration >= thresholdMs)
     .sort((a, b) => b.duration! - a.duration!);
 }
@@ -133,10 +133,10 @@ export interface EventTypeStat {
 /** Client event types by volume — the generic funnel raw material. */
 export function clientEventTypes(
   records: Rec[],
-  window?: [number, number] | null,
+  range?: [number, number] | null,
 ): EventTypeStat[] {
   const byType = new Map<string, { count: number; users: Set<string> }>();
-  for (const r of clientEvents(records, window)) {
+  for (const r of clientEvents(records, range)) {
     let stat = byType.get(r.name);
     if (!stat) {
       stat = { count: 0, users: new Set() };

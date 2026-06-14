@@ -120,7 +120,7 @@ export function renderOverview(container: HTMLElement): () => void {
         // dragging sets the time range: push a history entry (so Back returns to
         // the previous range) and let the scanbar adopt it + reload that range
         viewState.timeRange = w; // optimistic, so the chart doesn't flash the old range
-        pushParams({ w: rangeParam(w) });
+        pushParams({ r: rangeParam(w) });
         globalThis.dispatchEvent(new Event(RANGE_NAV_EVENT));
       },
     }, res.ghostSpans);

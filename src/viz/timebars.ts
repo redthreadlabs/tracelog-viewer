@@ -20,7 +20,7 @@ const HEIGHT = 170;
 const MARGIN = { top: 18, right: 12, bottom: 22, left: 56 };
 
 export interface TimebarsCallbacks {
-  onRange: (window: [number, number] | null) => void;
+  onRange: (range: [number, number] | null) => void;
 }
 
 export function renderTimebars(

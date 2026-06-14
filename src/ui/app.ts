@@ -235,7 +235,7 @@ export function startApp(root: HTMLElement): void {
   window.addEventListener('hashchange', route);
 
   // restore a shared time window (`w=t0-t1`) on boot
-  viewState.timeRange = parseRangeParam(getParam('w'));
+  viewState.timeRange = parseRangeParam(getParam('r'));
 
   connect();
   route();

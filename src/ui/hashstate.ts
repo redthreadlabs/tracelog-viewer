@@ -112,6 +112,6 @@ export function parseRangeParam(value: string | null): [number, number] | null {
   return t1 > t0 ? [t0, t1] : null;
 }
 
-export function rangeParam(window: [number, number] | null): string | null {
-  return window ? `${Math.round(window[0])}-${Math.round(window[1])}` : null;
+export function rangeParam(range: [number, number] | null): string | null {
+  return range ? `${Math.round(range[0])}-${Math.round(range[1])}` : null;
 }

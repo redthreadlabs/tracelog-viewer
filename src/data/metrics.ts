@@ -4,7 +4,7 @@
  * service.version changes, and breakdown self-time aggregation.
  */
 import type { Rec } from './types';
-import { windowSlice } from './store';
+import { rangeSlice } from './store';
 import { resolveBucketMs, zoneMidnight } from './aggregate';
 
 export interface SeriesPoint {
@@ -16,10 +16,10 @@ export interface SeriesPoint {
 export function runtimeSeries(
   records: Rec[],
   sampleName: string,
-  window?: [number, number] | null,
+  range?: [number, number] | null,
 ): Map<string, SeriesPoint[]> {
   const byHost = new Map<string, SeriesPoint[]>();
-  for (const r of windowSlice(records, window)) {
+  for (const r of rangeSlice(records, range)) {
     if (r.kind !== 'metricset' || r.ts <= 0) continue;
     const value = r.samples?.[sampleName];
     if (value === undefined) continue;
@@ -72,7 +72,7 @@ export interface BreakdownResult {
 /** Aggregate `span.self_time.sum.us` breakdown metricsets into time buckets. */
 export function breakdownSelfTime(
   records: Rec[],
-  window?: [number, number] | null,
+  range?: [number, number] | null,
   chosenBucketMs: number | null = null,
   utc = true,
 ): BreakdownResult {
@@ -82,7 +82,7 @@ export function breakdownSelfTime(
     ms: number;
   }
   const samples: Sample[] = [];
-  for (const r of windowSlice(records, window)) {
+  for (const r of rangeSlice(records, range)) {
     if (r.kind !== 'metricset' || r.ts <= 0) continue;
     // breakdown metricsets carry their span attribution in rec.result
     if (!r.result) continue;
