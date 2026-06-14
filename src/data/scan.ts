@@ -130,10 +130,11 @@ export class LoadController {
     this.cached = 0;
     this.failed = undefined;
     this.dirty = false;
-    // a fresh view supersedes the old working set; the memory budget governs
-    // the decompressed bytes of *this* view, so drop the prior hot bytes
+    // a new plan replaces the *displayed* working set, so clear the record store
+    // — but NOT the byte cache: any completed download stays cached (hot LRU +
+    // IndexedDB), bounded only by the LRU/limit, so it is never wasted and a
+    // flip back to a prior selection re-parses straight from memory
     this.store.clear();
-    this.mem.clear();
     this.doneScan = perf.begin('scan', `scan s3://${this.bucket.bucket}`);
     this.resync();
   }
