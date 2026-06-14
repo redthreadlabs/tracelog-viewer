@@ -56,18 +56,18 @@ export function fmtScaleTime(ms: number, scaleMs: number): string {
   const y = utcMode ? d.getUTCFullYear() : d.getFullYear();
   const ref = new Date();
   const refY = utcMode ? ref.getUTCFullYear() : ref.getFullYear();
-  let date = `${MONTHS[mo].slice(0, 3)} ${day}`;
+  let date = `${MONTHS[mo]} ${day}`;
   if (y !== refY) date += `, ${y}`;
   if (scaleMs >= 86_400_000) return date; // daily+ bars → date only
 
   const h = utcMode ? d.getUTCHours() : d.getHours();
   const h12 = h % 12 === 0 ? 12 : h % 12;
-  const ap = h < 12 ? 'AM' : 'PM';
-  if (scaleMs >= 3_600_000) return `${date}, ${h12} ${ap}`; // hourly → the hour
+  const ap = h < 12 ? 'a' : 'p';
+  if (scaleMs >= 3_600_000) return `${date}, ${h12}${ap}`; // hourly → the hour
   const mi = utcMode ? d.getUTCMinutes() : d.getMinutes();
-  if (scaleMs >= 60_000) return `${date}, ${h12}:${pad2(mi)} ${ap}`; // → the minute
+  if (scaleMs >= 60_000) return `${date}, ${h12}:${pad2(mi)}${ap}`; // → the minute
   const s = utcMode ? d.getUTCSeconds() : d.getSeconds();
-  return `${date}, ${h12}:${pad2(mi)}:${pad2(s)} ${ap}`; // sub-minute → the second
+  return `${date}, ${h12}:${pad2(mi)}:${pad2(s)}${ap}`; // sub-minute → the second
 }
 
 /** duration in ms → `1.82 s` / `162 ms` / `840 µs` */
@@ -105,7 +105,7 @@ export function fmtCount(n: number): string {
   return n.toLocaleString('en-US');
 }
 
-const MONTHS = [
+export const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ];

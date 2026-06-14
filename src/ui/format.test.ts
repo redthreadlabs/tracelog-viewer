@@ -5,12 +5,11 @@ describe('fmtScaleTime', () => {
   it('renders no finer than the bar width', () => {
     setUtcMode(true);
     try {
-      const t = Date.UTC(2026, 5, 10, 14, 5, 30, 118); // Jun 10 2026, 14:05:30.118 UTC
-      expect(fmtScaleTime(t, 86_400_000)).not.toMatch(/[AP]M|:/); // daily → date only
-      expect(fmtScaleTime(t, 3_600_000)).toContain('2 PM'); //        hourly → the hour
-      expect(fmtScaleTime(t, 3_600_000)).not.toContain(':'); //       ...no minutes
-      expect(fmtScaleTime(t, 60_000)).toContain('2:05 PM'); //        minute
-      expect(fmtScaleTime(t, 1000)).toContain('2:05:30 PM'); //       sub-minute → second
+      const t = Date.UTC(2020, 5, 10, 14, 5, 30, 118); // June 10 2020, 14:05:30.118 UTC
+      expect(fmtScaleTime(t, 86_400_000)).toBe('June 10, 2020'); //   daily → date only
+      expect(fmtScaleTime(t, 3_600_000)).toBe('June 10, 2020, 2p'); // hourly → the hour
+      expect(fmtScaleTime(t, 60_000)).toBe('June 10, 2020, 2:05p'); // minute
+      expect(fmtScaleTime(t, 1000)).toBe('June 10, 2020, 2:05:30p'); // sub-minute → second
     } finally {
       setUtcMode(false);
     }

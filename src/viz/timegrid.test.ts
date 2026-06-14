@@ -54,7 +54,7 @@ describe('levelOf — significance of a boundary', () => {
 describe('formatTick — humane labels per level', () => {
   it('labels each level in its own unit', () => {
     expect(formatTick(ms('2026-01-01T00:00:00Z'), 'year', utc, '').text).toBe('2026');
-    expect(formatTick(ms('2026-06-01T00:00:00Z'), 'month', utc, '').text).toBe('Jun');
+    expect(formatTick(ms('2026-06-01T00:00:00Z'), 'month', utc, '').text).toBe('June');
     expect(formatTick(ms('2026-06-10T14:00:00Z'), 'hour', utc, '').text).toBe('2p');
     expect(formatTick(ms('2026-06-10T00:00:00Z'), 'hour', utc, '').text).toBe('12a');
     expect(formatTick(ms('2026-06-10T06:00:00Z'), 'hour', utc, '').text).toBe('6a');
@@ -65,12 +65,12 @@ describe('formatTick — humane labels per level', () => {
 
   it('drops a repeated month from consecutive day labels', () => {
     const first = formatTick(ms('2026-06-09T00:00:00Z'), 'day', utc, '');
-    expect(first.text).toBe('Jun 9');
+    expect(first.text).toBe('June 9');
     // next day, same month → bare day number
     const second = formatTick(ms('2026-06-10T00:00:00Z'), 'day', utc, first.monthKey);
     expect(second.text).toBe('10');
     // crossing into a new month brings the name back
     const third = formatTick(ms('2026-07-01T00:00:00Z'), 'day', utc, second.monthKey);
-    expect(third.text).toBe('Jul 1');
+    expect(third.text).toBe('July 1');
   });
 });

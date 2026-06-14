@@ -18,7 +18,7 @@
  * row therefore never mixes a `Jun 9` with an `06:00`.
  */
 import type { Selection } from 'd3-selection';
-import { isUtcMode } from '../ui/format';
+import { isUtcMode, MONTHS } from '../ui/format';
 
 export type TimeLevel = 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month' | 'year';
 
@@ -66,7 +66,6 @@ const MIN_MINOR_PX = 26; // ...and never finer than this on screen
 const MAJOR_MIN_PX = 150; // the coarse anchor lines, comfortably spaced
 const BOTTOM_LABEL_PX = 130; // min spacing for the bottom label cadence
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const isTime = (lvl: TimeLevel): boolean => lvl === 'second' || lvl === 'minute' || lvl === 'hour';
 
