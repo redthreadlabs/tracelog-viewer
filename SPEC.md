@@ -441,6 +441,28 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
   every chart agrees on tick formatting (durations as `1.2 s` / `840 ms` /
   `64 µs`, bytes as `3.2 MB`, counts with comma grouping), margins, and
   hover behavior.
+  - **Time-axis grid** (`viz/timegrid.ts`): every time-series chart draws
+    faint background gridlines at calendar-aligned boundaries, each line's
+    opacity scaled to the *significance* of the boundary it lands on
+    (second < minute < hour < day < week < month < year), so the time
+    structure reads straight from the background. Labels are formatted in the
+    unit each tick represents (`2026`, `Jun`, `Jun 9`, `14:00`); calendar
+    labels (day and up) anchor the row in semibold ink, sub-day times recede.
+  - **Zone-aligned bucketing**: bar grids anchor to the active display
+    zone's midnight (`aggregate.ts` `zoneMidnight`), not the raw epoch, so a
+    "1 day" bar is a *local* day and calendar gridlines fall between bars
+    rather than drifting by the sub-bucket timezone remainder. Uniform-ms
+    stepping from the anchor keeps bucket assignment O(1). **Known tradeoff:**
+    across a DST transition the uniform-ms grid drifts ≤1h (30 min in
+    half-hour zones) from wall clock for the portion of a window *after* the
+    transition — invisible at day-zoom (~4% of a bar), up to ~33% of a 3h
+    bar at fine zoom. It self-heals (any window starting after the transition
+    re-anchors), and UTC mode is immune. **Future enhancement:** an optional
+    DST-exact mode using calendar-stepped (non-uniform) bucket boundaries —
+    correct through any transition, at the cost of the O(1) `floor((ts −
+    start)/bucketMs)` assignment (it would need a boundary array + binary
+    search per record). Deferred deliberately: the bounded, self-healing,
+    fine-zoom-only drift beats re-introducing per-record search.
 - **Interaction grammar**: brush horizontally to zoom time (double-click to
   reset); hovering any time-axis chart shows a synced crosshair in the
   others; click-through follows the drilldown chain (overview → transaction

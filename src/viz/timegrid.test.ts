@@ -1,9 +1,35 @@
 import { describe, it, expect } from 'vitest';
-import { levelOf, formatTick } from './timegrid';
+import { levelOf, formatTick, chooseTiers } from './timegrid';
+
+const HR = 3_600_000;
+const DAY = 24 * HR;
+const utc = true;
+
+describe('chooseTiers — relative hierarchy from the viewport', () => {
+  it("derives minor 1h / medium 6h / major 1d for a day of 15-minute bars", () => {
+    const domain: [number, number] = [Date.UTC(2026, 5, 10), Date.UTC(2026, 5, 11)];
+    const { minor, medium, major } = chooseTiers(domain, 1200, 15 * 60_000, utc);
+    expect(minor.ms).toBe(HR);
+    expect(medium?.ms).toBe(6 * HR);
+    expect(major?.ms).toBe(DAY);
+  });
+
+  it("won't draw a minor line finer than ~4 bars", () => {
+    // 3h bars over 9 days → minor is at least 4 bars (12h)
+    const domain: [number, number] = [Date.UTC(2026, 5, 2), Date.UTC(2026, 5, 11)];
+    const { minor } = chooseTiers(domain, 1400, 3 * HR, utc);
+    expect(minor.ms).toBeGreaterThanOrEqual(4 * 3 * HR);
+  });
+
+  it('anchors major to a date boundary (so the top row is a date)', () => {
+    const domain: [number, number] = [Date.UTC(2026, 5, 2), Date.UTC(2026, 5, 11)];
+    const { major } = chooseTiers(domain, 1400, 3 * HR, utc);
+    expect(major && !['second', 'minute', 'hour'].includes(major.level)).toBe(true);
+  });
+});
 
 // All assertions use UTC (utc=true) so they don't depend on the test runner's
 // local zone.
-const utc = true;
 const ms = (iso: string) => Date.parse(iso);
 
 describe('levelOf — significance of a boundary', () => {

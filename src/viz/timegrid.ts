@@ -1,37 +1,30 @@
 /**
  * Shared time-axis grid for every time-series chart (timebars, stackbars,
- * line, scatter). Replaces d3's multi-scale axis with calendar-aware
- * gridlines whose prominence tracks the *significance* of the boundary they
- * fall on: a faint hour line, a stronger midnight (day) line, stronger still
- * a Monday (week), a month's 1st, a year's Jan 1. The eye reads the time
- * structure straight from the background.
+ * line, scatter). Instead of fixed per-calendar-unit weights, it reads the
+ * current viewport and derives a *relative* hierarchy of gridlines:
  *
- * Two steps are chosen for the visible span+width: a dense MINOR step (the
- * gridlines) and a sparser LABEL step (which lines get a humane label). Every
- * line's opacity comes from its own significance, so the hierarchy emerges
- * for free wherever coarser boundaries happen to coincide with the grid.
+ *   - minor  — faint, the finest grid (≥ ~4 bars wide, so a chart isn't
+ *              gridded until a few bars have passed)
+ *   - medium — heavier (only when a nice interval sits between minor & major)
+ *   - major  — heaviest, the coarse date anchor (a calendar boundary that
+ *              actually appears in view)
+ *
+ * Weight is by tier *rank*, not by calendar unit — so a year boundary under
+ * an hourly grid is just "the major line of the day," never over-escalated.
+ *
+ * Labels are split by unit class, not by tier: the running fine times go on
+ * the BOTTOM axis (`06:00`); the coarse date anchor goes along the TOP, to
+ * the right of its line, in a grey matched to the line's prominence. The top
+ * row therefore never mixes a `Jun 9` with an `06:00`.
  */
 import type { Selection } from 'd3-selection';
 import { isUtcMode } from '../ui/format';
 
 export type TimeLevel = 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month' | 'year';
 
-/** Faint grey, deepening with significance — month reads stronger than day. */
-const LEVEL_OPACITY: Record<TimeLevel, number> = {
-  second: 0.045,
-  minute: 0.06,
-  hour: 0.085,
-  day: 0.13,
-  week: 0.17,
-  month: 0.24,
-  year: 0.32,
-};
-
-interface Step {
-  /** approximate span, only used to choose density */
-  ms: number;
-  /** calendar unit the step advances by */
-  level: Exclude<TimeLevel, never>;
+export interface Step {
+  ms: number; // approximate span — only used to choose density
+  level: TimeLevel;
   mult: number;
 }
 
@@ -60,17 +53,67 @@ const STEPS: Step[] = [
   { ms: 365 * DAY, level: 'year', mult: 1 },
 ];
 
-const MIN_MINOR_PX = 11; // gridlines no closer than this
-const MIN_LABEL_PX = 72; // labels no closer than this
+/** Opacity of `--ink` per tier rank — relative, not per calendar unit. */
+const TIER_OPACITY = { minor: 0.07, medium: 0.14, major: 0.22 };
+
+const MIN_BARS = 4; // minor gridline spans at least this many bars
+const MIN_MINOR_PX = 26; // ...and never finer than this on screen
+const MAJOR_MIN_PX = 150; // the coarse anchor lines, comfortably spaced
+const BOTTOM_LABEL_PX = 52; // bottom time labels no closer than this
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/** Densest ladder step whose on-screen spacing clears `minPx` (else coarsest). */
-function pickStep(span: number, innerW: number, minPx: number): Step {
-  for (const step of STEPS) {
-    if ((innerW * step.ms) / span >= minPx) return step;
+const isTime = (lvl: TimeLevel): boolean => lvl === 'second' || lvl === 'minute' || lvl === 'hour';
+
+export interface Tiers {
+  minor: Step;
+  medium: Step | null;
+  major: Step | null;
+}
+
+/**
+ * Pick the minor / medium / major intervals for a viewport. Pure and
+ * unit-testable. `major` prefers a *date* boundary (day/week/month/year) that
+ * actually appears, so the top row is always a date; if none is in view (a
+ * pure sub-day window) it falls back to the coarsest sub-day step that fits.
+ */
+export function chooseTiers(
+  domain: [number, number],
+  innerW: number,
+  bucketMs: number | undefined,
+  utc: boolean,
+): Tiers {
+  const span = domain[1] - domain[0];
+  const px = (ms: number): number => (innerW * ms) / span;
+
+  // minor: ≥ ~4 bars, and not denser than MIN_MINOR_PX on screen
+  const minMinorMs = Math.max(bucketMs ? MIN_BARS * bucketMs : 0, (span * MIN_MINOR_PX) / innerW);
+  const minorRaw = STEPS.findIndex((s) => s.ms >= minMinorMs);
+  const minorI = minorRaw < 0 ? STEPS.length - 1 : minorRaw;
+
+  // major: the coarse anchor — prefer the finest date step that's spaced
+  // comfortably and has at least one boundary in view
+  const DAY_I = STEPS.findIndex((s) => s.level === 'day');
+  let majorI = STEPS.findIndex(
+    (s, i) => i >= DAY_I && i > minorI && px(s.ms) >= MAJOR_MIN_PX,
+  );
+  if (majorI >= 0 && ticksFor(domain[0], domain[1], STEPS[majorI], utc).length === 0) majorI = -1;
+  if (majorI < 0) {
+    majorI = STEPS.findIndex((s, i) => i > minorI && px(s.ms) >= MAJOR_MIN_PX);
   }
-  return STEPS[STEPS.length - 1];
+
+  // medium: a rung between minor and major, only when there's room for one
+  let mediumI = -1;
+  if (majorI > minorI + 1) {
+    mediumI = Math.round((minorI + majorI) / 2);
+    if (mediumI <= minorI || mediumI >= majorI) mediumI = -1;
+  }
+
+  return {
+    minor: STEPS[minorI],
+    medium: mediumI >= 0 ? STEPS[mediumI] : null,
+    major: majorI >= 0 ? STEPS[majorI] : null,
+  };
 }
 
 /** Round `t` down to the start of its step boundary. */
@@ -169,7 +212,7 @@ function advance(t: number, step: Step, utc: boolean): number {
   return d.getTime();
 }
 
-/** The coarsest meaningful boundary `t` lands on — drives its prominence. */
+/** The coarsest meaningful boundary `t` lands on — used for humane labels. */
 export function levelOf(t: number, utc: boolean): TimeLevel {
   const d = new Date(t);
   const ms = utc ? d.getUTCMilliseconds() : d.getMilliseconds();
@@ -206,9 +249,9 @@ function pad2(n: number): string {
 }
 
 /**
- * Humane label for a labelled tick, formatted in the unit it represents.
- * `prevMonthKey` lets day/week labels drop a repeated month ("Jun 9", then
- * just "10", "11"…), reintroducing it at each month boundary.
+ * Humane label for a tick, formatted in `level`'s unit. `prevMonthKey` lets
+ * day labels drop a repeated month ("Jun 9", then "10", "11"…), reintroducing
+ * it at each month boundary.
  */
 export function formatTick(
   t: number,
@@ -242,9 +285,10 @@ export function formatTick(
 }
 
 /**
- * Draw the background gridlines, baseline, and bottom labels into `g`.
- * Call this BEFORE drawing bars/lines/points so the grid sits behind them.
- * The y-axis is left to each chart (this owns the time axis only).
+ * Draw the background gridlines, baseline, and labels into `g`. Call this
+ * BEFORE drawing bars/lines/points so the grid sits behind them. Top labels
+ * are placed at y = -6 (in the chart's top margin), so the host needs a top
+ * margin of ≥ ~16.
  */
 export function drawTimeGrid(
   g: Selection<SVGGElement, unknown, null, undefined>,
@@ -253,7 +297,7 @@ export function drawTimeGrid(
   innerW: number,
   innerH: number,
   styles: CSSStyleDeclaration,
-  /** bar width, when this is a bar chart: gridlines never subdivide a bar */
+  /** bar width, when this is a bar chart: minor lines never subdivide a bar */
   bucketMs?: number,
 ): void {
   const span = domain[1] - domain[0];
@@ -264,27 +308,19 @@ export function drawTimeGrid(
   const inkFaint = styles.getPropertyValue('--ink-faint').trim();
   const inkSoft = styles.getPropertyValue('--ink-soft').trim();
 
-  let minorStep = pickStep(span, innerW, MIN_MINOR_PX);
-  // On a bar chart, never draw a gridline finer than the bars — a sub-bar line
-  // would cut through a bar instead of sitting on a bucket edge. (bucketMs is
-  // a BUCKET_STEPS_MS value, all of which are on the ladder.)
-  if (bucketMs) {
-    const barStep = STEPS.find((s) => s.ms >= bucketMs) ?? STEPS[STEPS.length - 1];
-    if (STEPS.indexOf(barStep) > STEPS.indexOf(minorStep)) minorStep = barStep;
-  }
-  let labelStep = pickStep(span, innerW, MIN_LABEL_PX);
-  if (STEPS.indexOf(labelStep) < STEPS.indexOf(minorStep)) labelStep = minorStep;
+  const { minor, medium, major } = chooseTiers(domain, innerW, bucketMs, utc);
+  const onScreen = (gx: number): boolean => gx >= -0.5 && gx <= innerW + 0.5;
 
-  const minorTimes = ticksFor(domain[0], domain[1], minorStep, utc);
-  const labelTimes = ticksFor(domain[0], domain[1], labelStep, utc);
+  // ── gridlines, weighted by tier rank (coarser tier wins at shared marks) ──
+  const tierOf = new Map<number, keyof typeof TIER_OPACITY>();
+  for (const t of ticksFor(domain[0], domain[1], minor, utc)) tierOf.set(t, 'minor');
+  if (medium) for (const t of ticksFor(domain[0], domain[1], medium, utc)) tierOf.set(t, 'medium');
+  if (major) for (const t of ticksFor(domain[0], domain[1], major, utc)) tierOf.set(t, 'major');
 
-  // gridlines: union of minor + label boundaries (month 1sts aren't on the
-  // weekly grid, etc.), each weighted by its own significance
-  const gridTimes = Array.from(new Set([...minorTimes, ...labelTimes])).sort((a, b) => a - b);
   const grid = g.append('g').attr('class', 'time-grid');
-  for (const t of gridTimes) {
+  for (const [t, tier] of tierOf) {
     const gx = x(new Date(t));
-    if (gx < -0.5 || gx > innerW + 0.5) continue;
+    if (!onScreen(gx)) continue;
     grid
       .append('line')
       .attr('x1', gx)
@@ -292,11 +328,9 @@ export function drawTimeGrid(
       .attr('y1', 0)
       .attr('y2', innerH)
       .attr('stroke', ink)
-      .attr('stroke-opacity', LEVEL_OPACITY[levelOf(t, utc)])
+      .attr('stroke-opacity', TIER_OPACITY[tier])
       .attr('shape-rendering', 'crispEdges');
   }
-
-  // baseline along the bottom
   grid
     .append('line')
     .attr('x1', 0)
@@ -305,26 +339,55 @@ export function drawTimeGrid(
     .attr('y2', innerH)
     .attr('stroke', baseColor);
 
-  // labels below the baseline, in the unit each tick represents. Calendar
-  // labels (day and up) anchor the row in darker, semibold ink; sub-day times
-  // recede in faint ink — so a mixed row reads as dates with subordinate times
-  // ("Jun 3 · 12:00 · 4 · 12:00 · 5") rather than an even mishmash.
-  const labelG = g.append('g').attr('transform', `translate(0,${innerH})`);
-  let prevMonthKey = '';
-  for (const t of labelTimes) {
+  // ── top labels: the coarse DATE anchor, to the right of its line, grey to
+  //    match the line's prominence (major darker, medium lighter) ──
+  const topMarks = new Set<number>();
+  const topG = g.append('g');
+  const drawTop = (step: Step, color: string): void => {
+    let prev = '';
+    for (const t of ticksFor(domain[0], domain[1], step, utc)) {
+      if (topMarks.has(t)) continue;
+      const gx = x(new Date(t));
+      if (!onScreen(gx)) continue;
+      topMarks.add(t);
+      const { text, monthKey } = formatTick(t, step.level, utc, prev);
+      prev = monthKey;
+      const atRight = gx > innerW - 34;
+      topG
+        .append('text')
+        .attr('x', atRight ? gx - 4 : gx + 4)
+        .attr('y', -6)
+        .attr('text-anchor', atRight ? 'end' : 'start')
+        .attr('fill', color)
+        .style('font', '10.5px var(--font-data)')
+        .text(text);
+    }
+  };
+  if (major && !isTime(major.level)) drawTop(major, inkSoft);
+  if (medium && !isTime(medium.level)) drawTop(medium, inkFaint);
+
+  // ── bottom labels: the running fine times (the medium marks when those are
+  //    sub-day, else minor), thinned for legibility; a mark whose date is
+  //    already up top is skipped so no x carries two labels ──
+  const bottomStep = medium && isTime(medium.level) ? medium : minor;
+  const bottomG = g.append('g').attr('transform', `translate(0,${innerH})`);
+  let lastX = -Infinity;
+  let prevB = '';
+  for (const t of ticksFor(domain[0], domain[1], bottomStep, utc)) {
+    if (topMarks.has(t)) continue;
     const gx = x(new Date(t));
-    if (gx < -0.5 || gx > innerW + 0.5) continue;
-    const level = levelOf(t, utc);
-    const { text, monthKey } = formatTick(t, level, utc, prevMonthKey);
-    prevMonthKey = monthKey;
-    const calendar = level !== 'hour' && level !== 'minute' && level !== 'second';
-    labelG
+    if (!onScreen(gx)) continue;
+    if (gx - lastX < BOTTOM_LABEL_PX) continue;
+    lastX = gx;
+    const { text, monthKey } = formatTick(t, minor.level, utc, prevB);
+    prevB = monthKey;
+    bottomG
       .append('text')
       .attr('x', gx)
       .attr('y', 12)
       .attr('text-anchor', 'middle')
-      .attr('fill', calendar ? inkSoft : inkFaint)
-      .style('font', `${calendar ? 600 : 400} 10.5px var(--font-data)`)
+      .attr('fill', inkFaint)
+      .style('font', '10.5px var(--font-data)')
       .text(text);
   }
 }

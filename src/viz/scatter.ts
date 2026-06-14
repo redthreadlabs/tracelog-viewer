@@ -24,7 +24,7 @@ import { drawTimeGrid } from './timegrid';
 import type { SampleNote } from '../worker/backend';
 
 const HEIGHT = 190;
-const MARGIN = { top: 8, right: 10, bottom: 24, left: 56 };
+const MARGIN = { top: 18, right: 10, bottom: 24, left: 56 };
 const HIT_RADIUS = 8;
 /** at most this many points stamped (hit-testing still sees them all) */
 const MAX_DRAWN = 20_000;

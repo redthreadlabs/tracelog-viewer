@@ -14,7 +14,7 @@ import { contentWidth } from './ticks';
 import { drawTimeGrid } from './timegrid';
 
 const HEIGHT = 180;
-const MARGIN = { top: 8, right: 12, bottom: 22, left: 56 };
+const MARGIN = { top: 18, right: 12, bottom: 22, left: 56 };
 
 export function renderStackbars(container: HTMLElement, data: BreakdownResult): void {
   clear(container);

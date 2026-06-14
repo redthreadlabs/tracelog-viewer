@@ -12,7 +12,7 @@ import { contentWidth } from './ticks';
 import { drawTimeGrid } from './timegrid';
 
 const HEIGHT = 110;
-const MARGIN = { top: 14, right: 8, bottom: 18, left: 52 };
+const MARGIN = { top: 20, right: 8, bottom: 18, left: 52 };
 
 export interface LineOptions {
   /** value formatter for ticks + tooltip */
