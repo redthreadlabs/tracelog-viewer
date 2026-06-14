@@ -4,7 +4,7 @@
  * loader mid-flight and assert exactly what it did: which files it started, what
  * it cancelled, what it kept, and what its progress reports.
  *
- * A *working-set* is the files implied by the selection (channels × range),
+ * A *working set* is the files implied by the selection (channels × range),
  * narrowed by any zoom window. The loader pursues that set; a window change
  * re-scopes it (cancel pending, keep in-flight + loaded), a new plan resets it.
  */
@@ -136,7 +136,7 @@ describe('LoadController re-scope on zoom', () => {
   it('cancels still-pending out-of-set files but keeps in-flight ones', async () => {
     const h = makeHarness(null);
     h.reset([5, 4, 3, 2, 1, 0]); // 5,4,3,2 in flight; 1,0 pending (CONCURRENCY=4)
-    h.setWindow(hourWindow(5)); // working-set shrinks to hour 5 only
+    h.setWindow(hourWindow(5)); // working set shrinks to hour 5 only
 
     // 1 and 0 were pending and out of the new set → never started (cancelled);
     // 4,3,2 are in flight (out of the new window) → not aborted
@@ -153,7 +153,7 @@ describe('LoadController re-scope on zoom', () => {
 
   it('never evicts a file already loaded when the window moves off it', async () => {
     const h = makeHarness(hourWindow(0));
-    h.reset([0, 5], hourWindow(0)); // working-set = hour 0
+    h.reset([0, 5], hourWindow(0)); // working set = hour 0
     await h.complete(k(0)); // hour 0 loaded
 
     h.setWindow(hourWindow(5)); // zoom away to hour 5
@@ -167,7 +167,7 @@ describe('LoadController re-scope on zoom', () => {
     h.reset([5, 4, 3, 2, 1, 0], hourWindow(0));
     expect(h.started).toEqual([k(0)]); // only hour 0 in the window
     await h.complete(k(0));
-    expect(h.store.progress.running).toBe(false); // working-set drained, idle
+    expect(h.store.progress.running).toBe(false); // working set drained, idle
 
     h.setWindow(null); // widen to the full plan
     expect(h.store.progress.running).toBe(true); // resumed
@@ -177,7 +177,7 @@ describe('LoadController re-scope on zoom', () => {
 });
 
 describe('LoadController progress denominator', () => {
-  it('tracks the working-set, shrinking on zoom and counting only in-set files', async () => {
+  it('tracks the working set, shrinking on zoom and counting only in-set files', async () => {
     const h = makeHarness(null);
     h.reset([5, 4, 3, 2, 1, 0]);
     expect(h.store.progress.bytesTotal).toBe(600); // 6 × 100
@@ -193,7 +193,7 @@ describe('LoadController progress denominator', () => {
     await h.complete(k(4));
     await h.complete(k(3));
 
-    // progress reflects only the working-set (hour 2), not all that got loaded
+    // progress reflects only the working set (hour 2), not all that got loaded
     expect(h.store.progress.bytesDone).toBe(100);
     expect(h.store.progress.filesDone).toBe(1);
     expect(h.store.progress.bytesTotal).toBe(100);
@@ -226,7 +226,7 @@ describe('LoadController new-plan reset', () => {
 });
 
 describe('LoadController completion', () => {
-  it('time-sorts the store once the working-set drains', async () => {
+  it('time-sorts the store once the working set drains', async () => {
     const h = makeHarness(null);
     h.reset([5, 0]); // both in flight (under CONCURRENCY)
     await h.complete(k(5)); // later ts appended first

@@ -428,7 +428,7 @@ export function renderScanbar(container: HTMLElement): void {
   }
 
   /**
-   * Re-derive the whole working-set from the URL — range AND selection — and
+   * Re-derive the whole working set from the URL — range AND selection — and
    * reload if anything changed. The browser history IS the navigation stack:
    * brushing pushes a range entry, closing a picker pushes a selection entry,
    * and Back/Forward restore prior states (hashchange). All land here, so a
@@ -849,7 +849,7 @@ export function renderScanbar(container: HTMLElement): void {
   }
 
   // Back/Forward (hashchange), a chart brush, and a picker close (RANGE_NAV_EVENT)
-  // all re-derive the working-set from the URL.
+  // all re-derive the working set from the URL.
   activeHashHandler = () => {
     void syncFromUrl();
   };

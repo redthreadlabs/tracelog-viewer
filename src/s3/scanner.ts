@@ -19,7 +19,7 @@ export interface ScanPlan {
 }
 
 /**
- * Build a scan plan from listings. The working-set is (channels × hosts × time
+ * Build a scan plan from listings. The working set is (channels × hosts × time
  * range): `hosts === undefined` means all hosts; a list narrows to those hosts;
  * `[]` means none (an empty plan), mirroring the channel contract.
  */

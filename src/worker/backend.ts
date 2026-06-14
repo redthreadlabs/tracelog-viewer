@@ -105,7 +105,7 @@ class Session {
    *  by metadata-served charts (may exceed what the loader is loading if the
    *  load was clamped to a memory budget) */
   currentPlan: ParsedKey[] = [];
-  /** the user's focused time window (brush) — narrows the loader's working-set
+  /** the user's focused time window (brush) — narrows the loader's working set
    *  so a zoom loads (and reports progress for) only its covering files */
   currentWindow: Window = null;
   /** the working-set loader — re-scoped on window change, reset on new plan */
@@ -325,7 +325,7 @@ const ops: Record<string, OpHandler> = {
     if ('window' in a) s.currentWindow = (a.window as Window) ?? null;
     s.loader.reset((a.plan as ScanPlan).files);
   },
-  /** The user zoomed: re-scope the working-set so the loader cancels pending
+  /** The user zoomed: re-scope the working set so the loader cancels pending
    *  out-of-window fetches and prioritizes the new window's covering files —
    *  in-flight loads finish and nothing already loaded is evicted. */
   setWindow: (s, a) => {
@@ -334,7 +334,7 @@ const ops: Record<string, OpHandler> = {
   },
   clearStore: (s) => {
     s.currentPlan = [];
-    s.loader.reset([]); // clears store + mem, empties the working-set
+    s.loader.reset([]); // clears store + mem, empties the working set
   },
   setLive: (s, a) => {
     s.liveChannels = a.channels as string[];

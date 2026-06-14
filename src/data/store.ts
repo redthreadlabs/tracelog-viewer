@@ -54,7 +54,7 @@ export interface ScanProgress {
   filesTotal: number;
   filesDone: number;
   bytesDone: number;
-  /** total compressed bytes of the current working-set — the load denominator */
+  /** total compressed bytes of the current working set — the load denominator */
   bytesTotal: number;
   filesFromCache: number;
   running: boolean;

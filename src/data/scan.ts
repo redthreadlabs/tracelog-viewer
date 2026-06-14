@@ -107,21 +107,21 @@ export interface LoadedFile {
 export type FileLoader = (file: ParsedKey) => Promise<LoadedFile>;
 
 /**
- * The working-set loader (SPEC §7). A *working-set* is the set of files implied
+ * The working-set loader (SPEC §7). A *working set* is the set of files implied
  * by the current selection — the active channels × the selected time-range —
  * optionally narrowed by a zoom window. The controller continuously pursues
  * that set, a few files at a time, appending records as each lands.
  *
  * It is re-scopable: when the window changes (zoom), `resync()` recomputes the
- * working-set and re-pumps. Files no longer in the set are simply never picked
+ * working set and re-pumps. Files no longer in the set are simply never picked
  * (their *pending* loads are cancelled), while in-flight fetches finish and are
  * kept — nothing already loaded is evicted. A channel/range change is a *new
  * plan*: `reset(plan)` clears and reloads from scratch. The load denominator
- * (progress.bytesTotal) tracks the working-set, so it shrinks as you zoom in.
+ * (progress.bytesTotal) tracks the working set, so it shrinks as you zoom in.
  */
 export class LoadController {
   private plan: ParsedKey[] = [];
-  private ws: ParsedKey[] = []; // cached working-set (plan ∩ window)
+  private ws: ParsedKey[] = []; // cached working set (plan ∩ window)
   private inFlight = new Set<string>();
   private active = 0;
   private cached = 0; // cumulative cache hits, for the scan detail
@@ -166,7 +166,7 @@ export class LoadController {
   }
 
   /**
-   * Window changed (zoom), or a load finished: recompute the working-set,
+   * Window changed (zoom), or a load finished: recompute the working set,
    * update progress, and pump workers toward its unloaded files. Out-of-set
    * pending files are never picked; in-flight ones finish and are kept.
    */
@@ -227,7 +227,7 @@ export class LoadController {
     }
   }
 
-  /** The working-set has drained: a final time-sort + a settled progress emit. */
+  /** The working set has drained: a final time-sort + a settled progress emit. */
   private settle(): void {
     if (this.dirty) {
       this.dirty = false;
