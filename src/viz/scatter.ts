@@ -20,7 +20,7 @@ import { el, clear } from '../ui/dom';
 import type { Rec } from '../data/types';
 import { fmtDateTime, fmtDuration, isUtcMode } from '../ui/format';
 import { logTicks, contentWidth } from './ticks';
-import { drawTimeGrid, drawGhostBand } from './timegrid';
+import { drawTimeGrid, drawGhostBand, inGhost, GHOST_FOOTNOTE } from './timegrid';
 import type { SampleNote } from '../worker/backend';
 
 const HEIGHT = 190;
@@ -271,14 +271,23 @@ export function renderScatter(
 
   canvas.addEventListener('pointermove', (event) => {
     const box = canvas.getBoundingClientRect();
-    const hit = nearest(event.clientX - box.left, event.clientY - box.top);
+    const mx = event.clientX - box.left;
+    const hit = nearest(mx, event.clientY - box.top);
     canvas.style.cursor = hit === -1 ? 'default' : 'pointer';
-    if (hit === -1) {
+    const ghosted = inGhost(ghostSpans, x.invert(mx).getTime());
+    // a refused (ghost) region has no points — still surface the footnote there
+    if (hit === -1 && !ghosted) {
       tooltip.style.display = 'none';
       return;
     }
-    const rec = points[hit];
-    tooltip.innerHTML = `<div class="t">${fmtDateTime(rec.ts)}</div><span class="row">${rec.result ?? rec.outcome ?? ''}<span class="v">${fmtDuration(rec.duration!)}</span></span>`;
+    if (hit === -1) {
+      tooltip.innerHTML = `<div class="t">${fmtDateTime(x.invert(mx).getTime())}</div>${GHOST_FOOTNOTE}`;
+    } else {
+      const rec = points[hit];
+      tooltip.innerHTML =
+        `<div class="t">${fmtDateTime(rec.ts)}</div><span class="row">${rec.result ?? rec.outcome ?? ''}<span class="v">${fmtDuration(rec.duration!)}</span></span>` +
+        (ghosted ? GHOST_FOOTNOTE : '');
+    }
     tooltip.style.display = 'block';
     const rect = container.getBoundingClientRect();
     tooltip.style.left = `${Math.min(event.clientX - rect.left + 12, width - 190)}px`;

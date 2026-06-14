@@ -9,7 +9,7 @@ import { el, clear } from '../ui/dom';
 import type { HistBucket } from '../data/aggregate';
 import { fmtCount, fmtDuration } from '../ui/format';
 import { logTicks, contentWidth } from './ticks';
-import { drawGhostFill } from './timegrid';
+import { drawGhostFill, GHOST_FOOTNOTE } from './timegrid';
 
 const HEIGHT = 190;
 const MARGIN = { top: 8, right: 10, bottom: 24, left: 44 };
@@ -89,7 +89,9 @@ export function renderHistogram(
       .attr('fill-opacity', 1)
       .attr('shape-rendering', 'crispEdges')
       .on('mousemove', (event: MouseEvent) => {
-        tooltip.innerHTML = `<div class="t">${fmtDuration(bucket.x0)} – ${fmtDuration(bucket.x1)}</div><span class="row">requests<span class="v">${fmtCount(bucket.count)}</span></span>`;
+        tooltip.innerHTML =
+          `<div class="t">${fmtDuration(bucket.x0)} – ${fmtDuration(bucket.x1)}</div><span class="row">requests<span class="v">${fmtCount(bucket.count)}</span></span>` +
+          (ghostSpans.length > 0 ? GHOST_FOOTNOTE : '');
         tooltip.style.display = 'block';
         const rect = container.getBoundingClientRect();
         tooltip.style.left = `${Math.min(event.clientX - rect.left + 12, width - 170)}px`;

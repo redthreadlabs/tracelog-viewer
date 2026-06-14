@@ -13,7 +13,7 @@ import { RECORD_KINDS, type RecordKind } from '../data/types';
 import type { BucketResult } from '../data/aggregate';
 import { fmtCount, fmtDateTime, isUtcMode } from '../ui/format';
 import { contentWidth } from './ticks';
-import { drawTimeGrid, drawGhostBand } from './timegrid';
+import { drawTimeGrid, drawGhostBand, inGhost, GHOST_FOOTNOTE } from './timegrid';
 
 const HEIGHT = 170;
 const MARGIN = { top: 18, right: 12, bottom: 22, left: 56 };
@@ -102,15 +102,20 @@ export function renderTimebars(
       const t = x.invert(mx).getTime();
       const idx = Math.floor((t - data.domain[0]) / data.bucketMs);
       const bucket = data.buckets[idx];
-      if (!bucket || bucket.total === 0) {
+      const ghosted = inGhost(ghostSpans, t);
+      // show over an empty ghost region too, so the footnote always appears there
+      if ((!bucket || bucket.total === 0) && !ghosted) {
         tooltip.style.display = 'none';
         return;
       }
-      const lines = RECORD_KINDS.filter((k) => bucket.counts[k]).map(
-        (k) =>
-          `<span class="row"><span class="dot" style="background:${kindColor(k)}"></span>${k}<span class="v">${fmtCount(bucket.counts[k]!)}</span></span>`,
-      );
-      tooltip.innerHTML = `<div class="t">${fmtDateTime(bucket.t0)}</div>${lines.join('')}`;
+      const lines = bucket
+        ? RECORD_KINDS.filter((k) => bucket.counts[k]).map(
+            (k) =>
+              `<span class="row"><span class="dot" style="background:${kindColor(k)}"></span>${k}<span class="v">${fmtCount(bucket.counts[k]!)}</span></span>`,
+          )
+        : [];
+      const when = bucket ? bucket.t0 : t;
+      tooltip.innerHTML = `<div class="t">${fmtDateTime(when)}</div>${lines.join('')}${ghosted ? GHOST_FOOTNOTE : ''}`;
       tooltip.style.display = 'block';
       const rect = container.getBoundingClientRect();
       const left = Math.min(event.clientX - rect.left + 14, width - 180);

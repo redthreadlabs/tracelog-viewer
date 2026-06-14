@@ -208,6 +208,15 @@ export function drawGhostFill(
     .attr('fill', ghostHatch(g, styles));
 }
 
+/** Whether `t` (epoch-ms) falls within any unfulfilled (ghost) span. */
+export function inGhost(spans: [number, number][], t: number): boolean {
+  for (const [a, b] of spans) if (t >= a && t < b) return true;
+  return false;
+}
+
+/** Footnote appended to a chart tooltip when hovering a ghost-shaded region. */
+export const GHOST_FOOTNOTE = '<div class="tt-foot">incomplete — backing data not fully loaded</div>';
+
 /** Round `t` down to the start of its step boundary. */
 function startOf(t: number, step: Step, utc: boolean): number {
   const d = new Date(t);
