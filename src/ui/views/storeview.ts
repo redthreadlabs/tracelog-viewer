@@ -5,7 +5,7 @@
  * A file is simply loaded or not: unloaded rows are greyed with a "load"
  * action; loaded rows show record counts (kind bar) and an "evict" action.
  * Per-file intern pools make eviction actually free the memory (see
- * parse.ts). Plus a live tab-heap readout.
+ * parse.ts).
  */
 import { el, clear } from '../dom';
 import { storeClient } from '../../data/storeclient';
@@ -73,18 +73,6 @@ interface FileRow {
   loading?: boolean;
 }
 
-/** Chrome's non-standard per-tab JS heap numbers (absent elsewhere). */
-interface PerformanceMemory {
-  usedJSHeapSize: number;
-  totalJSHeapSize: number;
-  jsHeapSizeLimit: number;
-}
-
-function readHeap(): PerformanceMemory | null {
-  const mem = (performance as unknown as { memory?: PerformanceMemory }).memory;
-  return mem && typeof mem.usedJSHeapSize === 'number' ? mem : null;
-}
-
 export function renderStoreView(container: HTMLElement): () => void {
   const body = el('div', { className: 'txn-detail-body store-body' });
   const tip = el('div', { className: 'chart-tooltip fixed' });
@@ -133,35 +121,6 @@ export function renderStoreView(container: HTMLElement): () => void {
   async function refreshCached(): Promise<void> {
     cachedSet = await storeClient.request<Set<string>>('cacheKeys');
   }
-
-  // the heap column refreshes in place while the page is open
-  const heapCol = el('div', { className: 'sgrid' });
-  function renderMemory(): void {
-    clear(heapCol);
-    const heap = readHeap();
-    heapCol.append(el('div', { className: 'label scol-title', text: 'Tab heap' }));
-    if (!heap) {
-      heapCol.append(
-        el('div', {
-          className: 'faint',
-          text: 'unavailable in this browser (Chromium only)',
-          attrs: { style: 'font-size:12px' },
-        }),
-      );
-      return;
-    }
-    const srow = (label: string, value: string) =>
-      heapCol.append(
-        el('div', { className: 'srow' }, [
-          el('span', { className: 'label', text: label }),
-          el('span', { className: 'num', text: value }),
-        ]),
-      );
-    srow('used', fmtBytes(heap.usedJSHeapSize));
-    srow('allocated', fmtBytes(heap.totalJSHeapSize));
-    srow('of limit', `${Math.round((heap.usedJSHeapSize / heap.jsHeapSizeLimit) * 100)}%`);
-  }
-  const memTimer = setInterval(renderMemory, 2000);
 
   // per-file kind counts arrive from the worker with each data event
   let kindCountsByFile = new Map<string, Map<RecordKind, number>>();
@@ -301,7 +260,7 @@ export function renderStoreView(container: HTMLElement): () => void {
     body.append(internalsTabs('/internals/store'));
     const allRows = buildRows();
 
-    // --- summary panel: store ledger | heap ledger | kinds ---
+    // --- summary panel: store ledger | kinds ---
     const storeCol = el('div', { className: 'sgrid' });
     storeCol.append(el('div', { className: 'label scol-title', text: 'In memory' }));
     const srow = (label: string, value: string) =>
@@ -320,12 +279,9 @@ export function renderStoreView(container: HTMLElement): () => void {
     );
     srow('cached locally', fmtCount(allRows.filter((r) => r.cached).length));
 
-    renderMemory();
     body.append(
       el('div', { className: 'store-summary' }, [
         storeCol,
-        el('div', { className: 'sdivider' }),
-        heapCol,
         el('div', { className: 'sdivider' }),
         totalKindStats(),
       ]),
@@ -849,7 +805,6 @@ export function renderStoreView(container: HTMLElement): () => void {
   void loadAvailability();
 
   return () => {
-    clearInterval(memTimer);
     storeClient.removeEventListener('data', onData);
   };
 }

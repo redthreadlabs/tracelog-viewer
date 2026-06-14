@@ -1204,7 +1204,7 @@ th.sortable.on {
 
 .store-summary {
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) 1px minmax(200px, 1fr) 1px minmax(220px, 1fr);
+  grid-template-columns: minmax(240px, 1fr) 1px minmax(220px, 1fr);
   gap: 6px 26px;
   align-items: start;
   background: var(--surface);
