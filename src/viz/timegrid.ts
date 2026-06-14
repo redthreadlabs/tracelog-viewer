@@ -260,6 +260,7 @@ export function drawTimeGrid(
   const ink = styles.getPropertyValue('--ink').trim() || '#000';
   const baseColor = styles.getPropertyValue('--line-strong').trim();
   const inkFaint = styles.getPropertyValue('--ink-faint').trim();
+  const inkSoft = styles.getPropertyValue('--ink-soft').trim();
 
   const minorStep = pickStep(span, innerW, MIN_MINOR_PX);
   let labelStep = pickStep(span, innerW, MIN_LABEL_PX);
@@ -295,21 +296,26 @@ export function drawTimeGrid(
     .attr('y2', innerH)
     .attr('stroke', baseColor);
 
-  // labels below the baseline, in the unit each tick represents
+  // labels below the baseline, in the unit each tick represents. Calendar
+  // labels (day and up) anchor the row in darker, semibold ink; sub-day times
+  // recede in faint ink — so a mixed row reads as dates with subordinate times
+  // ("Jun 3 · 12:00 · 4 · 12:00 · 5") rather than an even mishmash.
   const labelG = g.append('g').attr('transform', `translate(0,${innerH})`);
   let prevMonthKey = '';
   for (const t of labelTimes) {
     const gx = x(new Date(t));
     if (gx < -0.5 || gx > innerW + 0.5) continue;
-    const { text, monthKey } = formatTick(t, levelOf(t, utc), utc, prevMonthKey);
+    const level = levelOf(t, utc);
+    const { text, monthKey } = formatTick(t, level, utc, prevMonthKey);
     prevMonthKey = monthKey;
+    const calendar = level !== 'hour' && level !== 'minute' && level !== 'second';
     labelG
       .append('text')
       .attr('x', gx)
       .attr('y', 12)
       .attr('text-anchor', 'middle')
-      .attr('fill', inkFaint)
-      .style('font', '10.5px var(--font-data)')
+      .attr('fill', calendar ? inkSoft : inkFaint)
+      .style('font', `${calendar ? 600 : 400} 10.5px var(--font-data)`)
       .text(text);
   }
 }
