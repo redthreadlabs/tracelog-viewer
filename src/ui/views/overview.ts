@@ -12,7 +12,7 @@ import { renderTimebars } from '../../viz/timebars';
 import { viewState } from '../../state';
 import { pushParams, canGoBack, setView, windowParam, RANGE_NAV_EVENT } from '../hashstate';
 import { chosenBucketMs, bucketLabel } from '../bucketpicker';
-import { fmtBytes, fmtCount, fmtDateTime, fmtDuration, zoneLabel, isUtcMode } from '../format';
+import { fmtBytes, fmtCount, fmtDuration, isUtcMode } from '../format';
 
 export function renderOverview(container: HTMLElement): () => void {
   let sortKey: TxnSortKey = 'totalDuration';
@@ -84,27 +84,10 @@ export function renderOverview(container: HTMLElement): () => void {
     chartShown = true;
     lastFromMetadata = res.fromMetadata;
 
-    // --- chart head: window label + reset ---
+    // --- chart head ---
     clear(chartHead);
     chartHead.append(el('span', { className: 'label', text: 'Volume' }));
-    if (window) {
-      chartHead.append(
-        el('span', {
-          className: 'budget',
-          text: `${fmtDateTime(window[0])} → ${fmtDateTime(window[1])} ${zoneLabel()}`,
-        }),
-        el('button', {
-          className: 'btn btn-quiet',
-          text: '← zoom out',
-          attrs: { title: 'zoom out (browser Back)' },
-          on: {
-            click: () => {
-              if (canGoBack()) globalThis.history.back();
-            },
-          },
-        }),
-      );
-    } else {
+    if (!window) {
       chartHead.append(
         el('span', {
           className: 'budget faint',
