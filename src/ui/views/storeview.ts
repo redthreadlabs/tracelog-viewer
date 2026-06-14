@@ -277,7 +277,10 @@ export function renderStoreView(container: HTMLElement): () => void {
       'compressed → parsed',
       `${fmtBytes(loadedRows.reduce((s, r) => s + r.parsed.size, 0))} → ${fmtBytes(loadedRows.reduce((s, r) => s + r.sizeUncompressed, 0))}`,
     );
-    srow('cached locally', fmtCount(allRows.filter((r) => r.cached).length));
+    const cachedFiles = allRows.filter((r) => r.cached);
+    // the disk cache holds gzip bytes, so its size is the compressed total
+    const cachedBytes = cachedFiles.reduce((s, r) => s + r.parsed.size, 0);
+    srow('cached locally', `${fmtCount(cachedFiles.length)} (${fmtBytes(cachedBytes)})`);
 
     body.append(
       el('div', { className: 'store-summary' }, [
