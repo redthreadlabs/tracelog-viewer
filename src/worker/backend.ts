@@ -291,6 +291,29 @@ function incompleteSpans(s: Session): [number, number][] {
   return spans;
 }
 
+/**
+ * Spans of intervals the memory budget refused — in the selection (currentPlan)
+ * but clamped out of what the loader will load, so their records will never
+ * arrive. They have metadata (still in currentPlan, so sidecars hydrate), hence
+ * the *persistent* ghost flavor: accurate bars + ghost background (SPEC §7).
+ * Empty when within budget (the loader plan equals the selection) or when no
+ * scan is loading yet (so transitions don't flash an all-refused chart).
+ */
+function budgetRefusedSpans(s: Session): [number, number][] {
+  const loaded = s.loader.planKeySet();
+  if (loaded.size === 0) return [];
+  const refused = new Set<string>();
+  for (const f of s.currentPlan) {
+    if (!loaded.has(f.key)) refused.add(f.interval);
+  }
+  const spans: [number, number][] = [];
+  for (const interval of refused) {
+    const span = intervalSpan(interval);
+    if (span) spans.push(span);
+  }
+  return spans;
+}
+
 /** Clip spans to [lo, hi], drop empties, and merge overlapping/adjacent ones. */
 function mergeSpans(spans: [number, number][], lo: number, hi: number): [number, number][] {
   const clipped = spans
@@ -565,14 +588,16 @@ const ops: Record<string, OpHandler> = {
     const meta = await metadataVolume(s, window, bucketMs, utc);
     let bucketed: BucketResult;
     let fromMetadata: boolean;
-    // ghostSpans: where the working set is unfulfilled within the view — the
-    // metadata path's not-yet-probed intervals (SPEC §7). The over-budget
-    // records case folds in here in a later step.
-    let ghostSpans: [number, number][] = [];
+    // ghostSpans: where the working set is unfulfilled within the view (SPEC
+    // §7) — the union of the metadata path's not-yet-probed intervals
+    // (momentary) and the budget-refused intervals (persistent). Merged +
+    // clipped to the drawn domain.
+    const refused = budgetRefusedSpans(s);
+    let ghostSpans: [number, number][];
     if (meta) {
       bucketed = meta.bucketed;
       fromMetadata = true;
-      ghostSpans = meta.unfilled;
+      ghostSpans = mergeSpans([...meta.unfilled, ...refused], bucketed.domain[0], bucketed.domain[1]);
     } else {
       // records path: blank any interval still missing files, so a bucket is
       // fully populated or blank — never a misleadingly short partial bar
@@ -581,6 +606,7 @@ const ops: Record<string, OpHandler> = {
         incompleteSpans(s),
       );
       fromMetadata = false;
+      ghostSpans = mergeSpans(refused, bucketed.domain[0], bucketed.domain[1]);
     }
 
     return {

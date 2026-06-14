@@ -207,6 +207,13 @@ export class LoadController {
     this.pump();
   }
 
+  /** Keys of the files this loader intends to load (its plan). When the plan is
+   *  a memory-clamped subset of the selection, the selection's other files are
+   *  budget-refused — their intervals get the persistent ghost band (SPEC §7). */
+  planKeySet(): Set<string> {
+    return new Set(this.plan.map((f) => f.key));
+  }
+
   private nextPending(): ParsedKey | null {
     // the plan is newest-first, so the first unloaded match is the newest one —
     // and within a multi-interval window this naturally favours its covering files
