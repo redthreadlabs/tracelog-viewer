@@ -25,7 +25,6 @@ import { renderBucketPicker } from './bucketpicker';
 import { renderMultiselect } from './multiselect';
 import { profiles } from './profiles';
 import { clampByMemory } from '../data/ledger';
-import { openMemoryLimitModal } from './memorymodal';
 
 const MB = 1024 * 1024;
 
@@ -201,6 +200,9 @@ export function renderScanbar(container: HTMLElement): void {
 
   /** Open dropdown (one at a time), persisted across re-renders like rangeOpen. */
   let openPicker: 'channels' | 'hosts' | null = null;
+  /** set when the selection exceeds the memory budget: we loaded the newest
+   *  files that fit, and the scanbar shows an over-budget indicator */
+  let overBudget: { estBytes: number } | null = null;
 
   /** The host filter for planScan: undefined (all) when every candidate is
    *  selected, else the selected subset ([] = none). Before the first plan
@@ -274,6 +276,7 @@ export function renderScanbar(container: HTMLElement): void {
       if (state.channels.size > 0) {
         void storeClient.request('clearStore');
         loadedSignature = null;
+        overBudget = null;
         setParams({ ch: '' });
       }
       render();
@@ -389,10 +392,11 @@ export function renderScanbar(container: HTMLElement): void {
   }
 
   /**
-   * Load the selected view, but first check its estimated in-memory size
-   * against the workspace's memory limit (SPEC §8). Over budget → the
-   * guardrail modal (raise the limit / clamp to newest that fits / cancel)
-   * instead of loading. No limit set → load straight away.
+   * Load the selected view, bounded by the workspace memory limit (SPEC §8).
+   * Over budget is a STATE, not a gate: we load the newest files that fit and
+   * surface an over-budget indicator. The user resolves it by narrowing any
+   * dimension (channels/hosts/range — the lever that matches their cause),
+   * going Back, or raising the limit. No limit set → load it all.
    */
   async function runScan(): Promise<void> {
     const plan = state.plan;
@@ -400,6 +404,7 @@ export function renderScanbar(container: HTMLElement): void {
 
     const limitMb = profiles.active()?.memoryLimitMb;
     if (limitMb == null || limitMb <= 0) {
+      overBudget = null;
       executePlan(plan);
       return;
     }
@@ -409,42 +414,39 @@ export function renderScanbar(container: HTMLElement): void {
     try {
       est = await storeClient.request('estimateView', { files: plan.files });
     } catch {
-      executePlan(plan); // estimate unavailable — don't block the user
+      overBudget = null;
+      executePlan(plan); // estimate unavailable — don't hold the data back
       return;
     }
     if (est.total <= limitBytes) {
+      overBudget = null;
       executePlan(plan);
       return;
     }
 
+    // over budget: load the newest files that fit and record the overage so the
+    // scanbar shows the indicator (the chart already blanks un-loaded intervals)
     const keep = clampByMemory(plan.files, est.perFile, limitBytes);
-    const fitBytes = keep.reduce((sum, i) => sum + (est.perFile[i] ?? 0), 0);
-    openMemoryLimitModal({
-      estBytes: est.total,
-      limitBytes,
-      fileCount: plan.files.length,
-      fitCount: keep.length,
-      fitBytes,
-      onRaise: (newLimitMb) => {
-        const p = profiles.active();
-        if (p) profiles.save({ ...p, memoryLimitMb: newLimitMb });
-        executePlan(plan);
-      },
-      onClamp: () => {
-        const files = keep.map((i) => plan.files[i]);
-        executePlan({
-          files,
-          totalBytes: files.reduce((sum, f) => sum + f.size, 0),
-          hosts: [...new Set(files.map((f) => f.host))].sort(),
-          allHosts: plan.allHosts, // the candidate set is unchanged by clamping
-          channels: [...new Set(files.map((f) => f.channel))].sort(),
-        });
-      },
-      // leave the loaded data as-is; forget the signature so re-selecting retries
-      onCancel: () => {
-        loadedSignature = null;
-      },
+    const files = keep.map((i) => plan.files[i]);
+    overBudget = { estBytes: est.total };
+    executePlan({
+      files,
+      totalBytes: files.reduce((sum, f) => sum + f.size, 0),
+      hosts: [...new Set(files.map((f) => f.host))].sort(),
+      allHosts: plan.allHosts, // the candidate set is unchanged by clamping
+      channels: [...new Set(files.map((f) => f.channel))].sort(),
     });
+  }
+
+  /** Raise the memory limit to fit the whole selection, then reload. Saving the
+   *  profile re-inits the scanbar from the URL (selection preserved), which
+   *  replans at the new limit and loads it all. */
+  function raiseLimitToFit(): void {
+    const p = profiles.active();
+    if (!p || !overBudget) return;
+    const newMb = Math.ceil(overBudget.estBytes / MB);
+    overBudget = null;
+    profiles.save({ ...p, memoryLimitMb: newMb });
   }
 
   function currentPresetLabel(): string | null {
@@ -745,6 +747,23 @@ export function renderScanbar(container: HTMLElement): void {
     // the worker can't self-measure its heap (no performance.memory there),
     // so report the decompressed bytes it's holding — a real proxy for it
     const inMemory = snap.files.reduce((s, f) => s + f.sizeUncompressed, 0);
+    if (overBudget) {
+      // over budget: we loaded the newest slice that fits — say so, and offer to
+      // raise the limit (narrowing any picker or going Back also resolves it)
+      const pill = storePill(
+        `OVER BUDGET · ${fmtBytesRough(inMemory)} of ~${fmtBytesRough(overBudget.estBytes)}`,
+        'the selection exceeds the memory budget — showing the newest data that fits; narrow a filter, go back, or raise the limit',
+      );
+      pill.classList.add('over-budget');
+      const raise = el('button', {
+        className: 'chip raise-chip',
+        text: `raise to ${Math.ceil(overBudget.estBytes / MB)} MB`,
+        title: 'raise the memory limit to fit the whole selection and reload',
+        on: { click: () => raiseLimitToFit() },
+      });
+      budget.append(pill, raise);
+      return;
+    }
     budget.append(
       storePill(`LOADED: ${fmtBytesRough(inMemory)}`, 'inspect the in-memory store (files, sizes, eviction)'),
     );

@@ -208,6 +208,9 @@
 }
 
 .budget {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-family: var(--font-data);
   font-variant-numeric: tabular-nums;
   font-size: 12px;
@@ -1186,6 +1189,29 @@ th.sortable.on {
 .store-pill:hover {
   background: var(--thread-strong);
   border-color: var(--thread-strong);
+}
+
+/* over-budget readout: a caution-amber variant of the store pill */
+.store-pill.over-budget {
+  background: #b45309;
+  border-color: #b45309;
+}
+
+.store-pill.over-budget:hover {
+  background: #92400e;
+  border-color: #92400e;
+}
+
+.raise-chip {
+  font-size: 12px;
+  color: #b45309;
+  border-color: #b45309;
+}
+
+.raise-chip:hover {
+  background: #b45309;
+  border-color: #b45309;
+  color: #fff;
 }
 
 /* ---------- store summary panel ---------- */
