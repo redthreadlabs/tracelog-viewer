@@ -24,7 +24,7 @@ const MB = 1024 * 1024;
 
 /** "downloaded / cached locally" indicator: a down-arrow inside a circle */
 const DOWNLOAD_ICON =
-  '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" ' +
+  '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" ' +
   'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle">' +
   '<circle cx="12" cy="12" r="9"/><path d="M12 8v6"/><path d="M9 11.5l3 3 3-3"/></svg>';
 
