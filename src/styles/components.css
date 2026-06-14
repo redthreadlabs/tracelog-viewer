@@ -4,7 +4,9 @@
   display: flex;
   align-items: baseline;
   gap: 16px;
-  padding: 18px 28px 0;
+  padding: 18px 28px 14px;
+  /* the red thread, now a clean rule underlining the masthead */
+  border-bottom: 2px solid var(--thread);
 }
 
 .masthead-title {
@@ -35,20 +37,6 @@
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-/* the red thread: a hand-drawn line running beneath the masthead */
-.thread-rule {
-  margin: 10px 0 0;
-  height: 14px;
-  overflow: visible;
-}
-
-.thread-rule path {
-  stroke: var(--thread);
-  stroke-width: 1.6;
-  fill: none;
-  stroke-linecap: round;
 }
 
 /* ---------- buttons & inputs ---------- */
@@ -186,7 +174,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
-  padding: 1px 28px 12px;
+  padding: 12px 28px;
 }
 
 .scanbar .group {
