@@ -5,8 +5,9 @@
   align-items: baseline;
   gap: 16px;
   padding: 18px 28px 14px;
-  /* the red thread, now a clean rule underlining the masthead */
-  border-bottom: 2px solid var(--thread);
+  /* a clean rule underlining the masthead, matching the scanbar's
+     progress-thread track (.progress-thread) below it */
+  border-bottom: 2px solid var(--line);
 }
 
 .masthead-title {
