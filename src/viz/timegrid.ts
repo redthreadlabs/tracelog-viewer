@@ -118,28 +118,40 @@ export function chooseTiers(
 
 let ghostPatternSeq = 0;
 
-/** Append the muted diagonal-hatch pattern to `g`, returning its `url(#…)`. */
+/** Ghost-band hatch appearance — tweak here (one place). */
+const GHOST_HATCH = {
+  token: '--level-warn', // amber, themed; falls back below if unresolved
+  fallback: '#f59b1e',
+  tile: 10, // px tile → spacing between the diagonal lines (bigger = further apart)
+  width: 2, // line thickness
+  lineOpacity: 0.2,
+  fillOpacity: 0.05, // faint wash between the lines
+};
+
+/** Append the diagonal-hatch pattern to `g`, returning its `url(#…)`. */
 function ghostHatch(g: Selection<SVGGElement, unknown, null, undefined>, styles: CSSStyleDeclaration): string {
-  const ink = styles.getPropertyValue('--ink').trim() || '#000';
+  const color = styles.getPropertyValue(GHOST_HATCH.token).trim() || GHOST_HATCH.fallback;
+  const { tile, width } = GHOST_HATCH;
   const id = `ghost-hatch-${ghostPatternSeq++}`;
   const pattern = g
     .append('defs')
     .append('pattern')
     .attr('id', id)
     .attr('patternUnits', 'userSpaceOnUse')
-    .attr('width', 6)
-    .attr('height', 6)
+    .attr('width', tile)
+    .attr('height', tile)
     .attr('patternTransform', 'rotate(45)');
-  pattern.append('rect').attr('width', 6).attr('height', 6).attr('fill', ink).attr('fill-opacity', 0.03);
+  pattern.append('rect').attr('width', tile).attr('height', tile).attr('fill', color).attr('fill-opacity', GHOST_HATCH.fillOpacity);
+  // centered in the tile so the full stroke width renders (an edge line clips)
   pattern
     .append('line')
-    .attr('x1', 0)
+    .attr('x1', tile / 2)
     .attr('y1', 0)
-    .attr('x2', 0)
-    .attr('y2', 6)
-    .attr('stroke', ink)
-    .attr('stroke-opacity', 0.11)
-    .attr('stroke-width', 1);
+    .attr('x2', tile / 2)
+    .attr('y2', tile)
+    .attr('stroke', color)
+    .attr('stroke-opacity', GHOST_HATCH.lineOpacity)
+    .attr('stroke-width', width);
   return `url(#${id})`;
 }
 
