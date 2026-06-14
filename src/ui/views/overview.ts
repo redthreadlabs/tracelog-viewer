@@ -10,7 +10,7 @@ import { perf } from '../../data/perf';
 import { sortTxnGroups, type TxnGroup, type TxnSortKey, type BucketResult } from '../../data/aggregate';
 import { renderTimebars } from '../../viz/timebars';
 import { viewState } from '../../state';
-import { pushParams, setView, rangeParam, RANGE_NAV_EVENT } from '../hashstate';
+import { pushParams, setView, RANGE_NAV_EVENT } from '../hashstate';
 import { chosenBucketMs, bucketLabel } from '../bucketpicker';
 import { fmtBytes, fmtCount, fmtDuration, isUtcMode } from '../format';
 
@@ -117,10 +117,10 @@ export function renderOverview(container: HTMLElement): () => void {
     renderTimebars(chartHost, data, {
       onRange: (w) => {
         if (!w) return;
-        // dragging sets the time range: push a history entry (so Back returns to
-        // the previous range) and let the scanbar adopt it + reload that range
+        // dragging sets the time range (from/to): push a history entry (so Back
+        // returns to the previous range) and let the scanbar adopt it + reload
         viewState.timeRange = w; // optimistic, so the chart doesn't flash the old range
-        pushParams({ r: rangeParam(w) });
+        pushParams({ from: String(Math.round(w[0])), to: String(Math.round(w[1])) });
         globalThis.dispatchEvent(new Event(RANGE_NAV_EVENT));
       },
     }, res.ghostSpans);

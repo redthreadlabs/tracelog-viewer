@@ -102,16 +102,16 @@ export function getParam(name: string): string | null {
   return readHash().params.get(name);
 }
 
-/** `w=t0-t1` ⇄ [t0, t1] */
-export function parseRangeParam(value: string | null): [number, number] | null {
-  if (!value) return null;
-  const match = /^(\d+)-(\d+)$/.exec(value);
-  if (!match) return null;
-  const t0 = parseInt(match[1], 10);
-  const t1 = parseInt(match[2], 10);
-  return t1 > t0 ? [t0, t1] : null;
-}
-
-export function rangeParam(range: [number, number] | null): string | null {
-  return range ? `${Math.round(range[0])}-${Math.round(range[1])}` : null;
+/**
+ * The selected time range from the URL — `from`/`to` are epoch-ms and are the
+ * *entire* expression of the user's range intent (the worker derives which
+ * daily files to fetch). Null when either is absent/invalid.
+ */
+export function rangeFromParams(): [number, number] | null {
+  const f = getParam('from');
+  const t = getParam('to');
+  if (f === null || t === null) return null;
+  const from = Number(f);
+  const to = Number(t);
+  return Number.isFinite(from) && Number.isFinite(to) && to > from ? [from, to] : null;
 }

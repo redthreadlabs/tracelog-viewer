@@ -20,7 +20,7 @@ import { intervalSpan } from '../s3/keys';
 import { storeClient } from '../data/storeclient';
 import { viewState, resetViewState } from '../state';
 import { fmtBytesRough } from './format';
-import { getParam, setParams, pushParams, setView, parseRangeParam, rangeParam, readHash, RANGE_NAV_EVENT } from './hashstate';
+import { getParam, setParams, pushParams, setView, rangeFromParams, readHash, RANGE_NAV_EVENT } from './hashstate';
 import { renderBucketPicker } from './bucketpicker';
 import { renderMultiselect } from './multiselect';
 import { profiles } from './profiles';
@@ -93,6 +93,13 @@ function utcWeekStart(): number {
   return utcDayStart(daysSinceMonday);
 }
 
+/** Internal hint (not a URL concept): a range that begins on a UTC midnight
+ *  came from a day-preset, so the picker labels it as such and bars default
+ *  coarser. Cleared for any sub-day range (quick presets, custom, drag). */
+function isWholeDayRange(startMs: number): boolean {
+  return startMs % DAY_MS === 0;
+}
+
 /** epoch-ms → value for <input type="datetime-local"> (local clock) */
 function toLocalInput(ms: number): string {
   const d = new Date(ms);
@@ -122,37 +129,23 @@ export function teardownScanbar(): void {
 export function renderScanbar(container: HTMLElement): void {
   teardownScanbar();
 
-  // initial range: a shared URL's precise range wins; else its day params;
-  // else today (a placeholder until we auto-detect the latest interval).
-  const sharedRange = parseRangeParam(getParam('r'));
-  const fromDay = getParam('from');
-  const toDay = getParam('to');
-  // a fresh arrival pins no range — that's when we auto-detect the latest
-  // interval in the bucket rather than defaulting to a possibly-empty "today"
-  const rangePinned = !!(getParam('r') || fromDay || toDay);
-  const state: ScanbarState = sharedRange
-    ? {
-        channels: new Map(),
-        hosts: new Map(),
-        startMs: sharedRange[0],
-        endMs: sharedRange[1],
-        wholeDays: false,
-        rangeOpen: false,
-        plan: null,
-        planning: false,
-        live: false,
-      }
-    : {
-        channels: new Map(),
-        hosts: new Map(),
-        startMs: fromDay ? Date.parse(`${fromDay}T00:00:00Z`) : utcDayStart(0),
-        endMs: toDay ? Date.parse(`${toDay}T00:00:00Z`) + DAY_MS - 1 : Date.now(),
-        wholeDays: true,
-        rangeOpen: false,
-        plan: null,
-        planning: false,
-        live: false,
-      };
+  // initial range: the URL's from/to (epoch-ms) if present; else today (a
+  // placeholder until we auto-detect the latest interval). A fresh arrival
+  // pins no range — that's when we auto-detect rather than defaulting to a
+  // possibly-empty "today".
+  const pinned = rangeFromParams();
+  const rangePinned = pinned !== null;
+  const state: ScanbarState = {
+    channels: new Map(),
+    hosts: new Map(),
+    startMs: pinned ? pinned[0] : utcDayStart(0),
+    endMs: pinned ? pinned[1] : Date.now(),
+    wholeDays: pinned ? isWholeDayRange(pinned[0]) : true,
+    rangeOpen: false,
+    plan: null,
+    planning: false,
+    live: false,
+  };
 
   const selectedChannels = () =>
     [...state.channels.entries()].filter(([, on]) => on).map(([ch]) => ch);
@@ -360,8 +353,8 @@ export function renderScanbar(container: HTMLElement): void {
     setParams({
       ch: channelUrlParam(),
       host: hostUrlParam(),
-      from: utcDayOf(state.startMs),
-      to: utcDayOf(state.endMs),
+      from: String(Math.round(state.startMs)),
+      to: String(Math.round(state.endMs)),
     });
     render();
     try {
@@ -408,16 +401,10 @@ export function renderScanbar(container: HTMLElement): void {
     void runScan();
   }
 
-  /** Narrow (or clear) the viewed time range to match the selected range. */
+  /** The view is the range: every view narrows to [start, end]. (For a
+   *  whole-day range that equals the loaded data, so it's a no-op there.) */
   function applyRange(): void {
-    if (state.wholeDays) {
-      viewState.timeRange = null;
-      setParams({ r: null });
-    } else {
-      // sub-day precision: narrow the viewed range, same as a chart drag
-      viewState.timeRange = [state.startMs, state.endMs];
-      setParams({ r: rangeParam(viewState.timeRange) });
-    }
+    viewState.timeRange = [state.startMs, state.endMs];
   }
 
   function setRange(startMs: number, endMs: number, wholeDays: boolean): void {
@@ -437,20 +424,14 @@ export function renderScanbar(container: HTMLElement): void {
   async function syncFromUrl(): Promise<void> {
     let changed = false;
 
-    // range
-    const w = parseRangeParam(getParam('r'));
-    const fromDay = getParam('from');
-    const toDay = getParam('to');
+    // range — from/to (epoch-ms) are the whole story
+    const r = rangeFromParams();
     let startMs = state.startMs;
     let endMs = state.endMs;
     let wholeDays = state.wholeDays;
-    if (w) {
-      [startMs, endMs] = w;
-      wholeDays = false;
-    } else if (fromDay || toDay) {
-      startMs = fromDay ? Date.parse(`${fromDay}T00:00:00Z`) : state.startMs;
-      endMs = toDay ? Date.parse(`${toDay}T00:00:00Z`) + DAY_MS - 1 : state.endMs;
-      wholeDays = true;
+    if (r) {
+      [startMs, endMs] = r;
+      wholeDays = isWholeDayRange(startMs);
     }
     if (startMs !== state.startMs || endMs !== state.endMs || wholeDays !== state.wholeDays) {
       state.startMs = startMs;
@@ -474,7 +455,7 @@ export function renderScanbar(container: HTMLElement): void {
     loadedSignature = planSignature(plan);
     resetViewState(); // a new scan invalidates any prior range / deep link
     // hand the worker the active range so it loads overlapping files first
-    const range = state.wholeDays ? null : [state.startMs, state.endMs];
+    const range = [state.startMs, state.endMs];
     void storeClient.request('executeScan', { plan, range });
     applyRange();
   }
