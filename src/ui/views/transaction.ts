@@ -32,6 +32,7 @@ interface TxnDetail {
   instances: Rec[];
   sample?: SampleNote;
   slowest: Rec[];
+  ghostSpans: [number, number][];
 }
 
 export function renderTransactionView(container: HTMLElement, name: string): () => void {
@@ -169,8 +170,8 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
     chartsGrid.append(histSection, scatterSection);
     body.append(chartsGrid);
 
-    renderHistogram(histHost, stats.histogram);
-    renderScatter(scatterHost, stats.instances, openTrace, sampleHost, stats.sample ?? null);
+    renderHistogram(histHost, stats.histogram, stats.ghostSpans);
+    renderScatter(scatterHost, stats.instances, openTrace, sampleHost, stats.sample ?? null, stats.ghostSpans);
 
     // --- slowest instances --- (already capped at the worker boundary)
     const slowest = stats.slowest;

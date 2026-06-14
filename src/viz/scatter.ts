@@ -20,7 +20,7 @@ import { el, clear } from '../ui/dom';
 import type { Rec } from '../data/types';
 import { fmtDateTime, fmtDuration, isUtcMode } from '../ui/format';
 import { logTicks, contentWidth } from './ticks';
-import { drawTimeGrid } from './timegrid';
+import { drawTimeGrid, drawGhostBand } from './timegrid';
 import type { SampleNote } from '../worker/backend';
 
 const HEIGHT = 190;
@@ -78,6 +78,8 @@ export function renderScatter(
   sampleHost?: HTMLElement,
   /** sampling already applied upstream (the worker boundary) */
   note?: SampleNote | null,
+  /** time spans whose records the budget refused — drawn as the ghost band */
+  ghostSpans: [number, number][] = [],
 ): void {
   clear(container);
   if (sampleHost) clear(sampleHost);
@@ -94,10 +96,18 @@ export function renderScatter(
   const lineColor = styles.getPropertyValue('--line-strong').trim();
   const inkFaint = styles.getPropertyValue('--ink-faint').trim();
 
-  const t0 = points[0].ts;
-  const t1 = points[points.length - 1].ts;
+  // extend the domain to cover any refused (ghost) spans so they're visible —
+  // over budget, the loaded points are a recent sliver and the older, refused
+  // range shows as the ghost band rather than silently vanishing
+  let t0 = points[0].ts;
+  let t1 = points[points.length - 1].ts;
+  for (const [a, b] of ghostSpans) {
+    if (a < t0) t0 = a;
+    if (b > t1) t1 = b;
+  }
+  if (t1 === t0) t1 = t0 + 1000;
   const x = (isUtcMode() ? scaleUtc() : scaleTime())
-    .domain([new Date(t0), new Date(t1 === t0 ? t0 + 1000 : t1)])
+    .domain([new Date(t0), new Date(t1)])
     .range([0, innerW]);
 
   let durMin = Infinity;
@@ -114,8 +124,10 @@ export function renderScatter(
   const svg = select(container).append('svg').attr('width', width).attr('height', HEIGHT);
   const g = svg.append('g').attr('transform', `translate(${MARGIN.left},${MARGIN.top})`);
 
+  // ghost band first (chart background) — refused (over-budget) time spans
+  drawGhostBand(g, x as (d: Date) => number, ghostSpans, innerW, innerH, styles);
   // time axis: background gridlines + humane labels (SVG, behind the canvas points)
-  drawTimeGrid(g, x as (d: Date) => number, [t0, t1 === t0 ? t0 + 1000 : t1], innerW, innerH, styles);
+  drawTimeGrid(g, x as (d: Date) => number, [t0, t1], innerW, innerH, styles);
 
   g.append('g')
     .call(

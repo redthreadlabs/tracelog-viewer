@@ -118,23 +118,8 @@ export function chooseTiers(
 
 let ghostPatternSeq = 0;
 
-/**
- * Draw the "unfulfilled working set" overlay (SPEC §7): a muted diagonal-hatch
- * band over each time span where the working set isn't satisfied — metadata
- * still streaming in, or (later) records the memory budget refused. Drawn as a
- * chart-background layer, so call it BEFORE the grid/bars; where a bar is also
- * drawn the hatch shows behind it (counts real, records absent), and where no
- * bar exists the hatch stands alone (loading).
- */
-export function drawGhostBand(
-  g: Selection<SVGGElement, unknown, null, undefined>,
-  x: (d: Date) => number,
-  spans: [number, number][],
-  innerW: number,
-  innerH: number,
-  styles: CSSStyleDeclaration,
-): void {
-  if (spans.length === 0) return;
+/** Append the muted diagonal-hatch pattern to `g`, returning its `url(#…)`. */
+function ghostHatch(g: Selection<SVGGElement, unknown, null, undefined>, styles: CSSStyleDeclaration): string {
   const ink = styles.getPropertyValue('--ink').trim() || '#000';
   const id = `ghost-hatch-${ghostPatternSeq++}`;
   const pattern = g
@@ -155,7 +140,27 @@ export function drawGhostBand(
     .attr('stroke', ink)
     .attr('stroke-opacity', 0.11)
     .attr('stroke-width', 1);
+  return `url(#${id})`;
+}
 
+/**
+ * Draw the "unfulfilled working set" overlay (SPEC §7): a muted hatch band over
+ * each time span where the working set isn't satisfied — metadata still
+ * streaming in, or records the memory budget refused. Drawn as a chart-
+ * background layer, so call it BEFORE the grid/bars; where a bar is also drawn
+ * the hatch shows behind it (counts real, records absent), and where no bar
+ * exists the hatch stands alone (loading).
+ */
+export function drawGhostBand(
+  g: Selection<SVGGElement, unknown, null, undefined>,
+  x: (d: Date) => number,
+  spans: [number, number][],
+  innerW: number,
+  innerH: number,
+  styles: CSSStyleDeclaration,
+): void {
+  if (spans.length === 0) return;
+  const fill = ghostHatch(g, styles);
   const band = g.append('g').attr('class', 'ghost-band');
   for (const [a, b] of spans) {
     const x0 = Math.max(0, x(new Date(a)));
@@ -167,8 +172,28 @@ export function drawGhostBand(
       .attr('y', 0)
       .attr('width', x1 - x0)
       .attr('height', innerH)
-      .attr('fill', `url(#${id})`);
+      .attr('fill', fill);
   }
+}
+
+/**
+ * Full-panel ghost wash — the same hatch over the whole plot area, for a chart
+ * with no time axis (the duration histogram) whose entire distribution is built
+ * on an unfulfilled (partial, over-budget) instance set. Call before the bars.
+ */
+export function drawGhostFill(
+  g: Selection<SVGGElement, unknown, null, undefined>,
+  innerW: number,
+  innerH: number,
+  styles: CSSStyleDeclaration,
+): void {
+  g.append('rect')
+    .attr('class', 'ghost-fill')
+    .attr('x', 0)
+    .attr('y', 0)
+    .attr('width', innerW)
+    .attr('height', innerH)
+    .attr('fill', ghostHatch(g, styles));
 }
 
 /** Round `t` down to the start of its step boundary. */

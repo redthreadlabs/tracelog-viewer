@@ -291,6 +291,19 @@ function incompleteSpans(s: Session): [number, number][] {
   return spans;
 }
 
+/** [earliest interval start, latest interval end] across the whole selection. */
+function operatingRange(s: Session): [number, number] {
+  let lo = Infinity;
+  let hi = 0;
+  for (const f of s.currentPlan) {
+    const span = intervalSpan(f.interval);
+    if (!span) continue;
+    if (span[0] < lo) lo = span[0];
+    if (span[1] > hi) hi = span[1];
+  }
+  return [lo, hi];
+}
+
 /**
  * Spans of intervals the memory budget refused — in the selection (currentPlan)
  * but clamped out of what the loader will load, so their records will never
@@ -349,14 +362,7 @@ async function metadataVolume(
   // dormant bucket still shows its newest slice). The rest of the operating
   // range hydrates in the background, recent-first (startMetaFill), so a
   // yearlong selection paints now instead of stalling behind 10k GETs.
-  let latestEnd = 0;
-  let earliestStart = Infinity;
-  for (const f of s.currentPlan) {
-    const span = intervalSpan(f.interval);
-    if (!span) continue;
-    if (span[1] > latestEnd) latestEnd = span[1];
-    if (span[0] < earliestStart) earliestStart = span[0];
-  }
+  const [earliestStart, latestEnd] = operatingRange(s);
   const winStart = window ? window[0] : earliestStart;
   const winEnd = window ? window[1] : latestEnd;
   const eagerStart = Math.max(winStart, winEnd - SIDECAR_PREFETCH_HORIZON_MS);
@@ -623,11 +629,17 @@ const ops: Record<string, OpHandler> = {
   },
 
   txnDetail: (s, a) => {
+    const window = a.window as Window;
     const stats = transactionStats(
       s.store.transactionsNamed(a.name as string),
       a.name as string,
-      a.window as Window,
+      window,
     );
+    // the drill-down is records-based, so over-budget intervals (records the
+    // budget refused) are simply absent — surface them as the ghost band so
+    // the scatter/histogram don't pass off a partial view as complete (SPEC §7)
+    const [lo, hi] = window ?? operatingRange(s);
+    const ghostSpans = mergeSpans(budgetRefusedSpans(s), lo, hi);
     const durations = stats.instances
       .map((r) => r.duration)
       .filter((d): d is number => d !== undefined);
@@ -649,6 +661,7 @@ const ops: Record<string, OpHandler> = {
       instances: rows,
       sample,
       slowest,
+      ghostSpans,
     };
   },
 

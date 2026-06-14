@@ -9,11 +9,18 @@ import { el, clear } from '../ui/dom';
 import type { HistBucket } from '../data/aggregate';
 import { fmtCount, fmtDuration } from '../ui/format';
 import { logTicks, contentWidth } from './ticks';
+import { drawGhostFill } from './timegrid';
 
 const HEIGHT = 190;
 const MARGIN = { top: 8, right: 10, bottom: 24, left: 44 };
 
-export function renderHistogram(container: HTMLElement, buckets: HistBucket[]): void {
+export function renderHistogram(
+  container: HTMLElement,
+  buckets: HistBucket[],
+  /** non-empty when the instance set is partial (over budget): the whole
+   *  distribution is unfulfilled, so wash the entire panel with the ghost hatch */
+  ghostSpans: [number, number][] = [],
+): void {
   clear(container);
   const nonEmpty = buckets.filter((b) => b.count > 0);
   if (nonEmpty.length === 0) return;
@@ -39,6 +46,10 @@ export function renderHistogram(container: HTMLElement, buckets: HistBucket[]): 
     .attr('width', width)
     .attr('height', HEIGHT);
   const g = svg.append('g').attr('transform', `translate(${MARGIN.left},${MARGIN.top})`);
+
+  // partial (over-budget) instance set → wash the whole panel with the ghost
+  // hatch: this distribution is built on data the budget refused (SPEC §7)
+  if (ghostSpans.length > 0) drawGhostFill(g, innerW, innerH, styles);
 
   g.append('g')
     .attr('transform', `translate(0,${innerH})`)
