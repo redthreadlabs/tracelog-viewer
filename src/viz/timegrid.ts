@@ -122,8 +122,8 @@ let ghostPatternSeq = 0;
 const GHOST_HATCH = {
   token: '--level-warn', // amber, themed; falls back below if unresolved
   fallback: '#f59b1e',
-  tile: 10, // px tile → spacing between the diagonal lines (bigger = further apart)
-  width: 5, // line thickness — half the tile, so stripe and gap are equal
+  tile: 14, // px tile → spacing between the diagonal lines (bigger = further apart)
+  width: 7, // line thickness — half the tile, so stripe and gap are equal
   lineOpacity: 0.15,
   fillOpacity: 0.035, // faint wash between the lines
 };
