@@ -20,7 +20,7 @@ import { intervalSpan } from '../s3/keys';
 import { storeClient } from '../data/storeclient';
 import { viewState, resetViewState } from '../state';
 import { fmtBytesRough } from './format';
-import { getParam, setParams, setView, parseWindowParam, windowParam, readHash } from './hashstate';
+import { getParam, setParams, setView, parseWindowParam, windowParam, readHash, RANGE_NAV_EVENT } from './hashstate';
 import { renderBucketPicker } from './bucketpicker';
 import { profiles } from './profiles';
 import { clampByMemory } from '../data/ledger';
@@ -107,7 +107,10 @@ let activeClientListeners: (() => void) | null = null;
 
 /** Drop the live scanbar's listeners (re-render, or leaving the data views). */
 export function teardownScanbar(): void {
-  if (activeHashHandler) window.removeEventListener('hashchange', activeHashHandler);
+  if (activeHashHandler) {
+    window.removeEventListener('hashchange', activeHashHandler);
+    window.removeEventListener(RANGE_NAV_EVENT, activeHashHandler);
+  }
   activeHashHandler = null;
   activeClientListeners?.();
   activeClientListeners = null;
@@ -271,6 +274,36 @@ export function renderScanbar(container: HTMLElement): void {
     state.endMs = Math.max(endMs, startMs + 60_000);
     state.wholeDays = wholeDays;
     void replan();
+  }
+
+  /**
+   * Re-derive the range from the URL and reload if it changed. The browser
+   * history IS the zoom stack: brushing the chart pushes a new range entry
+   * (RANGE_NAV_EVENT), and Back/Forward restore prior ranges (hashchange).
+   * Both land here, so a window zoom and a history step take the same path.
+   */
+  function syncRangeFromUrl(): void {
+    const w = parseWindowParam(getParam('w'));
+    const fromDay = getParam('from');
+    const toDay = getParam('to');
+    let startMs: number;
+    let endMs: number;
+    let wholeDays: boolean;
+    if (w) {
+      // a precise sub-day range (a brushed window or a shared deep link)
+      [startMs, endMs] = w;
+      wholeDays = false;
+    } else if (fromDay || toDay) {
+      startMs = fromDay ? Date.parse(`${fromDay}T00:00:00Z`) : state.startMs;
+      endMs = toDay ? Date.parse(`${toDay}T00:00:00Z`) + DAY_MS - 1 : state.endMs;
+      wholeDays = true;
+    } else {
+      return; // no range in the URL — nothing to sync
+    }
+    if (startMs === state.startMs && endMs === state.endMs && wholeDays === state.wholeDays) {
+      return; // unchanged — don't reload
+    }
+    setRange(startMs, endMs, wholeDays);
   }
 
   /** Actually load a plan (no budget check — runScan gates before this). */
@@ -643,8 +676,14 @@ export function renderScanbar(container: HTMLElement): void {
     while (node.firstChild) node.removeChild(node.firstChild);
   }
 
-  activeHashHandler = () => render();
+  // Back/Forward (hashchange) and a chart brush (RANGE_NAV_EVENT) both re-sync
+  // the range from the URL, then re-render.
+  activeHashHandler = () => {
+    syncRangeFromUrl();
+    render();
+  };
   window.addEventListener('hashchange', activeHashHandler);
+  window.addEventListener(RANGE_NAV_EVENT, activeHashHandler);
 
   render();
 }

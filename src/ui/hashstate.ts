@@ -69,6 +69,35 @@ export function setParams(updates: Record<string, string | null | undefined>): v
   history.replaceState(null, '', `#${view}${qs ? '?' + qs : ''}`);
 }
 
+/**
+ * Like setParams, but pushes a NEW history entry — for a deliberate navigation
+ * (brushing the chart to a new range) so the browser Back button returns to the
+ * prior range. A depth counter in history.state lets the UI tell whether a Back
+ * step stays within the app (vs. leaving the site).
+ */
+export function pushParams(updates: Record<string, string | null | undefined>): void {
+  const { view, params } = readHash();
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === null || value === undefined) params.delete(key);
+    else params.set(key, value);
+  }
+  const qs = params.toString();
+  const depth = ((history.state as { tlDepth?: number } | null)?.tlDepth ?? 0) + 1;
+  history.pushState({ tlDepth: depth }, '', `#${view}${qs ? '?' + qs : ''}`);
+}
+
+/** Whether the current history entry was pushed by us (so Back stays in-app). */
+export function canGoBack(): boolean {
+  return ((history.state as { tlDepth?: number } | null)?.tlDepth ?? 0) > 0;
+}
+
+/**
+ * Dispatched after a pushParams range change so the scanbar adopts the new
+ * range WITHOUT a full view re-mount — a synthetic `hashchange` would re-route
+ * (teardown + re-render the whole view). Back/Forward fire real hashchange.
+ */
+export const RANGE_NAV_EVENT = 'tracelog:rangenav';
+
 export function getParam(name: string): string | null {
   return readHash().params.get(name);
 }

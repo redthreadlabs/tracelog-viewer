@@ -10,7 +10,7 @@ import { perf } from '../../data/perf';
 import { sortTxnGroups, type TxnGroup, type TxnSortKey, type BucketResult } from '../../data/aggregate';
 import { renderTimebars } from '../../viz/timebars';
 import { viewState } from '../../state';
-import { setParams, setView, windowParam } from '../hashstate';
+import { pushParams, canGoBack, setView, windowParam, RANGE_NAV_EVENT } from '../hashstate';
 import { chosenBucketMs, bucketLabel } from '../bucketpicker';
 import { fmtBytes, fmtCount, fmtDateTime, fmtDuration, zoneLabel } from '../format';
 
@@ -94,13 +94,11 @@ export function renderOverview(container: HTMLElement): () => void {
         }),
         el('button', {
           className: 'btn btn-quiet',
-          text: '✕ full range',
+          text: '← zoom out',
+          attrs: { title: 'zoom out (browser Back)' },
           on: {
             click: () => {
-              viewState.timeWindow = null;
-              setParams({ w: null });
-              void storeClient.request('setWindow', { window: null });
-              void render();
+              if (canGoBack()) globalThis.history.back();
             },
           },
         }),
@@ -109,7 +107,7 @@ export function renderOverview(container: HTMLElement): () => void {
       chartHead.append(
         el('span', {
           className: 'budget faint',
-          text: 'drag to zoom · double-click to reset',
+          text: 'drag to zoom · double-click to zoom out',
         }),
       );
     }
@@ -133,12 +131,15 @@ export function renderOverview(container: HTMLElement): () => void {
     // --- chart ---
     renderTimebars(chartHost, data, {
       onWindow: (w) => {
-        viewState.timeWindow = w;
-        setParams({ w: windowParam(w) });
-        // refocus the worker's loading on the brushed window (sub-hour zooms
-        // need records, so prioritize fetching the ones that fall in it)
-        void storeClient.request('setWindow', { window: w });
-        void render();
+        if (w) {
+          // brushing sets the *range* to the window: push a history entry (so
+          // Back zooms out) and let the scanbar adopt it + reload that range
+          viewState.timeWindow = w; // optimistic, so the chart doesn't flash full-range
+          pushParams({ w: windowParam(w) });
+          globalThis.dispatchEvent(new Event(RANGE_NAV_EVENT));
+        } else if (canGoBack()) {
+          globalThis.history.back(); // double-click = zoom out one step
+        }
       },
     });
 
