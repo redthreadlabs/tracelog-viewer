@@ -5,12 +5,13 @@
  */
 import { select } from 'd3-selection';
 import { scaleUtc, scaleTime, scaleLinear } from 'd3-scale';
-import { axisBottom, axisLeft } from 'd3-axis';
+import { axisLeft } from 'd3-axis';
 import { el, clear } from '../ui/dom';
 import type { BreakdownResult } from '../data/metrics';
 import { spanTypeColorToken } from '../data/trace';
 import { fmtDateTime, fmtDuration, isUtcMode } from '../ui/format';
-import { timeTickFormat, contentWidth } from './ticks';
+import { contentWidth } from './ticks';
+import { drawTimeGrid } from './timegrid';
 
 const HEIGHT = 180;
 const MARGIN = { top: 8, right: 12, bottom: 22, left: 56 };
@@ -44,19 +45,8 @@ export function renderStackbars(container: HTMLElement, data: BreakdownResult): 
   const svg = select(container).append('svg').attr('width', width).attr('height', HEIGHT);
   const g = svg.append('g').attr('transform', `translate(${MARGIN.left},${MARGIN.top})`);
 
-  g.append('g')
-    .attr('transform', `translate(0,${innerH})`)
-    .call(
-      axisBottom(x)
-        .ticks(Math.min(8, Math.floor(innerW / 110)))
-        .tickFormat((d) => timeTickFormat(t1 - t0)(d as Date))
-        .tickSizeOuter(0),
-    )
-    .call((sel) => {
-      sel.selectAll('text').attr('fill', inkFaint).style('font', '10.5px var(--font-data)');
-      sel.selectAll('line').attr('stroke', gridColor);
-      sel.select('.domain').attr('stroke', gridColor);
-    });
+  // time axis: background gridlines + humane labels (drawn first, behind bars)
+  drawTimeGrid(g, x as (d: Date) => number, [t0, t1], innerW, innerH, styles);
 
   g.append('g')
     .call(

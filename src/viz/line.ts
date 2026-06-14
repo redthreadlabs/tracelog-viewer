@@ -4,11 +4,12 @@
  */
 import { select } from 'd3-selection';
 import { scaleUtc, scaleTime, scaleLinear } from 'd3-scale';
-import { axisBottom, axisLeft } from 'd3-axis';
+import { axisLeft } from 'd3-axis';
 import { el, clear } from '../ui/dom';
 import type { SeriesPoint, DeploymentMarker } from '../data/metrics';
 import { fmtDateTime, isUtcMode } from '../ui/format';
-import { timeTickFormat, contentWidth } from './ticks';
+import { contentWidth } from './ticks';
+import { drawTimeGrid } from './timegrid';
 
 const HEIGHT = 110;
 const MARGIN = { top: 14, right: 8, bottom: 18, left: 52 };
@@ -49,19 +50,8 @@ export function renderLine(
   const svg = select(container).append('svg').attr('width', width).attr('height', HEIGHT);
   const g = svg.append('g').attr('transform', `translate(${MARGIN.left},${MARGIN.top})`);
 
-  g.append('g')
-    .attr('transform', `translate(0,${innerH})`)
-    .call(
-      axisBottom(x)
-        .ticks(Math.max(2, Math.floor(innerW / 130)))
-        .tickFormat((d) => timeTickFormat(options.domain[1] - options.domain[0])(d as Date))
-        .tickSizeOuter(0),
-    )
-    .call((sel) => {
-      sel.selectAll('text').attr('fill', inkFaint).style('font', '10px var(--font-data)');
-      sel.selectAll('line').attr('stroke', gridColor);
-      sel.select('.domain').attr('stroke', gridColor);
-    });
+  // time axis: background gridlines + humane labels (drawn first, behind the line)
+  drawTimeGrid(g, x as (d: Date) => number, options.domain, innerW, innerH, styles);
 
   g.append('g')
     .call(

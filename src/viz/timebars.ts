@@ -6,13 +6,14 @@
  */
 import { select } from 'd3-selection';
 import { scaleUtc, scaleTime, scaleLinear } from 'd3-scale';
-import { axisBottom, axisLeft } from 'd3-axis';
+import { axisLeft } from 'd3-axis';
 import { brushX, type D3BrushEvent } from 'd3-brush';
 import { el, clear } from '../ui/dom';
 import { RECORD_KINDS, type RecordKind } from '../data/types';
 import type { BucketResult } from '../data/aggregate';
 import { fmtCount, fmtDateTime, isUtcMode } from '../ui/format';
-import { timeTickFormat, contentWidth } from './ticks';
+import { contentWidth } from './ticks';
+import { drawTimeGrid } from './timegrid';
 
 const HEIGHT = 170;
 const MARGIN = { top: 8, right: 12, bottom: 22, left: 44 };
@@ -53,20 +54,8 @@ export function renderTimebars(
   const maxTotal = Math.max(1, ...data.buckets.map((b) => b.total));
   const y = scaleLinear().domain([0, maxTotal]).nice().range([innerH, 0]);
 
-  // axes
-  g.append('g')
-    .attr('transform', `translate(0,${innerH})`)
-    .call(
-      axisBottom(x)
-        .ticks(Math.min(10, Math.floor(innerW / 110)))
-        .tickFormat((d) => timeTickFormat(data.domain[1] - data.domain[0])(d as Date))
-        .tickSizeOuter(0),
-    )
-    .call((sel) => {
-      sel.selectAll('text').attr('fill', inkFaint).style('font', '10.5px var(--font-data)');
-      sel.selectAll('line').attr('stroke', lineColor);
-      sel.select('.domain').attr('stroke', lineColor);
-    });
+  // time axis: background gridlines + humane labels (drawn first, behind bars)
+  drawTimeGrid(g, x as (d: Date) => number, data.domain, innerW, innerH, styles);
 
   g.append('g')
     .call(axisLeft(y).ticks(4).tickFormat((d) => fmtCount(d as number)).tickSizeOuter(0))

@@ -15,11 +15,12 @@
  */
 import { select } from 'd3-selection';
 import { scaleUtc, scaleTime, scaleLog } from 'd3-scale';
-import { axisBottom, axisLeft } from 'd3-axis';
+import { axisLeft } from 'd3-axis';
 import { el, clear } from '../ui/dom';
 import type { Rec } from '../data/types';
 import { fmtDateTime, fmtDuration, isUtcMode } from '../ui/format';
-import { logTicks, timeTickFormat, contentWidth } from './ticks';
+import { logTicks, contentWidth } from './ticks';
+import { drawTimeGrid } from './timegrid';
 import type { SampleNote } from '../worker/backend';
 
 const HEIGHT = 190;
@@ -113,19 +114,8 @@ export function renderScatter(
   const svg = select(container).append('svg').attr('width', width).attr('height', HEIGHT);
   const g = svg.append('g').attr('transform', `translate(${MARGIN.left},${MARGIN.top})`);
 
-  g.append('g')
-    .attr('transform', `translate(0,${innerH})`)
-    .call(
-      axisBottom(x)
-        .ticks(Math.min(8, Math.max(3, Math.floor(innerW / 110))))
-        .tickFormat(timeTickFormat(t1 - t0) as never)
-        .tickSizeOuter(0),
-    )
-    .call((sel) => {
-      sel.selectAll('text').attr('fill', inkFaint).style('font', '10.5px var(--font-data)');
-      sel.selectAll('line').attr('stroke', lineColor);
-      sel.select('.domain').attr('stroke', lineColor);
-    });
+  // time axis: background gridlines + humane labels (SVG, behind the canvas points)
+  drawTimeGrid(g, x as (d: Date) => number, [t0, t1 === t0 ? t0 + 1000 : t1], innerW, innerH, styles);
 
   g.append('g')
     .call(
