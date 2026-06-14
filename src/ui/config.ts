@@ -298,7 +298,7 @@ function withNote(control: HTMLElement, note: HTMLElement): HTMLElement {
 const LIMIT_RE = /^\d+(\.\d+)?$/;
 
 /** Validation message for a limit field, or '' when it's acceptable. */
-function limitError(raw: string): string {
+export function limitError(raw: string): string {
   const t = raw.trim();
   if (t === '') return ''; // blank = no limit
   if (!LIMIT_RE.test(t) || parseFloat(t) <= 0) {
@@ -308,7 +308,7 @@ function limitError(raw: string): string {
 }
 
 /** Parse a limit input: a positive number of MB, or undefined (no limit). */
-function parseLimit(raw: string): number | undefined {
+export function parseLimit(raw: string): number | undefined {
   const t = raw.trim();
   if (t === '' || !LIMIT_RE.test(t)) return undefined;
   const n = parseFloat(t);

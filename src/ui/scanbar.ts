@@ -205,9 +205,6 @@ export function renderScanbar(container: HTMLElement): void {
   let pickerSnapshot: { ch: string | null; host: string | null } | null = null;
   /** a toggle happened in the open picker — defer the plan + load until close */
   let pickerDirty = false;
-  /** set when the selection exceeds the memory budget: we loaded the newest
-   *  files that fit, and the scanbar shows an over-budget indicator */
-  let overBudget: { estBytes: number } | null = null;
 
   const selectionParams = (): { ch: string | null; host: string | null } => ({
     ch: channelUrlParam(),
@@ -353,7 +350,7 @@ export function renderScanbar(container: HTMLElement): void {
       if (state.channels.size > 0) {
         void storeClient.request('clearStore');
         loadedSignature = null;
-        overBudget = null;
+        viewState.overBudget = null;
         setParams({ ch: '' });
       }
       render();
@@ -495,7 +492,7 @@ export function renderScanbar(container: HTMLElement): void {
 
     const limitMb = profiles.active()?.memoryLimitMb;
     if (limitMb == null || limitMb <= 0) {
-      overBudget = null;
+      viewState.overBudget = null;
       executePlan(plan);
       return;
     }
@@ -505,12 +502,12 @@ export function renderScanbar(container: HTMLElement): void {
     try {
       est = await storeClient.request('estimateView', { files: plan.files });
     } catch {
-      overBudget = null;
+      viewState.overBudget = null;
       executePlan(plan); // estimate unavailable — don't hold the data back
       return;
     }
     if (est.total <= limitBytes) {
-      overBudget = null;
+      viewState.overBudget = null;
       executePlan(plan);
       return;
     }
@@ -519,7 +516,7 @@ export function renderScanbar(container: HTMLElement): void {
     // scanbar shows the indicator (the chart already blanks un-loaded intervals)
     const keep = clampByMemory(plan.files, est.perFile, limitBytes);
     const files = keep.map((i) => plan.files[i]);
-    overBudget = { estBytes: est.total };
+    viewState.overBudget = { estBytes: est.total };
     executePlan({
       files,
       totalBytes: files.reduce((sum, f) => sum + f.size, 0),
@@ -830,21 +827,15 @@ export function renderScanbar(container: HTMLElement): void {
     // the worker can't self-measure its heap (no performance.memory there),
     // so report the decompressed bytes it's holding — a real proxy for it
     const inMemory = snap.files.reduce((s, f) => s + f.sizeUncompressed, 0);
-    if (overBudget) {
-      // a compact, tappable readout: we loaded the newest slice that fits — tap
-      // to adjust the budget in config (narrowing a filter or Back also resolves)
-      const pill = el('a', {
-        className: 'store-pill over-budget',
-        text: `over budget · ${fmtBytesRough(inMemory)} / ${fmtBytesRough(overBudget.estBytes)}`,
-        title: 'showing the newest data that fits — tap to adjust the memory budget (or narrow a filter / go back)',
-        attrs: { href: '#/config' },
-        on: {
-          click: (e) => {
-            e.preventDefault();
-            setView('/config');
-          },
-        },
-      });
+    if (viewState.overBudget) {
+      // we loaded the newest slice that fits — tap through to the store inspector
+      // (the memory page) to adjust the budget; narrowing a filter or Back also
+      // resolve it. Same target as the LOADED pill, so internals stays reachable.
+      const pill = storePill(
+        `over budget · ${fmtBytesRough(inMemory)} / ${fmtBytesRough(viewState.overBudget.estBytes)}`,
+        'showing the newest data that fits — tap for the store inspector to raise the budget (or narrow a filter / go back)',
+      );
+      pill.classList.add('over-budget');
       budget.append(pill);
       return;
     }

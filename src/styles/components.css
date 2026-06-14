@@ -1869,3 +1869,48 @@ th.sortable.on {
   margin-top: 4px;
   border-top: 1px solid var(--line);
 }
+
+/* ---------- store inspector: memory/cache budget editor ---------- */
+
+.store-budget {
+  margin: 0 0 16px;
+  padding: 12px 16px 14px;
+  background: var(--surface-raised);
+  border-radius: var(--radius-lg);
+}
+
+.store-budget.over {
+  border: 1px solid #d97706;
+}
+
+.store-budget-note {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  margin-bottom: 12px;
+}
+
+.store-budget-note strong {
+  color: #d97706;
+}
+
+.budget-controls {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.budget-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.budget-field .label {
+  font-size: 11px;
+}
+
+.budget-field .input {
+  width: 130px;
+}

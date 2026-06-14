@@ -6,6 +6,14 @@
 export const viewState = {
   /** [t0, t1] epoch-ms, or null for the full scanned range */
   timeWindow: null as [number, number] | null,
+  /**
+   * Set by the scanbar when the selection exceeds the memory budget (it loaded
+   * the newest files that fit). `estBytes` is the full selection's estimated
+   * decompressed size — the store inspector reads this to show over-budget
+   * context + a recommended limit. Managed explicitly by the scanbar, NOT
+   * cleared by resetViewState (which runs mid-scan, inside executePlan).
+   */
+  overBudget: null as { estBytes: number } | null,
   /** consumed once by the records view on next render */
   pendingRecordsSearch: null as string | null,
   /**

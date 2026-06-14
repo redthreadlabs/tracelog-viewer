@@ -13,8 +13,12 @@ import { parseKey, type ParsedKey } from '../../s3/keys';
 import { RECORD_KINDS, type RecordKind } from '../../data/types';
 import { internalsTabs } from './internals';
 import { fmtBytes, fmtCount, fmtDateTime, fmtHumane, zoneLabel } from '../format';
+import { profiles } from '../profiles';
+import { viewState } from '../../state';
+import { limitError, parseLimit } from '../config';
 
 const PAGE_SIZE = 50;
+const MB = 1024 * 1024;
 
 /** Dimensions the file listing can be rolled up by (in display/column order). */
 type RollupDim = 'interval' | 'channel' | 'host';
@@ -203,9 +207,97 @@ export function renderStoreView(container: HTMLElement): () => void {
     return Math.max(0, Math.ceil(rows.length / PAGE_SIZE) - 1);
   }
 
+  /**
+   * Convenience memory/cache budget editor — the canonical home is the
+   * workspace config, but when you land here over budget (via the indicator)
+   * you can reason about it and raise the limit in place. Saving re-inits the
+   * scanbar (connect), which replans + reloads at the new limit; this view
+   * re-renders on the reload's data events.
+   */
+  function budgetPanel(): HTMLElement | null {
+    const p = profiles.active();
+    const ob = viewState.overBudget;
+    if (!p || !ob) return null; // a convenience that surfaces only when over budget
+    const inMemory = storeClient.snapshot.files.reduce((s, f) => s + f.sizeUncompressed, 0);
+    const recommendMb = Math.ceil(ob.estBytes / MB);
+
+    const numInput = (value: number | undefined): HTMLInputElement =>
+      el('input', {
+        className: 'input mono',
+        attrs: {
+          type: 'text',
+          inputmode: 'numeric',
+          placeholder: 'blank = no limit',
+          value: value != null ? String(value) : '',
+        },
+      }) as HTMLInputElement;
+    const memInput = numInput(p.memoryLimitMb);
+    const cacheInput = numInput(p.cacheLimitMb);
+    const err = el('div', { className: 'field-error' });
+
+    const apply = (): void => {
+      const e = limitError(memInput.value) || limitError(cacheInput.value);
+      err.textContent = e;
+      if (e) return;
+      profiles.save({
+        ...p,
+        memoryLimitMb: parseLimit(memInput.value),
+        cacheLimitMb: parseLimit(cacheInput.value),
+      });
+    };
+    for (const input of [memInput, cacheInput]) {
+      input.addEventListener('keydown', (ev) => {
+        if ((ev as KeyboardEvent).key === 'Enter') apply();
+      });
+    }
+
+    const fieldEl = (label: string, input: HTMLInputElement): HTMLElement =>
+      el('label', { className: 'budget-field' }, [el('span', { className: 'label', text: label }), input]);
+
+    const controls = el('div', { className: 'budget-controls' }, [
+      fieldEl('memory (MB)', memInput),
+      fieldEl('cache (MB)', cacheInput),
+      ...(recommendMb
+        ? [
+            el('button', {
+              className: 'btn btn-quiet',
+              text: `use ${fmtCount(recommendMb)}`,
+              title: 'fill the memory limit with the amount needed to load the whole selection',
+              on: {
+                click: () => {
+                  memInput.value = String(recommendMb);
+                  err.textContent = '';
+                },
+              },
+            }),
+          ]
+        : []),
+      el('button', { className: 'btn btn-primary', text: 'Update', on: { click: apply } }),
+    ]);
+
+    const wrap = el('div', { className: 'store-budget over' });
+    wrap.append(
+      el('div', { className: 'store-budget-note' }, [
+        el('strong', { text: 'Over budget — ' }),
+        el('span', {
+          text:
+            `showing the newest ${fmtBytes(inMemory)} that fit your ` +
+            `${p.memoryLimitMb ?? '∞'} MB memory limit, of ~${fmtBytes(ob.estBytes)} the current ` +
+            `selection needs. Raise the limit to load it all (≈ ${fmtCount(recommendMb)} MB), ` +
+            `or narrow the channels, hosts, or range.`,
+        }),
+      ]),
+      controls,
+      err,
+    );
+    return wrap;
+  }
+
   function render(): void {
     clear(body);
     body.append(internalsTabs('/internals/store'));
+    const bp = budgetPanel();
+    if (bp) body.append(bp);
     const rows = buildRows();
     page = Math.min(page, maxPage(rows));
 
