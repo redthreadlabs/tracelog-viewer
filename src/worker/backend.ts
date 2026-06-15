@@ -818,11 +818,12 @@ const ops: Record<string, OpHandler> = {
       .sort((a2, b) => b.duration! - a2.duration!)
       .slice(0, 20);
     const { rows, sample } = sampleInstances(stats.instances);
-    // count / resultCounts / instances only — the headline stats (percentiles,
-    // distribution) come from the index via txnSummary, not from records here
+    // the records-only sections — result mix + the instance samples (scatter /
+    // slowest). The headline (count, percentiles, distribution) is index-served
+    // via txnSummary; count especially is exact from the cube, not this partial
+    // loaded subset, so it's deliberately not echoed here.
     return {
       name: stats.name,
-      count: stats.count,
       resultCounts: stats.resultCounts,
       instances: rows,
       sample,

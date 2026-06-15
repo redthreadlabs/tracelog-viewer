@@ -39,7 +39,6 @@ interface TxnSummary {
 /** records-based detail for one transaction name (boundary-sampled) */
 interface TxnDetail {
   name: string;
-  count: number;
   resultCounts: Map<string, number>;
   instances: Rec[];
   sample?: SampleNote;
@@ -230,7 +229,7 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
         slowestBody.append(tr);
       }
     }
-    doneRender({ records: detail.count });
+    doneRender({ records: detail.instances.length });
   }
 
   function loadingRow(): HTMLElement {
