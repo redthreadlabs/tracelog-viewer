@@ -209,22 +209,36 @@ describe('aggregateBySeries', () => {
     expect(res.buckets[0].values).toEqual({ A: 3, B: 1 });
   });
 
-  it('blanks hidden groups without changing the ranking (no promotion)', () => {
+  it('drops the tail instead of folding into Other when noOther', () => {
     const records = [
       rec({ kind: 'transaction', name: 'A', ts: 1000, duration: 100 }), // A=100
       rec({ kind: 'transaction', name: 'B', ts: 1100, duration: 50 }), // B=50
-      rec({ kind: 'transaction', name: 'C', ts: 1200, duration: 10 }), // C=10 → Other
+      rec({ kind: 'transaction', name: 'C', ts: 1200, duration: 10 }), // C=10 → dropped
     ];
-    // topN=2 → membership [A, B, Other]; hide A
     const res = aggregateBySeries(records, null, 60_000, true, {
       ...sumDuration,
       topN: 2,
-      hidden: new Set(['A']),
+      noOther: true,
     });
-    // A keeps its series slot (no promotion of C) but draws nothing; B + Other unchanged
-    expect(res.series).toEqual(['A', 'B', 'Other']);
-    expect(res.buckets[0].values).toEqual({ B: 50, Other: 10 });
-    expect(res.buckets[0].total).toBe(60);
+    expect(res.series).toEqual(['A', 'B']); // no Other
+    expect(res.buckets[0].values).toEqual({ A: 100, B: 50 });
+    expect(res.buckets[0].total).toBe(150); // C is not counted at all
+  });
+
+  it('shows exactly the included set, each its own series', () => {
+    const records = [
+      rec({ kind: 'transaction', name: 'A', ts: 1000, duration: 100 }),
+      rec({ kind: 'transaction', name: 'B', ts: 1100, duration: 50 }),
+      rec({ kind: 'transaction', name: 'C', ts: 1200, duration: 10 }),
+    ];
+    const show = new Set(['A', 'C']);
+    const res = aggregateBySeries(records, null, 60_000, true, {
+      ...sumDuration,
+      include: (r) => r.kind === 'transaction' && show.has(r.name),
+      topN: show.size,
+    });
+    expect(res.series).toEqual(['A', 'C']); // B left out, no Other
+    expect(res.buckets[0].values).toEqual({ A: 100, C: 10 });
   });
 
   it('respects the range and ignores excluded records', () => {

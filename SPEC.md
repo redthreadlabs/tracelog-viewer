@@ -860,8 +860,12 @@ the schema-on-read work below.)
    contract is deliberately duplicated UI/worker (`query.ts`) while it
    stabilizes, ahead of extracting the worker as its own library.
 3. **The redesigned overview chart** *(done, 2026-06-14)* — Σ-duration by
-   transaction (top-N + "Other"). No index advertises this, so the solver scans
-   loaded records with ghost bands: correct from day one, just not yet cheap.
+   transaction. The chart shows a *selectable* set of transactions, each its own
+   colored band (no "Other"): it defaults to the top-N by total, and the
+   transaction table is its legend — a colored toggle per row adds/removes any
+   transaction (even off the top-N) with a stable auto-assigned color. No index
+   advertises this metric, so the solver scans loaded records with ghost bands:
+   correct from day one, just not yet cheap.
 4. **Consumer-side durable indexes** *(next)* register capabilities (per-file
    parse-time rollups that outlive the byte cache — the schema-on-read index
    plan). The *same* solver begins satisfying SUM/by-transaction from them with

@@ -8,7 +8,7 @@ import { el, clear, pendingBlock } from '../dom';
 import { storeClient } from '../../data/storeclient';
 import { perf } from '../../data/perf';
 import { sortTxnGroups, type TxnGroup, type TxnSortKey, type SeriesResult } from '../../data/aggregate';
-import { renderSeriesbars, seriesPaletteColor } from '../../viz/seriesbars';
+import { renderSeriesbars } from '../../viz/seriesbars';
 import { viewState } from '../../state';
 import { pushParams, setView, RANGE_NAV_EVENT } from '../hashstate';
 import { chosenBucketMs, bucketLabel } from '../bucketpicker';
@@ -23,11 +23,49 @@ export function renderOverview(container: HTMLElement): () => void {
   let groups: TxnGroup[] = []; // last fetch — re-sorts don't re-query
   let chartShown = false; // true once a chart is rendered
   let lastComplete = false; // whether the last answer fully covered the range (no ghost)
-  // transactions the user has toggled OUT of the chart (the table is its legend);
-  // excluded from the chart aggregate, but still listed in the table so they can
-  // be re-enabled. The chart re-ranks around them (a hidden top-N slot promotes).
-  const excluded = new Set<string>();
-  let chartSeries: string[] = []; // the chart's ordered series (top-N names, no "Other")
+  // The transactions the chart displays, each as its own colored band (no
+  // "Other"). null = default to the worker's top-N; the first toggle materializes
+  // it into an explicit, editable selection. PALETTE caps how many show at once
+  // (one --series-* color each).
+  const PALETTE = 8;
+  let selection: string[] | null = null;
+  let displayed = new Set<string>(); // names drawn by the last response
+  // a stable color slot (0..PALETTE-1) per transaction, so toggling one never
+  // recolors the others: in default mode it tracks the top-N by rank, in explicit
+  // mode it persists (freed on removal)
+  const slot = new Map<string, number>();
+  const colorForSlot = (name: string, styles: CSSStyleDeclaration): string => {
+    const i = slot.get(name);
+    return i === undefined
+      ? styles.getPropertyValue('--ink-faint').trim() // not shown → grey
+      : styles.getPropertyValue(`--series-${(i % PALETTE) + 1}`).trim();
+  };
+  const assignSlots = (names: string[]): void => {
+    for (const name of names) {
+      if (slot.has(name)) continue;
+      const used = new Set(slot.values());
+      let i = 0;
+      while (used.has(i)) i++; // lowest free slot
+      slot.set(name, i);
+    }
+  };
+  // add/remove a transaction from the chart. The first toggle freezes the
+  // current top-N into an explicit selection; thereafter the chart shows exactly
+  // the selection (no auto re-ranking pulling others in).
+  function toggle(name: string): void {
+    if (selection === null) selection = [...displayed];
+    const i = selection.indexOf(name);
+    if (i !== -1) {
+      selection.splice(i, 1);
+      slot.delete(name); // free the color
+    } else if (selection.length < PALETTE) {
+      selection.push(name);
+      assignSlots([name]);
+    } else {
+      return; // palette full — remove one before adding another
+    }
+    void render();
+  }
 
   const chartSection = el('section', { className: 'chart-section' });
   const chartHead = el('div', { className: 'section-head' });
@@ -83,11 +121,19 @@ export function renderOverview(container: HTMLElement): () => void {
       bucketMs: chosenBucketMs(),
       utc: isUtcMode(),
       metric,
-      exclude: [...excluded], // transactions toggled out of the chart
+      // explicit legend selection, or undefined to let the worker pick the top-N
+      show: selection === null ? undefined : selection,
     });
     if (t !== token || !container.isConnected) return;
     groups = res.groups;
-    chartSeries = res.series.series.filter((s) => s !== 'Other');
+    displayed = new Set(res.series.series);
+    if (selection === null) {
+      // default mode: color slots track the current top-N by rank
+      slot.clear();
+      res.series.series.forEach((name, i) => slot.set(name, i));
+    } else {
+      assignSlots(res.series.series);
+    }
 
     // Empty/loading state only when there are NO transactions at all (renderEmpty
     // distinguishes "still loading" from "nothing here" via progress). If
@@ -135,7 +181,7 @@ export function renderOverview(container: HTMLElement): () => void {
       chartHost,
       data,
       {
-        colorOf: seriesPaletteColor,
+        colorOf: (name, _i, styles) => colorForSlot(name, styles),
         formatValue: fmtDuration,
         onRange: (w) => {
           if (!w) return;
@@ -180,14 +226,8 @@ export function renderOverview(container: HTMLElement): () => void {
     }
 
     const maxDuration = Math.max(...sorted.map((g) => g.totalDuration), 1);
-
-    // a row's chart color: its --series-N when it's one of the chart's top-N
-    // series, else the recessive "Other" grey (it's folded into Other / off-chart)
     const chartStyles = getComputedStyle(chartHost);
-    const colorFor = (name: string): string => {
-      const i = chartSeries.indexOf(name);
-      return seriesPaletteColor(i === -1 ? 'Other' : name, i, chartStyles);
-    };
+    const atCap = selection !== null && selection.length >= PALETTE;
 
     const table = el('table', { className: 'records txn-table' });
     const thead = el('thead');
@@ -205,23 +245,25 @@ export function renderOverview(container: HTMLElement): () => void {
     );
     const tbody = el('tbody');
     for (const group of sorted) {
-      const shown = !excluded.has(group.name);
-      const toggle = el('button', {
-        className: shown ? 'txn-toggle on' : 'txn-toggle',
+      const shown = displayed.has(group.name);
+      // a shown row can always be hidden; a hidden row can be shown unless the
+      // palette is full (then it's disabled until one is freed)
+      const disabled = !shown && atCap;
+      const title = shown ? 'hide from chart' : disabled ? 'chart is full (8 max)' : 'show in chart';
+      const toggleBtn = el('button', {
+        className: `txn-toggle${shown ? ' on' : ''}${disabled ? ' disabled' : ''}`,
         attrs: {
-          title: shown ? 'hide from chart' : 'show in chart',
-          'aria-label': shown ? 'hide from chart' : 'show in chart',
-          ...(shown ? { style: `background:${colorFor(group.name)}` } : {}),
+          title,
+          'aria-label': title,
+          ...(shown ? { style: `background:${colorForSlot(group.name, chartStyles)}` } : {}),
         },
       });
-      toggle.addEventListener('click', (e) => {
+      toggleBtn.addEventListener('click', (e) => {
         e.stopPropagation(); // don't open the drill-down
-        if (excluded.has(group.name)) excluded.delete(group.name);
-        else excluded.add(group.name);
-        void render(); // re-aggregate the chart around the new selection
+        toggle(group.name);
       });
       const tr = el('tr', {}, [
-        el('td', { className: 'toggle-cell' }, [toggle]),
+        el('td', { className: 'toggle-cell' }, [toggleBtn]),
         el('td', { className: 'grow', text: group.name, title: group.name }),
         el('td', {
           className: 'num',

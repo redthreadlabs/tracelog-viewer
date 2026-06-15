@@ -290,9 +290,10 @@ function solveSeriesAggregate(
   range: TimeRange,
   bucketMs: number | null,
   utc: boolean,
-  /** transactions to leave OUT of the aggregate (the chart's legend toggles) —
-   *  a step-(2) filter; the chart re-ranks around them */
-  exclude: Set<string> = new Set(),
+  /** the transactions to display, each as its own band (the chart's legend
+   *  selection). Undefined = default to the top-N by total. Either way there is
+   *  no "Other" — the chart shows exactly the chosen/top transactions. */
+  show: string[] | undefined,
 ): { result: SeriesResult; ghostSpans: [number, number][]; complete: boolean } {
   if (metric.groupBy !== 'transaction' || (metric.op !== 'sum' && metric.op !== 'count')) {
     throw new Error(
@@ -304,17 +305,18 @@ function solveSeriesAggregate(
     throw new Error(`series solver v1 sums only 'duration', not '${metric.field}'`);
   }
   const value = metric.op === 'sum' ? (r: Rec) => r.duration ?? 0 : () => 1;
+  const isTxn = (r: Rec) => r.kind === 'transaction';
 
+  // explicit selection → show exactly those (include-filtered, all broken out);
+  // default → the top-N by total. No "Other" in either case.
+  const showSet = show && new Set(show);
   const result = blankPartialSeries(
     aggregateBySeries(s.store.records, range, bucketMs, utc, {
       value,
       group: (r) => r.name,
-      include: (r) => r.kind === 'transaction',
-      // exclude only BLANKS the toggled-off transactions from the bars — the
-      // top-N ranking ignores it, so hiding one never promotes another
-      hidden: exclude,
-      topN: SERIES_TOP_N,
-      otherLabel: 'Other',
+      include: showSet ? (r) => isTxn(r) && showSet.has(r.name) : isTxn,
+      topN: showSet ? showSet.size : SERIES_TOP_N,
+      noOther: true,
     }),
     incompleteSpans(s),
   );
@@ -458,9 +460,10 @@ const ops: Record<string, OpHandler> = {
   // ---- views ----
   // The overview's data: the series-shaped chart aggregate (solved by the
   // aggregate solver — SPEC §11 — so the caller never learns whether records or
-  // an index satisfied it; it gets the tally, the ranked series, and
+  // an index satisfied it; it gets the tally, the displayed series, and
   // completeness) plus the transaction-table ranking. The chart names the metric
-  // it wants; today that is SUM(duration) GROUP BY transaction, top-N + Other.
+  // it wants — SUM(duration) GROUP BY transaction — and optionally `show`, the
+  // exact transactions to display (its legend selection); absent → top-N.
   overviewData: (s, a) => {
     const range = a.range as TimeRange;
     const bucketMs = a.bucketMs as number | null;
@@ -470,7 +473,7 @@ const ops: Record<string, OpHandler> = {
       field: 'duration',
       groupBy: 'transaction',
     };
-    const exclude = new Set((a.exclude as string[] | undefined) ?? []);
+    const show = a.show as string[] | undefined;
 
     const { result, ghostSpans, complete } = solveSeriesAggregate(
       s,
@@ -478,11 +481,11 @@ const ops: Record<string, OpHandler> = {
       range,
       bucketMs,
       utc,
-      exclude,
+      show,
     );
 
-    // the table lists ALL transactions (so an excluded one can be re-enabled),
-    // even though the chart aggregate leaves the excluded set out
+    // the table lists ALL transactions (so any can be toggled into the chart),
+    // independent of which the chart is currently displaying
     return {
       series: result,
       ghostSpans,

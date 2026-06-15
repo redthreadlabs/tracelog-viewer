@@ -163,13 +163,3 @@ export function renderSeriesbars(
     ];
   }
 }
-
-/** The overview's color strategy: rank → --series-N, with "Other" recessive. */
-export function seriesPaletteColor(
-  key: string,
-  index: number,
-  styles: CSSStyleDeclaration,
-): string {
-  const token = key === 'Other' ? '--series-other' : `--series-${index + 1}`;
-  return styles.getPropertyValue(token).trim();
-}
