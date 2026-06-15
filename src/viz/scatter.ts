@@ -79,8 +79,13 @@ export function renderScatter(
   sampleHost?: HTMLElement,
   /** sampling already applied upstream (the worker boundary) */
   note?: SampleNote | null,
-  /** time spans whose records the budget refused — drawn as the ghost band */
+  /** time spans whose records aren't loaded (budget-refused, or still streaming
+   *  in) — drawn as the ghost band */
   ghostSpans: [number, number][] = [],
+  /** force the x-axis to span this full time range up-front (the selected
+   *  window), so the axis is stable while records stream in and the not-yet-
+   *  loaded regions read as ghost. Omitted → derived from the points. */
+  domain?: [number, number],
 ): void {
   clear(container);
   if (sampleHost) clear(sampleHost);
@@ -105,6 +110,12 @@ export function renderScatter(
   for (const [a, b] of ghostSpans) {
     if (a < t0) t0 = a;
     if (b > t1) t1 = b;
+  }
+  // an explicit domain (the selected window) wins — the axis spans it whole, so
+  // it doesn't jump as points stream in and the unloaded remainder reads as ghost
+  if (domain) {
+    t0 = domain[0];
+    t1 = domain[1];
   }
   if (t1 === t0) t1 = t0 + 1000;
   const x = (isUtcMode() ? scaleUtc() : scaleTime())

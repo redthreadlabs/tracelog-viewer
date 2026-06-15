@@ -33,7 +33,6 @@ import {
   groupTransactions,
   transactionStats,
   resultFamily,
-  logHistogram,
   type SeriesResult,
   type WeightedPoint,
   type TxnGroup,
@@ -808,33 +807,28 @@ const ops: Record<string, OpHandler> = {
       a.name as string,
       range,
     );
-    // the drill-down is records-based, so over-budget intervals (records the
-    // budget refused) are simply absent — surface them as the ghost band so
-    // the scatter/histogram don't pass off a partial view as complete (SPEC §7)
+    // the drill-down is records-based, so any interval not fully loaded — still
+    // streaming in, or refused by the budget — is partial. Surface those as the
+    // ghost band (and report the full window as `domain`) so the scatter spans
+    // the whole range and the not-yet-loaded regions read as ghost (SPEC §7).
     const [lo, hi] = range ?? operatingRange(s);
-    const ghostSpans = mergeSpans(budgetRefusedSpans(s), lo, hi);
-    const durations = stats.instances
-      .map((r) => r.duration)
-      .filter((d): d is number => d !== undefined);
+    const ghostSpans = mergeSpans(incompleteSpans(s), lo, hi);
     const slowest = [...stats.instances]
       .filter((r) => r.duration !== undefined)
       .sort((a2, b) => b.duration! - a2.duration!)
       .slice(0, 20);
     const { rows, sample } = sampleInstances(stats.instances);
+    // count / resultCounts / instances only — the headline stats (percentiles,
+    // distribution) come from the index via txnSummary, not from records here
     return {
       name: stats.name,
       count: stats.count,
-      p50: stats.p50,
-      p95: stats.p95,
-      p99: stats.p99,
-      max: stats.max,
-      rpm: stats.rpm,
       resultCounts: stats.resultCounts,
-      histogram: logHistogram(durations),
       instances: rows,
       sample,
       slowest,
       ghostSpans,
+      domain: [lo, hi] as [number, number],
     };
   },
 
