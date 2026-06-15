@@ -742,6 +742,42 @@ pre.json .b {
   cursor: pointer;
 }
 
+/* chart-legend toggle: a solid circle in the transaction's chart color with a
+   check; toggling hides it from the chart and greys the circle */
+.toggle-cell {
+  width: 30px;
+  text-align: center;
+  padding-right: 0 !important;
+}
+
+.txn-toggle {
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ink-faint); /* grey when off */
+  cursor: pointer;
+  vertical-align: middle;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 120ms ease;
+}
+
+.txn-toggle::before {
+  content: '✓';
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0; /* hidden when off */
+}
+
+.txn-toggle.on::before {
+  opacity: 1;
+}
+
 th.sortable {
   cursor: pointer;
   user-select: none;

@@ -290,6 +290,9 @@ function solveSeriesAggregate(
   range: TimeRange,
   bucketMs: number | null,
   utc: boolean,
+  /** transactions to leave OUT of the aggregate (the chart's legend toggles) —
+   *  a step-(2) filter; the chart re-ranks around them */
+  exclude: Set<string> = new Set(),
 ): { result: SeriesResult; ghostSpans: [number, number][]; complete: boolean } {
   if (metric.groupBy !== 'transaction' || (metric.op !== 'sum' && metric.op !== 'count')) {
     throw new Error(
@@ -306,7 +309,7 @@ function solveSeriesAggregate(
     aggregateBySeries(s.store.records, range, bucketMs, utc, {
       value,
       group: (r) => r.name,
-      include: (r) => r.kind === 'transaction',
+      include: (r) => r.kind === 'transaction' && !exclude.has(r.name),
       topN: SERIES_TOP_N,
       otherLabel: 'Other',
     }),
@@ -464,9 +467,19 @@ const ops: Record<string, OpHandler> = {
       field: 'duration',
       groupBy: 'transaction',
     };
+    const exclude = new Set((a.exclude as string[] | undefined) ?? []);
 
-    const { result, ghostSpans, complete } = solveSeriesAggregate(s, metric, range, bucketMs, utc);
+    const { result, ghostSpans, complete } = solveSeriesAggregate(
+      s,
+      metric,
+      range,
+      bucketMs,
+      utc,
+      exclude,
+    );
 
+    // the table lists ALL transactions (so an excluded one can be re-enabled),
+    // even though the chart aggregate leaves the excluded set out
     return {
       series: result,
       ghostSpans,

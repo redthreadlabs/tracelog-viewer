@@ -23,6 +23,11 @@ export function renderOverview(container: HTMLElement): () => void {
   let groups: TxnGroup[] = []; // last fetch — re-sorts don't re-query
   let chartShown = false; // true once a chart is rendered
   let lastComplete = false; // whether the last answer fully covered the range (no ghost)
+  // transactions the user has toggled OUT of the chart (the table is its legend);
+  // excluded from the chart aggregate, but still listed in the table so they can
+  // be re-enabled. The chart re-ranks around them (a hidden top-N slot promotes).
+  const excluded = new Set<string>();
+  let chartSeries: string[] = []; // the chart's ordered series (top-N names, no "Other")
 
   const chartSection = el('section', { className: 'chart-section' });
   const chartHead = el('div', { className: 'section-head' });
@@ -73,14 +78,22 @@ export function renderOverview(container: HTMLElement): () => void {
       ghostSpans: [number, number][];
       complete: boolean;
       groups: TxnGroup[];
-    }>('overviewData', { range, bucketMs: chosenBucketMs(), utc: isUtcMode(), metric });
+    }>('overviewData', {
+      range,
+      bucketMs: chosenBucketMs(),
+      utc: isUtcMode(),
+      metric,
+      exclude: [...excluded], // transactions toggled out of the chart
+    });
     if (t !== token || !container.isConnected) return;
     groups = res.groups;
+    chartSeries = res.series.series.filter((s) => s !== 'Other');
 
-    // No tally for the range → empty/loading state (renderEmpty distinguishes
-    // "still loading" from "nothing here" via progress). The worker has already
-    // decided how to satisfy the query; we just render what it returned.
-    if (res.series.buckets.length === 0) {
+    // Empty/loading state only when there are NO transactions at all (renderEmpty
+    // distinguishes "still loading" from "nothing here" via progress). If
+    // transactions exist but the chart series is empty — e.g. all toggled out —
+    // still render, so the table stays up and they can be re-enabled.
+    if (res.groups.length === 0) {
       chartShown = false;
       renderEmpty();
       updateSpinners();
@@ -168,10 +181,19 @@ export function renderOverview(container: HTMLElement): () => void {
 
     const maxDuration = Math.max(...sorted.map((g) => g.totalDuration), 1);
 
+    // a row's chart color: its --series-N when it's one of the chart's top-N
+    // series, else the recessive "Other" grey (it's folded into Other / off-chart)
+    const chartStyles = getComputedStyle(chartHost);
+    const colorFor = (name: string): string => {
+      const i = chartSeries.indexOf(name);
+      return seriesPaletteColor(i === -1 ? 'Other' : name, i, chartStyles);
+    };
+
     const table = el('table', { className: 'records txn-table' });
     const thead = el('thead');
     thead.append(
       el('tr', {}, [
+        el('th', { attrs: { style: 'width:30px' } }), // the chart-toggle swatch
         sortableTh('transaction', 'name', ''),
         sortableTh('count', 'count', 'width:90px;text-align:right'),
         sortableTh('errors', 'errors', 'width:90px;text-align:right'),
@@ -183,7 +205,23 @@ export function renderOverview(container: HTMLElement): () => void {
     );
     const tbody = el('tbody');
     for (const group of sorted) {
+      const shown = !excluded.has(group.name);
+      const toggle = el('button', {
+        className: shown ? 'txn-toggle on' : 'txn-toggle',
+        attrs: {
+          title: shown ? 'hide from chart' : 'show in chart',
+          'aria-label': shown ? 'hide from chart' : 'show in chart',
+          ...(shown ? { style: `background:${colorFor(group.name)}` } : {}),
+        },
+      });
+      toggle.addEventListener('click', (e) => {
+        e.stopPropagation(); // don't open the drill-down
+        if (excluded.has(group.name)) excluded.delete(group.name);
+        else excluded.add(group.name);
+        void render(); // re-aggregate the chart around the new selection
+      });
       const tr = el('tr', {}, [
+        el('td', { className: 'toggle-cell' }, [toggle]),
         el('td', { className: 'grow', text: group.name, title: group.name }),
         el('td', {
           className: 'num',
