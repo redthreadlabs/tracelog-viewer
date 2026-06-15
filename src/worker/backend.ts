@@ -555,6 +555,13 @@ const ops: Record<string, OpHandler> = {
   },
 
   // ---- views ----
+  // A bucketed-aggregation query: select the working set (range), designate
+  // buckets (bucketMs/utc), tally. HOW the tally is satisfied — sidecar
+  // metadata, loaded records, or (later) a pluggable in-memory index — is the
+  // worker's private business; the caller never learns the source. The only
+  // source-agnostic fact it gets back is completeness: `ghostSpans` mark where
+  // the answer is incomplete, and `complete` is the boolean shorthand. The
+  // chart renders the tally and the ghost; it does not reason about data shape.
   overviewData: async (s, a) => {
     const range = a.range as TimeRange;
     let bucketMs = a.bucketMs as number | null;
@@ -586,7 +593,6 @@ const ops: Record<string, OpHandler> = {
     // fall back to the records path. The transaction table stays records-based.
     const meta = await metadataVolume(s, range, bucketMs, utc);
     let bucketed: BucketResult;
-    let fromMetadata: boolean;
     // ghostSpans: where the working set is unfulfilled within the view (SPEC
     // §7) — the union of the metadata path's not-yet-probed intervals
     // (momentary) and the budget-refused intervals (persistent). Merged +
@@ -595,7 +601,6 @@ const ops: Record<string, OpHandler> = {
     let ghostSpans: [number, number][];
     if (meta) {
       bucketed = meta.bucketed;
-      fromMetadata = true;
       ghostSpans = mergeSpans([...meta.unfilled, ...refused], bucketed.domain[0], bucketed.domain[1]);
     } else {
       // records path: blank any interval still missing files, so a bucket is
@@ -604,14 +609,13 @@ const ops: Record<string, OpHandler> = {
         bucketByTime(s.store.records, range, bucketMs, utc),
         incompleteSpans(s),
       );
-      fromMetadata = false;
       ghostSpans = mergeSpans(refused, bucketed.domain[0], bucketed.domain[1]);
     }
 
     return {
       bucketed,
-      fromMetadata,
       ghostSpans,
+      complete: ghostSpans.length === 0,
       groups: groupTransactions(txns, range),
       inRange: (() => {
         const [lo, hi] = rangeBounds(s.store.records, range);

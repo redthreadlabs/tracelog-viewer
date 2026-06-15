@@ -20,8 +20,8 @@ export function renderOverview(container: HTMLElement): () => void {
   let lastGeneration = -1;
   let token = 0;
   let groups: TxnGroup[] = []; // last fetch — re-sorts don't re-query
-  let chartShown = false; // true once a chart (records or metadata) is rendered
-  let lastFromMetadata = false; // whether the last chart came from sidecar metadata
+  let chartShown = false; // true once a chart is rendered
+  let lastComplete = false; // whether the last answer fully covered the range (no ghost)
 
   const chartSection = el('section', { className: 'chart-section' });
   const chartHead = el('div', { className: 'section-head' });
@@ -42,7 +42,10 @@ export function renderOverview(container: HTMLElement): () => void {
     const running = storeClient.snapshot.progress.running;
     if (!chartSpin.isConnected) chartSection.append(chartSpin);
     if (!tableSpin.isConnected) tableSection.append(tableSpin);
-    chartSpin.style.display = chartShown && running && !lastFromMetadata ? 'block' : 'none';
+    // show the chart spinner only while the answer is still incomplete (ghost
+    // present) and loading — a complete answer needs no spinner even if a
+    // background prefetch keeps running
+    chartSpin.style.display = chartShown && running && !lastComplete ? 'block' : 'none';
     tableSpin.style.display = chartShown && running ? 'block' : 'none';
   }
 
@@ -63,8 +66,8 @@ export function renderOverview(container: HTMLElement): () => void {
     const range = viewState.timeRange;
     const res = await storeClient.request<{
       bucketed: BucketResult;
-      fromMetadata: boolean;
       ghostSpans: [number, number][];
+      complete: boolean;
       groups: TxnGroup[];
       inRange: number;
       markers: unknown;
@@ -72,17 +75,17 @@ export function renderOverview(container: HTMLElement): () => void {
     if (t !== token || !container.isConnected) return;
     groups = res.groups;
 
-    // The Volume chart can be served from sidecar metadata (full volume, no
-    // records loaded). Only show the empty state when there's genuinely
-    // nothing — no chart buckets AND no loaded records.
-    if (res.bucketed.buckets.length === 0 && storeClient.snapshot.recordCount === 0) {
+    // No tally for the range → empty/loading state (renderEmpty distinguishes
+    // "still loading" from "nothing here" via progress). The worker has already
+    // decided how to satisfy the query; we just render what it returned.
+    if (res.bucketed.buckets.length === 0) {
       chartShown = false;
       renderEmpty();
       updateSpinners();
       return;
     }
     chartShown = true;
-    lastFromMetadata = res.fromMetadata;
+    lastComplete = res.complete;
 
     // --- chart head ---
     clear(chartHead);
@@ -109,7 +112,7 @@ export function renderOverview(container: HTMLElement): () => void {
       }),
       el('span', {
         className: 'budget',
-        text: `${fmtCount(total)} records${res.fromMetadata ? ' · from metadata' : ''}`,
+        text: `${fmtCount(total)} records`,
       }),
     );
 
@@ -273,7 +276,7 @@ export function renderOverview(container: HTMLElement): () => void {
   const onProgress = () => {
     // don't wipe a shown chart while records trickle in; only the genuinely
     // empty pre-chart state tracks loading progress
-    if (!chartShown && storeClient.snapshot.recordCount === 0) renderEmpty();
+    if (!chartShown) renderEmpty();
     updateSpinners();
   };
   storeClient.addEventListener('data', onData);
