@@ -32,7 +32,7 @@ export function renderOverview(container: HTMLElement): () => void {
   container.append(chartSection, tableSection);
 
   // corner spinners shown while each widget is still populating: the chart's
-  // only while it's loading from records (a metadata chart is already complete),
+  // only while its answer is still incomplete (ghost present) and loading,
   // the table's whenever a scan is feeding it
   const chartSpin = el('div', { className: 'corner-spinner' });
   const tableSpin = el('div', { className: 'corner-spinner' });
@@ -101,9 +101,8 @@ export function renderOverview(container: HTMLElement): () => void {
     chartHead.append(el('span', { className: 'masthead-spacer' }));
 
     const data = res.bucketed;
-    // count from the buckets themselves: the chart may depict more than the
-    // store holds (metadata) or less (records path with partial intervals
-    // blanked), so the label should always match what's actually drawn
+    // count from the buckets themselves, so the label always matches what's
+    // actually drawn (the tally need not equal the records currently in the store)
     const total = data.buckets.reduce((s, b) => s + b.total, 0);
     chartHead.append(
       el('span', {
@@ -270,8 +269,9 @@ export function renderOverview(container: HTMLElement): () => void {
   const onData = () => {
     if (storeClient.snapshot.generation !== lastGeneration) void render();
   };
-  // the scanbar fires 'plan' once the selection's files are known — that's when
-  // the metadata-served chart can render, before (or without) any records
+  // the scanbar fires 'plan' once the selection's files are known — re-query so
+  // the chart can render as soon as the worker can satisfy it (often before, or
+  // without, any records being loaded)
   const onPlan = () => void render();
   const onProgress = () => {
     // don't wipe a shown chart while records trickle in; only the genuinely
