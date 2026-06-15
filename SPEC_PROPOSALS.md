@@ -122,3 +122,96 @@ prerequisite for Phase 3 and where most of the risk lives.
 6. **Granularity & dimensionality.** Hourly only (as today), or user-choosable
    granularity? Single `groupBy`, or multi-dimension cubes (with the
    cell-explosion caveat)?
+
+---
+
+## Proposal 2 — A cardinality indexer
+
+**Status:** draft (2026-06-15). Not building yet. Extends Proposal 1.
+
+### Motivation
+
+A per-file index that counts the **distinct values of each field**. Like the
+transaction cube it is per-file, built at parse time, immutable (a finalized
+file's cardinalities never change), and durable in IndexedDB — the same
+lifecycle, zero new machinery. But it is a **different *kind* of index**: it does
+not answer a chart's metric, it *describes the data*. "Index" here widens to
+"anything derived per-file that informs the engine," and the engine/advisor is
+its consumer.
+
+The point: today the cube-vs-don't-cube reasoning rests on *assertions*
+("transaction names ~20–30; `user`/`trace_id` are high-cardinality, don't index
+them"). A cardinality indexer **measures** that instead of assuming it — turning
+the advisor from heuristic guesses into data, in the perf page's "numbers, not
+vibes" spirit.
+
+### What it unlocks
+
+- **A real cost model for Proposal 1.** A cube's size ≈ (product of its `groupBy`
+  dimensions' cardinalities) × intervals. The cardinality index *is* that input,
+  so "this index would cost ~N cells / ~M MB" stops being a guess, and the
+  high-cardinality footguns (group by `user`/`trace_id`) are caught before a
+  single cell is built.
+- **Field discovery (Proposal 1, open question 3) mostly resolves itself.** The
+  index already enumerates each field with its distinct count, so the advisor can
+  say "`region` (8 distinct) → good cube dimension; `trace_id` (2.1M) → don't" —
+  no separate schema-sniffing pass.
+- **Possibly the engine's first holistic aggregate** — see the fork below.
+
+### The decision: exact counts vs. mergeable sketches
+
+This choice changes what the index can *do*, not just how it's built:
+
+- **Exact, capped** — a `Set` per field during parse, stopped at a cap (e.g. 10k
+  → "high"). Cheap, exact per file, and sufficient for the advisor's only real
+  question ("low- or high-cardinality?"). But per-file distinct counts **do not
+  merge** — two files' distinct-`user` counts can't be summed without
+  double-counting overlaps. Good for advice, useless for range-level distinct.
+- **HyperLogLog sketches** — bounded memory (~KB/field regardless of
+  cardinality) and **mergeable by union** across files. This is exactly the
+  "mergeable sketch" SPEC §11.6 named as the only route to a holistic aggregate.
+  With HLL the cardinality indexer does double duty: it feeds the advisor *and*
+  becomes the registry's first `merge: 'holistic'` index, answering approximate
+  **`COUNT(DISTINCT user)` / unique sessions over an arbitrary range** — a metric
+  the cube model fundamentally cannot, and a real observability signal
+  (Elasticsearch's cardinality agg is literally HLL). It would graduate
+  `holistic` in SPEC §11.2 from "declarable but unmatched" to "served."
+
+Lean: exact-capped is the cheap advisor-only version; HLL is the upgrade that
+*also* buys range-level distinct aggregates — likely worth going straight to,
+given how little extra it costs and how much it unlocks. Flagged as the open
+decision, not settled.
+
+### "All fields" is a deliberate strawman
+
+The original framing — count distinct values for **all** fields — is intentionally
+a provocation, not a plan. `meta` carries arbitrary, unbounded keys, so "all
+fields" is literally unbounded work and storage. Its purpose is to *beg the real
+question*: **which fields?** — the known core schema only, core + top-level `meta`
+keys, a capped set, or user-chosen? That is the actual design work. (And note:
+*detecting* that a field is accidentally unbounded is itself a useful output —
+the indexer can flag "this field looks like runaway cardinality, probably not a
+dimension.") We carry "all fields" forward only as the question-shaped
+placeholder it is.
+
+### Value lands before any recommender
+
+Worth separating: just *showing* per-field cardinality on the indexing page
+(Proposal 1, Phase 1) and feeding it into cube cost estimates is valuable on its
+own and cheap. Auto-*recommendations* ("you should build index X") are a later,
+higher-effort layer — the indexer's payoff does not depend on building a
+recommender.
+
+### Open questions
+
+1. **Which fields?** (the strawman's real question) — core schema, + top-level
+   `meta`, capped, or user-selected? How to bound `meta`'s arbitrary keys without
+   unbounded work.
+2. **Exact-capped vs. HLL**, and if HLL the accuracy/size budget (standard HLL is
+   ~1–2% error at a few KB per field).
+3. **An `AggregateIndex`, or a separate stats artifact?** With HLL it fits the
+   registry as `{ op: 'distinct', merge: 'holistic' }`; exact-only, it's an
+   advisor-feeding artifact outside the solver. Depends on the fork above.
+4. **Presence vs. distinctness.** Alongside distinct count, is "how often is this
+   field populated?" worth storing — sparse-vs-dense informs both advice and
+   data-quality?
