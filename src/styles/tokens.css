@@ -40,6 +40,20 @@
   --kind-error: #c2081d;
   --kind-metricset: #a64ddb;
 
+  /* series — a categorical ramp for grouped charts (top-N transactions by
+     Σ duration, SPEC §11), assigned by rank; bright variants for the grey
+     canvas. Reds are avoided so a series never reads as the error/thread red;
+     --series-other is a recessive grey for the folded "Other" tail. */
+  --series-1: #60a5fa;
+  --series-2: #2dd4bf;
+  --series-3: #fbbf24;
+  --series-4: #fb923c;
+  --series-5: #a78bfa;
+  --series-6: #38bdf8;
+  --series-7: #f472b6;
+  --series-8: #a3e635;
+  --series-other: #908c86;
+
   /* event levels — fixed semantic mapping (SPEC §7) */
   --level-debug: #9d9b97;
   --level-info: #c9c7c3;
@@ -95,6 +109,18 @@
   --kind-error: #c2081d;
   --kind-metricset: #8202c7;
 
+  /* series ramp, saturated/darkened for the near-white panel (same hues as
+     the canvas ramp, tuned for contrast on white) */
+  --series-1: #2563eb;
+  --series-2: #0d9488;
+  --series-3: #d97706;
+  --series-4: #c2410c;
+  --series-5: #7c3aed;
+  --series-6: #0e7490;
+  --series-7: #be185d;
+  --series-8: #4d7c0f;
+  --series-other: #a8a39c;
+
   --level-debug: #7c7973;
   --level-info: #555350;
   --level-warn: #de8502;
@@ -137,6 +163,17 @@
   --kind-event: #ffd54d;
   --kind-error: #c2081d;
   --kind-metricset: #a64ddb;
+
+  /* series ramp, bright variants for the dark canvas (same hues as :root) */
+  --series-1: #60a5fa;
+  --series-2: #2dd4bf;
+  --series-3: #fbbf24;
+  --series-4: #fb923c;
+  --series-5: #a78bfa;
+  --series-6: #38bdf8;
+  --series-7: #f472b6;
+  --series-8: #a3e635;
+  --series-other: #807c76;
 
   --level-debug: #787671;
   --level-info: #a8a6a1;
