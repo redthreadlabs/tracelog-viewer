@@ -12,6 +12,7 @@ import { renderTimebars } from '../../viz/timebars';
 import { viewState } from '../../state';
 import { pushParams, setView, RANGE_NAV_EVENT } from '../hashstate';
 import { chosenBucketMs, bucketLabel } from '../bucketpicker';
+import type { Metric } from '../query';
 import { fmtBytes, fmtCount, fmtDuration, isUtcMode } from '../format';
 
 export function renderOverview(container: HTMLElement): () => void {
@@ -64,6 +65,9 @@ export function renderOverview(container: HTMLElement): () => void {
     const t = ++token;
     const doneRender = perf.begin('render', '/overview');
     const range = viewState.timeRange;
+    // the chart declares the metric it wants; the worker's solver (SPEC §11)
+    // decides how to satisfy it. Today: record COUNT broken out by kind.
+    const metric: Metric = { op: 'count', groupBy: 'kind' };
     const res = await storeClient.request<{
       bucketed: BucketResult;
       ghostSpans: [number, number][];
@@ -71,7 +75,7 @@ export function renderOverview(container: HTMLElement): () => void {
       groups: TxnGroup[];
       inRange: number;
       markers: unknown;
-    }>('overviewData', { range, bucketMs: chosenBucketMs(), utc: isUtcMode() });
+    }>('overviewData', { range, bucketMs: chosenBucketMs(), utc: isUtcMode(), metric });
     if (t !== token || !container.isConnected) return;
     groups = res.groups;
 

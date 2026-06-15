@@ -53,6 +53,7 @@ import {
 } from '../data/clients';
 import { scannerStats } from '../data/scanner-traffic';
 import { recordListing, estimatePlan, ledgerRecords } from '../data/ledger';
+import type { Metric } from './query';
 
 type TimeRange = [number, number] | null;
 
@@ -421,6 +422,68 @@ async function metadataVolume(
   return { bucketed, unfilled: mergeSpans(unfilledIntervals, winStart, winEnd) };
 }
 
+/**
+ * The aggregate solver (SPEC §11), v1. Satisfies a bucketed-aggregation query
+ * the cheapest way it can and reports completeness — never the source.
+ *
+ * v1 capability registry is hard-coded: the only metric is COUNT grouped by
+ * kind, and the only index is the sidecar (which advertises COUNT[kind]@hourly).
+ * So a bucket ≥1h is served from metadata; otherwise we scan loaded records.
+ * The uncovered remainder (in-flight + budget-refused) becomes the ghost band —
+ * a derivation of the plan, not a special case. Future metrics (SUM(duration)
+ * by transaction, …) and future indexes register their capabilities here; the
+ * scan path is always the correctness fallback.
+ */
+async function solveAggregate(
+  s: Session,
+  metric: Metric,
+  range: TimeRange,
+  bucketMs: number | null,
+  utc: boolean,
+): Promise<{ bucketed: BucketResult; ghostSpans: [number, number][]; complete: boolean }> {
+  if (metric.op !== 'count' || (metric.groupBy ?? 'kind') !== 'kind') {
+    throw new Error(
+      `aggregate solver v1 handles only COUNT grouped by kind, not ${metric.op}` +
+        (metric.field ? `(${metric.field})` : '') +
+        (metric.groupBy ? ` by ${metric.groupBy}` : ''),
+    );
+  }
+
+  // Data-aware auto bucketing: a sub-hour bucket can only come from loaded
+  // records, so don't *automatically* drop below the 1h metadata floor for a
+  // range whose records aren't all in yet — that would render empty. Hold at 1h
+  // (complete, from metadata) and let it refine once the records finish loading.
+  // An explicit choice (bucketMs set) is always honored.
+  if (bucketMs === null && range) {
+    const span = Math.max(range[1] - range[0], 1);
+    const natural = chooseBucketMs(span);
+    if (natural < CHART_HOUR_MS && span >= MIN_METADATA_FALLBACK_MS && !rangeFullyLoaded(s, range)) {
+      bucketMs = CHART_HOUR_MS;
+    }
+  }
+
+  // COUNT[kind] is exactly what the sidecar histograms hold (hourly), so a
+  // bucket ≥1h is served from metadata: instant, complete (all selected files),
+  // and works even when the records aren't loaded. Sub-hour falls to records.
+  const meta = await metadataVolume(s, range, bucketMs, utc);
+  const refused = budgetRefusedSpans(s);
+  let bucketed: BucketResult;
+  let ghostSpans: [number, number][];
+  if (meta) {
+    bucketed = meta.bucketed;
+    ghostSpans = mergeSpans([...meta.unfilled, ...refused], bucketed.domain[0], bucketed.domain[1]);
+  } else {
+    // records path: blank any interval still missing files, so a bucket is
+    // fully populated or blank — never a misleadingly short partial bar
+    bucketed = blankPartialBuckets(
+      bucketByTime(s.store.records, range, bucketMs, utc),
+      incompleteSpans(s),
+    );
+    ghostSpans = mergeSpans(refused, bucketed.domain[0], bucketed.domain[1]);
+  }
+  return { bucketed, ghostSpans, complete: ghostSpans.length === 0 };
+}
+
 type OpHandler = (session: Session, args: Record<string, unknown>) => Promise<unknown> | unknown;
 
 const ops: Record<string, OpHandler> = {
@@ -555,68 +618,24 @@ const ops: Record<string, OpHandler> = {
   },
 
   // ---- views ----
-  // A bucketed-aggregation query: select the working set (range), designate
-  // buckets (bucketMs/utc), tally. HOW the tally is satisfied — sidecar
-  // metadata, loaded records, or (later) a pluggable in-memory index — is the
-  // worker's private business; the caller never learns the source. The only
-  // source-agnostic fact it gets back is completeness: `ghostSpans` mark where
-  // the answer is incomplete, and `complete` is the boolean shorthand. The
-  // chart renders the tally and the ghost; it does not reason about data shape.
+  // The overview's data: a bucketed aggregate for the chart (solved by the
+  // aggregate solver — SPEC §11 — so the caller never learns whether metadata,
+  // records, or an index satisfied it; it gets the tally + completeness) plus
+  // the transaction-table ranking. The chart names the metric it wants; today
+  // that is COUNT grouped by kind, the only one v1 can solve.
   overviewData: async (s, a) => {
     const range = a.range as TimeRange;
-    let bucketMs = a.bucketMs as number | null;
+    const bucketMs = a.bucketMs as number | null;
     const utc = a.utc !== false; // align the bucket grid to the active display zone
-    const txns = s.store.kindRecords('transaction');
+    const metric = (a.metric as Metric | undefined) ?? { op: 'count', groupBy: 'kind' };
 
-    // Data-aware auto bucketing: a sub-hour bucket can only come from loaded
-    // records, so don't *automatically* drop below the 1h metadata floor for a
-    // range whose records aren't all in yet — that would render empty. Hold at
-    // 1h (complete, from metadata) and let it refine to the finer bucket once
-    // the range's records finish loading. An explicit choice (bucketMs set) is
-    // always honored — the user waits for it the old-fashioned way.
-    if (bucketMs === null && range) {
-      const span = Math.max(range[1] - range[0], 1);
-      const natural = chooseBucketMs(span);
-      if (
-        natural < CHART_HOUR_MS &&
-        span >= MIN_METADATA_FALLBACK_MS &&
-        !rangeFullyLoaded(s, range)
-      ) {
-        bucketMs = CHART_HOUR_MS;
-      }
-    }
-
-    // The Volume chart is record COUNTS bucketed by time — exactly what the
-    // sidecar histograms hold (hourly). So for any bucket ≥1h serve it from
-    // metadata: instant, complete (all selected files), and works even when
-    // the records aren't loaded (or are too big to load). Sub-hour buckets
-    // fall back to the records path. The transaction table stays records-based.
-    const meta = await metadataVolume(s, range, bucketMs, utc);
-    let bucketed: BucketResult;
-    // ghostSpans: where the working set is unfulfilled within the view (SPEC
-    // §7) — the union of the metadata path's not-yet-probed intervals
-    // (momentary) and the budget-refused intervals (persistent). Merged +
-    // clipped to the drawn domain.
-    const refused = budgetRefusedSpans(s);
-    let ghostSpans: [number, number][];
-    if (meta) {
-      bucketed = meta.bucketed;
-      ghostSpans = mergeSpans([...meta.unfilled, ...refused], bucketed.domain[0], bucketed.domain[1]);
-    } else {
-      // records path: blank any interval still missing files, so a bucket is
-      // fully populated or blank — never a misleadingly short partial bar
-      bucketed = blankPartialBuckets(
-        bucketByTime(s.store.records, range, bucketMs, utc),
-        incompleteSpans(s),
-      );
-      ghostSpans = mergeSpans(refused, bucketed.domain[0], bucketed.domain[1]);
-    }
+    const { bucketed, ghostSpans, complete } = await solveAggregate(s, metric, range, bucketMs, utc);
 
     return {
       bucketed,
       ghostSpans,
-      complete: ghostSpans.length === 0,
-      groups: groupTransactions(txns, range),
+      complete,
+      groups: groupTransactions(s.store.kindRecords('transaction'), range),
       inRange: (() => {
         const [lo, hi] = rangeBounds(s.store.records, range);
         return hi - lo;
