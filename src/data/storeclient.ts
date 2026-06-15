@@ -39,9 +39,16 @@ export class StoreClient extends EventTarget {
     // the URL expressions stay inline: Vite's static analysis finds worker
     // entry points only in `new (Shared)Worker(new URL(...))` form
     if (typeof SharedWorker !== 'undefined') {
+      // No fixed `name`: a named SharedWorker is keyed by its NAME, so after a
+      // deploy a refresh would reconnect to the still-running OLD-build worker
+      // (which lacks newly added ops) instead of the new code. Omitting the name
+      // keys it by the per-build hashed URL instead — tabs on the same build
+      // still share one worker, but each deploy spins up a fresh one (the old
+      // worker is abandoned and dies when its last tab closes). The byte cache +
+      // indexes live in IndexedDB, so the fresh worker rehydrates without a
+      // re-download.
       const shared = new SharedWorker(new URL('../worker/store.worker.ts', import.meta.url), {
         type: 'module',
-        name: 'tracelog-store',
       });
       shared.port.start();
       this.port = shared.port;

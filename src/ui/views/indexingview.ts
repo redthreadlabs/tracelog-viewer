@@ -73,12 +73,31 @@ export function renderIndexingView(container: HTMLElement): () => void {
     section.append(el('pre', { className: 'indexing-json', text: json }));
 
     // P95 accuracy: the histogram's estimate beside the exact (loaded-records)
-    // value, per transaction — the bin-resolution error on real data
-    const acc = await storeClient.request<AccuracyRow[]>('p95Accuracy', {
-      range: viewState.timeRange,
-    });
-    if (t !== token || !container.isConnected) return;
-    if (acc.length > 0) renderAccuracy(section, acc);
+    // value, per transaction — the bin-resolution error on real data. Surface
+    // any worker error here rather than letting a rejection silently drop the
+    // table (e.g. a stale pre-deploy worker that lacks this op).
+    try {
+      const acc = await storeClient.request<AccuracyRow[]>('p95Accuracy', {
+        range: viewState.timeRange,
+      });
+      if (t !== token || !container.isConnected) return;
+      renderAccuracy(section, acc);
+    } catch (err) {
+      if (t !== token || !container.isConnected) return;
+      const msg = err instanceof Error ? err.message : String(err);
+      section.append(
+        el('div', { className: 'section-head', attrs: { style: 'margin-top:24px' } }, [
+          el('span', { className: 'label', text: 'P95 accuracy' }),
+        ]),
+        el('div', { className: 'budget faint', attrs: { style: 'margin:-4px 0 8px' } }, [
+          el('span', {
+            text: /unknown op/.test(msg)
+              ? 'unavailable — close every tracelog tab and reopen to pick up the latest build, then retry'
+              : `unavailable — ${msg}`,
+          }),
+        ]),
+      );
+    }
   }
 
   void render();
