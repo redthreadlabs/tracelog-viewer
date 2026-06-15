@@ -467,6 +467,8 @@ numbers come from here, and users can attach exports to bug reports.
 Instrumentation cost is two `performance.now()` calls and one object per
 operation, so it is always on.
 
+## 7. Design language
+
 The charts are the product. Goal: closer to a beautifully typeset report
 than a NOC dashboard — restrained, humane, with color spent only on data.
 
@@ -786,3 +788,127 @@ or date rather than abandon tracelog entirely.
   acknowledgment (large-download confirmation removed 2026-06-13); chrome
   copy counts records and bytes rather than files; and future features
   should prefer "the app handled it" over "the app asked me about it".
+
+## 11. The aggregate solver (planned)
+
+A query-planning layer that lets the worker answer a chart's question the
+cheapest way available — from a sidecar index, an in-memory index, or a full
+scan of loaded records — while the caller stays blind to which. It is the formal
+home for the responsibility boundary set in §6.1: **the front end states *what*
+it wants; the worker decides *how*.** No chart ever learns whether its numbers
+came from metadata or records (the "· from metadata" label was removed
+2026-06-14); a chart asks for a result and gets a result, plus an honest mark of
+where the result is incomplete.
+
+### 11.1 Two request shapes
+
+Everything a view needs is one of two requests:
+
+1. **An aggregate** — a metric tallied into time buckets, e.g.
+   `COUNT(record)`, `SUM(duration)`, `MAX(heap)`, optionally grouped by a
+   dimension (`SUM(duration) GROUP BY transaction`). Feeds bar/line charts.
+2. **A filtered record set** — the actual matching rows, e.g. every
+   transaction in a range for the duration scatter or a table.
+
+The distinction matters because only aggregates can ever be served *without the
+rows*. A record-set request needs the rows by definition — an index can only
+help *plan* it (which intervals have matches, how many, whether within budget,
+and therefore where the ghost band falls), never replace it.
+
+### 11.2 What an index can satisfy: the decomposability algebra
+
+Whether an aggregate can be answered from per-interval summaries — rather than
+re-scanning records — depends on how it composes when intervals are merged (the
+data-cube taxonomy):
+
+- **Distributive** — `COUNT`, `SUM`, `MIN`, `MAX`. A range's answer is the
+  direct merge of its intervals' answers (sum of sums, max of maxes). Trivially
+  index-friendly.
+- **Algebraic** — `AVG`, variance, stddev. Computable from a *bounded set* of
+  distributive parts (`AVG` = `SUM`/`COUNT`; stddev = `SUM`, `SUM²`, `COUNT`).
+  Index-friendly **only if the index stores those parts**, not the derived
+  number — an index of pre-averaged values cannot be re-merged correctly.
+- **Holistic** — exact percentiles (`p95`), `COUNT(DISTINCT)`, median. *Not*
+  reconstructable from fixed-size per-interval summaries. Servable from an index
+  only if it stores **mergeable sketches** (t-digest for quantiles, HyperLogLog
+  for distinct counts); otherwise the request falls to a scan.
+
+The solver's job is exactly this membership test: is the requested metric in the
+closure of the available indexes under interval-merge?
+
+### 11.3 The solver
+
+Each index *advertises a capability*: which metrics it holds, grouped by which
+dimensions, at what time granularity, over which intervals. Each request
+*declares a need*: a metric, a grouping, a bucket size, a range. The solver
+matches them on three axes:
+
+- **Metric** — the need is in the index's closure (§11.2).
+- **Granularity** — an index rolls up *finer → coarser* only (an hourly index
+  serves buckets ≥ 1h; it can never synthesize a 5-minute bar).
+- **Grouping & coverage** — the index is pre-grouped by the requested dimension
+  (or a parent it can roll up), and actually covers the interval.
+
+The result is a *plan* that partitions the range into three interval sets:
+`fromIndex` (answered from the index), `scan` (records loaded and tallied), and
+`ghost` (coverable by neither — not in any index, not loaded, or budget-refused).
+The honesty invariant is that these three **partition the range exactly** — which
+means **the ghost band is a derivation of the plan, not a special case bolted
+on.** Today the only registered index is the sidecar, advertising
+`COUNT(record) [GROUP BY kind] @ hourly`; so a request for `COUNT` at ≥1h is
+index-served and everything else (durations, by-transaction, sub-hour) scans —
+precisely the `metadataVolume`-vs-`bucketByTime` branch in `overviewData`,
+generalized into a planner.
+
+### 11.4 Build order (each step earns the next)
+
+1. **Source-agnostic contract** *(done, 2026-06-14)*. `overviewData` returns
+   only the tally plus completeness (`ghostSpans` + a `complete` boolean); the
+   view renders tally + ghost and reasons about neither metadata nor records.
+   This is the seam the solver slots into.
+2. **A `Metric` type and a v1 solver.** The chart sends a declarative
+   `{ metric, groupBy, bucketMs, range }`. The v1 solver knows one index (the
+   sidecar) and the scan fallback — i.e. it *reproduces today's behavior through
+   the new abstraction*, proving the seam before adding power.
+3. **The redesigned overview chart** (Σ-duration by transaction). This is a
+   metric no index advertises yet, so the solver routes it to a scan with ghost
+   bands — correct from day one, just not yet cheap. It validates the
+   record-path and the grouping end to end.
+4. **Consumer-side durable indexes** register capabilities (per-file
+   parse-time rollups that outlive the byte cache — the schema-on-read index
+   plan). The *same* solver begins satisfying SUM/by-transaction from them with
+   **no change to any chart**: charts already ask declaratively, so they simply
+   get faster. An index is always an optimization, never a correctness
+   requirement — drop every index and the answers are identical, only slower.
+
+### 11.5 Philosophy
+
+- **Declarative separation.** A chart names a question; it never encodes a
+  retrieval strategy. That is what lets the strategy improve underneath it
+  forever without touching a view.
+- **Optimization, never correctness.** The scan path is the ground truth and is
+  always available; indexes only let the solver *skip* work it could otherwise
+  do the slow way. A stale or missing index degrades performance, never
+  accuracy.
+- **Honesty by construction.** Completeness is part of the answer, and the ghost
+  band is the plan's uncovered remainder — so a chart cannot accidentally
+  present a partial result as whole.
+- **Heuristics from the shape of the data.** Observability is a domain with
+  *characteristic* data shapes, and the solver and its indexes should exploit
+  them rather than treat the data as arbitrary:
+  - **Heavy-tailed grouping.** A REST service has tens of transaction names, not
+    thousands; load and time concentrate in a handful. So a top-N + "other"
+    rollup is a near-lossless index for the questions people actually ask, and
+    high-cardinality dimensions (user/session IDs) are deliberately *not*
+    indexed.
+  - **Immutability.** A finalized log object never changes, so a per-file index
+    is correct forever once built — compute it once, keep the tiny rollup after
+    evicting the heavy bytes (cf. `ledger.ts`).
+  - **Time locality & recency bias.** Queries cluster on recent windows and scan
+    contiguous ranges; this is what makes a bounded prefetch horizon and
+    interval-aligned indexes pay off (§8).
+  - **Bounded categorical cardinality.** Record kinds are a fixed set of five,
+    which is why the sidecar's `COUNT GROUP BY kind` is nearly free and worth
+    baking into the manifest, while richer breakdowns stay consumer-side.
+  Good heuristics here are not generic database tricks; they come from knowing
+  what telemetry *looks like*.
