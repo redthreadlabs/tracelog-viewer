@@ -19,9 +19,9 @@ import type { ScanPlan } from '../s3/scanner';
 import { intervalSpan } from '../s3/keys';
 import { storeClient } from '../data/storeclient';
 import { viewState, resetViewState } from '../state';
-import { fmtBytesRough } from './format';
+import { fmtBytesRough, isUtcMode } from './format';
 import { getParam, setParams, pushParams, setView, rangeFromParams, readHash, RANGE_NAV_EVENT } from './hashstate';
-import { BUCKET_CHOICES } from './bucketpicker';
+import { BUCKET_CHOICES, chosenBucketMs } from './bucketpicker';
 import { renderChooser } from './chooser';
 import { profiles } from './profiles';
 import { clampByMemory } from '../data/ledger';
@@ -109,6 +109,21 @@ function toLocalInput(ms: number): string {
 
 /** views whose charts bucket records by time — the bars picker applies */
 const BUCKETED_VIEWS = new Set(['/overview', '/metrics']);
+
+/**
+ * Does this view read the in-memory record store? — the gate for loading raw
+ * records (SPEC §11, #1b). The overview is served entirely from durable indexes,
+ * and the app pages (About/config/internals) need no logs — so neither triggers
+ * a working-set load. Everything else (Records, Events, Metrics, Clients,
+ * Scanner, and the per-transaction/trace drill-downs) scans records, so opening
+ * one loads the working set. (Proactively pre-warming that load — so a drill-down
+ * is instant — is the separate #2 prefetch, not built yet.)
+ */
+function viewNeedsRecords(view: string): boolean {
+  if (view === '/overview' || view === '/about' || view === '/config') return false;
+  if (view.startsWith('/internals/')) return false;
+  return true;
+}
 
 // Re-rendering the scanbar (e.g. on profile change) must drop the previous
 // instance's listeners and timers.
@@ -373,11 +388,11 @@ export function renderScanbar(container: HTMLElement): void {
     if (state.plan) storeClient.dispatchEvent(new Event('plan'));
     // never auto-load while a picker is open — the user is still choosing; the
     // load fires when they close it (setOpenPicker)
-    if (!openPicker) maybeAutoLoad();
+    if (!openPicker) void maybeAutoLoad();
     render();
   }
 
-  function maybeAutoLoad(): void {
+  async function maybeAutoLoad(): Promise<void> {
     if (!state.plan) return;
     if (state.plan.files.length === 0) {
       // A range that matches no files means "show nothing" — same contract
@@ -397,6 +412,28 @@ export function renderScanbar(container: HTMLElement): void {
       applyRange();
       window.dispatchEvent(new HashChangeEvent('hashchange'));
       return;
+    }
+    // #1b: load raw records only for views that read them. The overview is
+    // served from durable indexes — load only if they can't satisfy this
+    // range+grid (cold range / sub-hour bars / a missing index).
+    const view = readHash().view;
+    if (!viewNeedsRecords(view)) {
+      if (view === '/overview') {
+        const indexed = await storeClient.request<boolean>('overviewIndexed', {
+          range: [state.startMs, state.endMs],
+          bucketMs: chosenBucketMs(),
+          utc: isUtcMode(),
+        });
+        if (indexed) {
+          applyRange();
+          storeClient.dispatchEvent(new Event('plan')); // re-query the overview at the new range
+          return;
+        }
+        // not index-covered → fall through to load (which builds the indexes)
+      } else {
+        applyRange(); // app page (About/config/internals) — no working-set load
+        return;
+      }
     }
     void runScan();
   }
@@ -446,8 +483,23 @@ export function renderScanbar(container: HTMLElement): void {
     changed = applyUrlSelection(state.channels, getParam('ch')) || changed;
     changed = applyUrlSelection(state.hosts, getParam('host')) || changed;
 
-    if (changed) void replan();
-    else render();
+    if (changed) {
+      void replan(); // re-plans + (per view) loads via maybeAutoLoad
+    } else {
+      render();
+      ensureLoadForView(); // a pure view nav (range unchanged): load if we just
+      // landed on a record-needing view that isn't loaded yet
+    }
+  }
+
+  /** Load the working set if the active view needs records and they aren't
+   *  loaded — the load-on-entry that the index-served overview defers (#1b). */
+  function ensureLoadForView(): void {
+    if (!state.plan || state.plan.files.length === 0) return;
+    if (storeClient.snapshot.progress.running) return;
+    if (planSignature(state.plan) === loadedSignature) return; // already loaded
+    if (!viewNeedsRecords(readHash().view)) return; // index-served → no load
+    void runScan();
   }
 
   /** Actually load a plan (no budget check — runScan gates before this). */

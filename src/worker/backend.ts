@@ -38,7 +38,7 @@ import {
   type WeightedPoint,
   type TxnGroup,
 } from '../data/aggregate';
-import { matchIndex, INDEXES, TXN_EXACT_P95_MAX } from '../data/indexes';
+import { matchIndex, INDEXES } from '../data/indexes';
 import { durHistRecords, mergeRangeBins, quantileFromBins, type Bins } from '../data/durhist';
 import { txnIndexRecords, mergeRangeTotals, type TxnTotals } from '../data/txnindex';
 import { assembleTrace } from '../data/trace';
@@ -287,11 +287,17 @@ const SERIES_TOP_N = 8;
 /**
  * Gather index contributions for a query (SPEC §11, the matcher). The registry
  * (`matchIndex`) decides whether a registered index can satisfy the metric at
- * this grid; if so, each selected file that is NOT loaded, whose interval lies
- * FULLY inside the range, and whose stored index is ETag-valid contributes its
- * rollups as weighted points and is marked "covered". Restricting to not-loaded,
- * fully-in-range files keeps it disjoint from the record scan (no double count)
- * and avoids splitting a rollup bucket at a range edge.
+ * this grid; if so, files contribute their rollups as weighted points.
+ *
+ * Two regimes, chosen by coverage:
+ *  - **index-only** (`indexOnly: true`): when EVERY in-range file has a valid
+ *    stored payload, serve them all from the index and scan nothing — the
+ *    fastest plan (SPEC §11.5). The caller passes no records, so this is instant
+ *    regardless of what's loaded in memory. This is the overview's common case.
+ *  - **mixed** (`indexOnly: false`): otherwise, only files that are NOT loaded
+ *    and lie FULLY inside the range are index-served (disjoint from the record
+ *    scan, no double count); the rest are scanned. The fallback for cold ranges,
+ *    sub-hour grids, or a file whose index is missing/stale.
  */
 async function indexContributions(
   s: Session,
@@ -300,22 +306,15 @@ async function indexContributions(
   showSet: Set<string> | undefined,
   bucketMs: number | null,
   utc: boolean,
-): Promise<{ extra: WeightedPoint[]; covered: Set<string> }> {
-  const empty = { extra: [] as WeightedPoint[], covered: new Set<string>() };
+): Promise<{ extra: WeightedPoint[]; covered: Set<string>; indexOnly: boolean }> {
+  const empty = { extra: [] as WeightedPoint[], covered: new Set<string>(), indexOnly: false };
   const grid = bucketGrid(range[0], range[1], range, bucketMs, utc);
   const ix = matchIndex(metric.op, metric.field, metric.groupBy, grid.bucketMs, grid.start);
   if (!ix?.points) return empty; // no distributive index satisfies this metric/grid → scan
   const points = ix.points;
 
-  // candidates: selected files that aren't loaded and lie fully inside the range
-  // (so an index could cover them). When everything is loaded — the common
-  // in-budget case — there are none, so we skip the IndexedDB read entirely.
-  const candidates = s.currentPlan.filter((f) => {
-    if (s.store.files.has(f.key)) return false; // loaded → scanned, not indexed (no double count)
-    const span = intervalSpan(f.interval);
-    return !!span && span[0] >= range[0] && span[1] <= range[1];
-  });
-  if (candidates.length === 0) return empty;
+  const overlapping = s.currentPlan.filter((f) => overlapsRange(f, range[0], range[1]));
+  if (overlapping.length === 0) return empty;
 
   const q = {
     op: metric.op,
@@ -325,17 +324,35 @@ async function indexContributions(
     to: range[1],
     show: showSet,
   };
+  const prefix = s.bucket.bucket + SEP;
   const stored = await ix.load(s.bucket.bucket);
+  const valid = (f: ParsedKey) => {
+    const rec = stored.get(prefix + f.key);
+    return rec && f.etag && rec.etag === f.etag ? rec : null;
+  };
   const extra: WeightedPoint[] = [];
   const covered = new Set<string>();
-  for (const f of candidates) {
-    const rec = stored.get(s.bucket.bucket + SEP + f.key);
-    if (!rec || !f.etag || rec.etag !== f.etag) continue; // no index, or unverifiable/stale
+  const serve = (f: ParsedKey, rec: { payload: unknown }): void => {
     covered.add(f.key);
     const file = { key: f.key, host: f.host, channel: f.channel, interval: f.interval };
     for (const p of points(rec.payload, q, file)) extra.push(p);
+  };
+
+  // index-only when every in-range file is covered by a valid stored payload
+  if (overlapping.every((f) => valid(f))) {
+    for (const f of overlapping) serve(f, valid(f)!);
+    return { extra, covered, indexOnly: true };
   }
-  return { extra, covered };
+
+  // mixed: only not-loaded, fully-in-range files (disjoint from the scan)
+  for (const f of overlapping) {
+    if (s.store.files.has(f.key)) continue; // loaded → scanned
+    const span = intervalSpan(f.interval);
+    if (!(span && span[0] >= range[0] && span[1] <= range[1])) continue; // fully in range only
+    const rec = valid(f);
+    if (rec) serve(f, rec);
+  }
+  return { extra, covered, indexOnly: false };
 }
 
 /**
@@ -371,17 +388,19 @@ async function solveSeriesAggregate(
   const isTxn = (r: Rec) => r.kind === 'transaction';
   const showSet = show && new Set(show);
 
-  // index-served files (not loaded, fully in range) contribute pre-aggregated
-  // points; loaded files are scanned. Disjoint, so no double count.
-  const { extra, covered } = range
+  // index-served files contribute pre-aggregated points. When EVERY in-range
+  // file is index-covered (indexOnly), nothing is scanned — instant, complete,
+  // regardless of what's loaded. Otherwise loaded files are scanned and the
+  // not-loaded indexed ones merged in (disjoint, no double count).
+  const { extra, covered, indexOnly } = range
     ? await indexContributions(s, range, metric, showSet, bucketMs, utc)
-    : { extra: [] as WeightedPoint[], covered: new Set<string>() };
+    : { extra: [] as WeightedPoint[], covered: new Set<string>(), indexOnly: false };
 
   // explicit selection → show exactly those (include-filtered, all broken out);
   // default → the top-N by total. No "Other" in either case.
   const result = blankPartialSeries(
     aggregateBySeries(
-      s.store.records,
+      indexOnly ? [] : s.store.records,
       range,
       bucketMs,
       utc,
@@ -394,20 +413,22 @@ async function solveSeriesAggregate(
       },
       extra,
     ),
-    incompleteSpans(s, covered),
+    indexOnly ? [] : incompleteSpans(s, covered),
   );
-  const ghostSpans = mergeSpans(budgetRefusedSpans(s, covered), result.domain[0], result.domain[1]);
+  const ghostSpans = indexOnly
+    ? []
+    : mergeSpans(budgetRefusedSpans(s, covered), result.domain[0], result.domain[1]);
   return { result, ghostSpans, complete: ghostSpans.length === 0 };
 }
 
 /**
- * The transaction TABLE, solver-served (SPEC §11). count / Σ duration / errors /
- * avg are distributive — always exact, from the cube — so they need no record
- * scan even for a 90-day range. P95 is holistic; its source is chosen up front
- * from the cube's EXACT in-range count (the cost driver of an exact pass, known
- * without scanning): below the threshold AND fully loaded → exact scan+sort;
- * otherwise the merged-histogram ESTIMATE (instant, no scan, no load). So the
- * table is always complete and instant; only P95's precision flips.
+ * The transaction TABLE, served entirely from the durable indexes (SPEC §11,
+ * #1a). count / Σ duration / errors / avg sum exactly out of the cube; P95 is
+ * read off the merged duration-histogram sketch. No record scan, no load —
+ * instant at any range size, independent of what's in memory. This is the
+ * "fastest plan, indexes first" rule: the overview always prefers the index, so
+ * its P95 is always the (clearly-marked) estimate. Exact P95 still lives in the
+ * drill-down, which scans for the scatter/histogram anyway.
  */
 async function solveTransactionTotals(
   s: Session,
@@ -416,22 +437,7 @@ async function solveTransactionTotals(
   const [from, to] = range ?? operatingRange(s);
   const prefix = s.bucket.bucket + SEP;
   const inRange = s.currentPlan.filter((f) => overlapsRange(f, from, to));
-  const fullyLoaded = inRange.every((f) => s.store.files.has(f.key));
 
-  // exact P95 needs every in-range duration in memory, and a scan+sort cheap
-  // enough to be worth it. When fully loaded we know N from the store itself
-  // (O(log n), no IndexedDB) — so the common small-range case never reads the
-  // cube at all; it just scans, exactly as before.
-  if (fullyLoaded) {
-    const txns = s.store.kindRecords('transaction');
-    const n = rangeSlice(txns, range).length;
-    if (n <= TXN_EXACT_P95_MAX) {
-      return { groups: groupTransactions(txns, range), p95Estimated: false, n };
-    }
-  }
-
-  // estimated path: cube totals + a P95 read off the merged duration histograms
-  // of the same in-range files. No record scan, no load — instant at any size.
   const cube = new Map((await txnIndexRecords(s.bucket.bucket)).map((r) => [r.id, r]));
   const totals = new Map<string, TxnTotals>();
   for (const f of inRange) {
@@ -591,6 +597,28 @@ const ops: Record<string, OpHandler> = {
     }
     return out;
   },
+  /** Can the overview be served entirely from the durable indexes for this
+   *  range+grid? — i.e. an index matches the chart grid AND every in-range file
+   *  has a valid (ETag-matching) cube AND histogram. The scanbar uses this to
+   *  decide whether to load raw records at all (#1b): true → serve from indexes,
+   *  no load; false (cold range, sub-hour grid, missing/stale index) → load,
+   *  which also (re)builds the indexes. */
+  overviewIndexed: async (s, a) => {
+    const range = a.range as TimeRange;
+    if (!range) return false;
+    const grid = bucketGrid(range[0], range[1], range, (a.bucketMs as number | null) ?? null, a.utc !== false);
+    if (!matchIndex('sum', 'duration', 'transaction', grid.bucketMs, grid.start)) return false;
+    const overlapping = s.currentPlan.filter((f) => overlapsRange(f, range[0], range[1]));
+    if (overlapping.length === 0) return false;
+    const prefix = s.bucket.bucket + SEP;
+    const cube = new Map((await txnIndexRecords(s.bucket.bucket)).map((r) => [r.id, r]));
+    const hist = new Map((await durHistRecords(s.bucket.bucket)).map((r) => [r.id, r]));
+    return overlapping.every((f) => {
+      const c = cube.get(prefix + f.key);
+      const h = hist.get(prefix + f.key);
+      return !!c && !!h && !!f.etag && c.etag === f.etag && h.etag === f.etag;
+    });
+  },
   /** Tuning aid for the /internals/indexing page: per transaction, the EXACT
    *  P95 (from loaded records) beside the ESTIMATED P95 the holistic histogram
    *  merge produces — so we can see the bin-resolution error on real data and
@@ -605,19 +633,7 @@ const ops: Record<string, OpHandler> = {
     for (const r of await durHistRecords(s.bucket.bucket)) {
       if (s.store.files.has(r.id.slice(prefix.length))) mergeRangeBins(r.index, from, to, merged);
     }
-    // the cube's exact in-range count — the same N the solver thresholds on to
-    // pick exact vs estimated P95 (shown beside the threshold on the page)
-    const cube = new Map((await txnIndexRecords(s.bucket.bucket)).map((r) => [r.id, r]));
-    const cubeTotals = new Map<string, TxnTotals>();
-    for (const f of s.currentPlan) {
-      if (!overlapsRange(f, from, to)) continue;
-      const rec = cube.get(prefix + f.key);
-      if (rec && f.etag && rec.etag === f.etag) mergeRangeTotals(rec.index, from, to, cubeTotals);
-    }
-    let txnCount = 0;
-    for (const t of cubeTotals.values()) txnCount += t.c;
-
-    const rows = groupTransactions(s.store.kindRecords('transaction'), range)
+    return groupTransactions(s.store.kindRecords('transaction'), range)
       .filter((g) => g.p95 !== undefined)
       .map((g) => {
         const exact = g.p95!;
@@ -631,7 +647,6 @@ const ops: Record<string, OpHandler> = {
         };
       })
       .sort((a2, b) => b.n - a2.n);
-    return { threshold: TXN_EXACT_P95_MAX, txnCount, rows };
   },
   wipeCache: (s) => {
     s.mem.clear();

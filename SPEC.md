@@ -917,23 +917,45 @@ the schema-on-read work below.)
      (fast, tightly-clustered endpoints); the bias is consistently *upward*, the
      safe direction for a latency P95.
 
-   - **An up-front cost estimate decides exact vs. estimated.** The cube's exact
-     in-range `count` is the cost driver of an exact P95 (the scan+sort), and it's
-     known *without scanning*. So `solveTransactionTotals` reads it first: when the
-     range is fully loaded **and** `count ≤ TXN_EXACT_P95_MAX` (~1M), it scans for
-     an exact P95; otherwise it serves the merged-histogram estimate — instant, no
-     scan, no load. Estimated results are marked (an asterisk-with-tooltip on the
-     P95 header, grey-italic cells); count/Σduration/errors/avg are always exact.
-     Estimates **stay** estimates — no background churn upgrades them. The
-     `/internals/indexing` page surfaces the live count vs. the threshold (so the
-     current exact/estimated decision is visible) and the measured per-transaction
-     estimated-vs-exact error (so the bin resolution is tunable on real data).
+   - **P95 is always the estimate** (the fastest plan): `solveTransactionTotals`
+     reads it off the merged histograms, never scans. It's marked — an
+     asterisk-with-tooltip on the P95 header, grey-italic cells — and estimates
+     **stay** estimates (no background churn upgrades them). Exact P95 still lives
+     in the drill-down, which scans for its scatter/histogram anyway. The
+     `/internals/indexing` page surfaces the measured per-transaction
+     estimated-vs-exact error (on whatever records are loaded) so the bin
+     resolution stays tunable on real data.
 
    This is the first **holistic** capability the solver actually serves — the
    `merge: 'holistic'` class declared in step 4 now has its read path. The cube
    stays the matched distributive index; the histogram is merged directly by the
    table solver (a quantile isn't a weighted point, so it doesn't go through
    `matchIndex`/`points`).
+
+6. **Fastest-plan serving + load deferral** *(done, 2026-06-15)* — the solver
+   prefers the index and loads raw records only when an index can't answer, so an
+   already-indexed overview opens **instantly with no working-set load** (it was
+   re-parsing ~11M cached records on every refresh). Two halves:
+
+   - **#1a — index-only serving, independent of what's loaded.** `indexContributions`
+     now has two regimes: when EVERY in-range file has a valid stored payload it
+     serves them ALL from the cube and scans **nothing** (`indexOnly`), so the
+     chart is instant whether or not records happen to be in memory; otherwise it
+     falls back to the disjoint mixed path (cube for not-loaded files + scan the
+     rest) for cold ranges, sub-hour grids, or a missing index. The table is
+     likewise pure cube + histogram. The overview therefore never scans the record
+     store, even right after a record view loaded it.
+   - **#1b — coverage-gated load.** A worker `overviewIndexed(range, grid)` answers
+     whether an index satisfies the chart grid AND every in-range file has a valid
+     cube + histogram. The scanbar loads raw records only for views that read them
+     (`viewNeedsRecords`: everything except the overview and the app pages); the
+     overview loads only when *not* index-covered (which also builds the missing
+     indexes). Opening a record view (Records/Events/drill-down/…) loads on entry.
+
+   The eager working-set load is now scoped to record-needing views; proactively
+   **pre-warming** it so a drill-down is instant is a separate concern (#2, the
+   working-set prefetch) and is deliberately not built yet — the solver (#1) and
+   the prefetch (#2) operate independently.
 
 ### 11.5 Philosophy
 
