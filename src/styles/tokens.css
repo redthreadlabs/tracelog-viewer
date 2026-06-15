@@ -75,7 +75,6 @@
 .config form,
 .store-summary,
 .trace-sheet,
-.range-pop,
 .chart-tooltip {
   --bg: #fbfbfa;
   --surface: #fbfbfa;
@@ -164,7 +163,6 @@
 [data-theme='dark'] .config form,
 [data-theme='dark'] .store-summary,
 [data-theme='dark'] .trace-sheet,
-[data-theme='dark'] .range-pop,
 [data-theme='dark'] .chart-tooltip {
   /* panels: raised cards a step above the dark canvas */
   --bg: #262626;
