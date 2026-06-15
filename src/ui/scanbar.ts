@@ -791,17 +791,22 @@ export function renderScanbar(container: HTMLElement): void {
 
   function updateLoadedText(): void {
     if (state.planning || state.error) return; // those states own the text
-    const { running, filesTotal, bytesDone, bytesTotal } = storeClient.snapshot.progress;
+    const { running, filesTotal, bytesUncompressedDone, bytesUncompressedTotal } =
+      storeClient.snapshot.progress;
     const budget = container.querySelector<HTMLElement>('.budget');
     if (!budget || filesTotal === 0) return;
     if (running) {
-      // the worker reports the working-set total (channels × range, narrowed by
-      // any focused range) — so this denominator shrinks when you narrow the range
-      const total = bytesTotal;
+      // report DECOMPRESSED (in-memory) bytes both ways — the indicator is about
+      // data held in memory, not download size. The denominator is the working
+      // set's exact decompressed size (sidecar-derived) and shrinks when you
+      // narrow the range.
+      const total = bytesUncompressedTotal;
       clearEl(budget);
       budget.append(
         storePill(
-          total > 0 ? `LOADING: ${fmtBytesRough(bytesDone)} of ${fmtBytesRough(total)}` : 'LOADING…',
+          total > 0
+            ? `LOADING: ${fmtBytesRough(bytesUncompressedDone)} of ${fmtBytesRough(total)}`
+            : 'LOADING…',
           'loading — inspect progress in the store inspector',
         ),
       );

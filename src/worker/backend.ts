@@ -453,11 +453,20 @@ const ops: Record<string, OpHandler> = {
       files.map((f) => ({ key: f.key, channel: f.channel, compressed: f.size })),
     );
   },
-  executeScan: (s, a) => {
+  executeScan: async (s, a) => {
     // a channel/range change is a *new plan*: reset the working-set loader to
     // the executed plan (possibly a memory-clamped subset of the selection)
     if ('range' in a) s.currentRange = (a.range as TimeRange) ?? null;
-    s.loader.reset((a.plan as ScanPlan).files);
+    // exact decompressed size per file from the sidecars (hydrated by the
+    // preceding estimateView), so progress reports in-memory bytes, not download
+    const prefix = s.bucket.bucket + SEP;
+    const decompressedByKey = new Map<string, number>();
+    for (const r of await ledgerRecords(s.bucket.bucket)) {
+      if (r.decompressed != null && r.id.startsWith(prefix)) {
+        decompressedByKey.set(r.id.slice(prefix.length), r.decompressed);
+      }
+    }
+    s.loader.reset((a.plan as ScanPlan).files, decompressedByKey);
   },
   clearStore: (s) => {
     s.currentPlan = [];

@@ -53,9 +53,16 @@ export interface FileInfo {
 export interface ScanProgress {
   filesTotal: number;
   filesDone: number;
+  /** compressed bytes (download), for internal/listing accounting */
   bytesDone: number;
-  /** total compressed bytes of the current working set — the load denominator */
+  /** total compressed bytes of the current working set */
   bytesTotal: number;
+  /** DECOMPRESSED (in-memory) bytes loaded so far — what the UI shows, since the
+   *  indicator represents data held in memory, not download size */
+  bytesUncompressedDone: number;
+  /** exact decompressed size of the whole working set (sidecar `bytes`, with
+   *  loaded files' measured size) — the in-memory load denominator */
+  bytesUncompressedTotal: number;
   filesFromCache: number;
   running: boolean;
   error?: string;
@@ -73,6 +80,8 @@ export class Store extends EventTarget {
     filesDone: 0,
     bytesDone: 0,
     bytesTotal: 0,
+    bytesUncompressedDone: 0,
+    bytesUncompressedTotal: 0,
     filesFromCache: 0,
     running: false,
   };
@@ -233,7 +242,16 @@ export class Store extends EventTarget {
     this.levelCounts.clear();
     this.hosts.clear();
     this.files.clear();
-    this.progress = { filesTotal: 0, filesDone: 0, bytesDone: 0, bytesTotal: 0, filesFromCache: 0, running: false };
+    this.progress = {
+      filesTotal: 0,
+      filesDone: 0,
+      bytesDone: 0,
+      bytesTotal: 0,
+      bytesUncompressedDone: 0,
+      bytesUncompressedTotal: 0,
+      filesFromCache: 0,
+      running: false,
+    };
     this.generation++;
     this.emitData(true); // emptying views must never be throttled away
     this.dispatchEvent(new Event('progress'));

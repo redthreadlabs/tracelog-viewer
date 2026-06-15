@@ -327,12 +327,12 @@ export function renderRecordsView(container: HTMLElement): () => void {
     clear(tbody);
     clear(thead);
     clear(pagerbar);
-    const { running, bytesDone, error } = storeClient.snapshot.progress;
+    const { running, bytesUncompressedDone, error } = storeClient.snapshot.progress;
     wrap.append(
       el('div', { className: 'empty' }, [
         el('div', { className: 'fleuron', text: '❧' }),
         running
-          ? el('h3', { text: `Loading… ${fmtBytes(bytesDone)}` })
+          ? el('h3', { text: `Loading… ${fmtBytes(bytesUncompressedDone)}` })
           : error
             ? el('h3', { text: 'The scan hit a snag' })
             : el('h3', { text: 'Nothing scanned yet' }),

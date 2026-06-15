@@ -132,6 +132,10 @@ export type FileLoader = (file: ParsedKey) => Promise<LoadedFile>;
 export class LoadController {
   private plan: ParsedKey[] = [];
   private ws: ParsedKey[] = []; // cached working set (plan ∩ range)
+  /** exact decompressed size per file key (sidecar `bytes`), for the in-memory
+   *  load denominator; unloaded files fall back to this, loaded ones to the
+   *  store's measured size */
+  private decompressedByKey = new Map<string, number>();
   private inFlight = new Set<string>();
   private active = 0;
   private cached = 0; // cumulative cache hits, for the scan detail
@@ -159,10 +163,13 @@ export class LoadController {
         })));
   }
 
-  /** New plan (channel/range change): drop the old working set and reload. */
-  reset(plan: ParsedKey[]): void {
+  /** New plan (channel/range change): drop the old working set and reload.
+   *  `decompressedByKey` carries the exact sidecar-derived in-memory size per
+   *  file so progress can report decompressed bytes (the figure the UI shows). */
+  reset(plan: ParsedKey[], decompressedByKey?: Map<string, number>): void {
     this.epoch++; // in-flight loads from the old plan will be discarded on land
     this.plan = plan;
+    this.decompressedByKey = decompressedByKey ?? new Map();
     this.cached = 0;
     this.failed = undefined;
     this.dirty = false;
@@ -264,12 +271,23 @@ export class LoadController {
   private updateProgress(): void {
     let bytesTotal = 0;
     let bytesDone = 0;
+    let ucTotal = 0;
+    let ucDone = 0;
     let filesDone = 0;
     for (const f of this.ws) {
       bytesTotal += f.size;
-      if (this.store.files.has(f.key)) {
+      const loaded = this.store.files.has(f.key);
+      // decompressed size: a loaded file's is measured (exact); else the
+      // sidecar's; else fall back to the compressed size
+      const uc =
+        (loaded ? this.store.files.get(f.key)?.sizeUncompressed : undefined) ??
+        this.decompressedByKey.get(f.key) ??
+        f.size;
+      ucTotal += uc;
+      if (loaded) {
         filesDone++;
         bytesDone += f.size;
+        ucDone += uc;
       }
     }
     this.store.setProgress({
@@ -277,6 +295,8 @@ export class LoadController {
       filesDone,
       bytesDone,
       bytesTotal,
+      bytesUncompressedDone: ucDone,
+      bytesUncompressedTotal: ucTotal,
       filesFromCache: this.cached,
       // a failure stops the loader — don't report "running" for files it will
       // never pick up (they're unloaded, but the scan has halted)

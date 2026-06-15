@@ -16,7 +16,16 @@ const EMPTY_SNAPSHOT: Snapshot = {
   channelCounts: new Map(),
   hosts: [],
   files: [],
-  progress: { filesTotal: 0, filesDone: 0, bytesDone: 0, bytesTotal: 0, filesFromCache: 0, running: false },
+  progress: {
+    filesTotal: 0,
+    filesDone: 0,
+    bytesDone: 0,
+    bytesTotal: 0,
+    bytesUncompressedDone: 0,
+    bytesUncompressedTotal: 0,
+    filesFromCache: 0,
+    running: false,
+  },
 };
 
 export class StoreClient extends EventTarget {
