@@ -585,20 +585,22 @@ pre.json .b {
   text-transform: uppercase;
   padding: 4px 10px 5px;
   border: 0;
+  border-radius: 999px;
   background: transparent;
   color: var(--ink-faint);
   cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: color 120ms ease;
+  transition: color 120ms ease, background-color 120ms ease;
 }
 
 .nav-link:hover {
   color: var(--ink);
 }
 
-.nav-link.on {
-  color: var(--ink);
-  border-bottom-color: var(--thread);
+/* selected page: a red thread-colored pill with white text */
+.nav-link.on,
+.nav-link.on:hover {
+  background: var(--thread);
+  color: #fff;
 }
 
 /* ---------- overview: chart + transaction table ---------- */
