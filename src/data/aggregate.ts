@@ -77,6 +77,32 @@ export function zoneMidnight(ms: number, utc: boolean): number {
   return d.getTime();
 }
 
+/**
+ * The bucket grid for a [min, max] span: resolves the width, anchors to the
+ * zone midnight, and returns the aligned domain + bucket count. Shared by every
+ * bucketer so the alignment + exclusive-windowed-end rules live in one place.
+ * A windowed end is exclusive (round UP, so a range ending on a bucket edge adds
+ * no empty trailing bucket); without a range the end includes the last point's
+ * own bucket.
+ */
+export function bucketGrid(
+  min: number,
+  max: number,
+  range: [number, number] | null,
+  chosenBucketMs: number | null,
+  utc: boolean,
+): { start: number; end: number; bucketMs: number; n: number } {
+  const bucketMs = resolveBucketMs(Math.max(max - min, 1), chosenBucketMs);
+  const anchor = zoneMidnight(min, utc);
+  const start = anchor + Math.floor((min - anchor) / bucketMs) * bucketMs;
+  let end = range
+    ? anchor + Math.ceil((max - anchor) / bucketMs) * bucketMs
+    : anchor + Math.floor((max - anchor) / bucketMs) * bucketMs + bucketMs;
+  if (end <= start) end = start + bucketMs; // at least one bucket
+  const n = Math.round((end - start) / bucketMs);
+  return { start, end, bucketMs, n };
+}
+
 export function bucketByTime(
   records: Rec[],
   range?: [number, number] | null,
@@ -99,19 +125,7 @@ export function bucketByTime(
     return { buckets: [], bucketMs: 60_000, domain: [0, 0] };
   }
 
-  const bucketMs = resolveBucketMs(Math.max(max - min, 1), chosenBucketMs);
-  // one anchor (min's zone-midnight) for both ends so end-start stays a whole
-  // number of buckets
-  const anchor = zoneMidnight(min, utc);
-  const start = anchor + Math.floor((min - anchor) / bucketMs) * bucketMs;
-  // A windowed end is exclusive: round UP to the next boundary, so a range
-  // ending exactly on a bucket edge (e.g. 4pm) adds no empty trailing bucket.
-  // Without a range the end must include the last record's own bucket.
-  let end = range
-    ? anchor + Math.ceil((max - anchor) / bucketMs) * bucketMs
-    : anchor + Math.floor((max - anchor) / bucketMs) * bucketMs + bucketMs;
-  if (end <= start) end = start + bucketMs; // at least one bucket
-  const n = Math.round((end - start) / bucketMs);
+  const { start, end, bucketMs, n } = bucketGrid(min, max, range ?? null, chosenBucketMs, utc);
 
   const buckets: TimeBucket[] = Array.from({ length: n }, (_, i) => ({
     t0: start + i * bucketMs,
@@ -146,6 +160,122 @@ export function blankPartialBuckets(
     const t1 = b.t0 + result.bucketMs;
     const partial = incompleteSpans.some(([s0, s1]) => s0 < t1 && s1 > b.t0);
     return partial ? { t0: b.t0, counts: {}, total: 0 } : b;
+  });
+  return { ...result, buckets };
+}
+
+// ---------- generalized series aggregation (SPEC §11) ----------
+
+export interface SeriesBucket {
+  /** bucket start, epoch-ms */
+  t0: number;
+  /** series key → aggregated value (e.g. transaction name → Σ duration) */
+  values: Record<string, number>;
+  /** sum of values across series — the bar height */
+  total: number;
+}
+
+export interface SeriesResult {
+  buckets: SeriesBucket[];
+  /** the series, in stack/legend order: top groups by total descending, then
+   *  `otherLabel` last when the tail was folded */
+  series: string[];
+  bucketMs: number;
+  /** [domainStart, domainEnd] epoch-ms, bucket-aligned */
+  domain: [number, number];
+}
+
+export interface SeriesSpec {
+  /** a record's contribution to its group (count → 1, sum(duration) → r.duration) */
+  value: (r: Rec) => number;
+  /** the group/series a record belongs to (e.g. r => r.name) */
+  group: (r: Rec) => string;
+  /** which records participate (others ignored) */
+  include?: (r: Rec) => boolean;
+  /** keep this many top groups by total; the rest fold into `otherLabel` */
+  topN: number;
+  /** label for the folded tail (default 'Other') */
+  otherLabel?: string;
+}
+
+/**
+ * Time-bucket a metric, broken out by an arbitrary grouping dimension and
+ * reduced to the top-N groups (by total over the window) plus an "Other" roll-up
+ * — the generalized cousin of `bucketByTime`. The two-pass shape (rank, then
+ * bucket) keeps the stack readable regardless of group cardinality. Pure.
+ */
+export function aggregateBySeries(
+  records: Rec[],
+  range: [number, number] | null,
+  chosenBucketMs: number | null,
+  utc: boolean,
+  spec: SeriesSpec,
+): SeriesResult {
+  const otherLabel = spec.otherLabel ?? 'Other';
+  const include = spec.include ?? (() => true);
+  records = rangeSlice(records, range); // O(log n) on the sorted store
+
+  let min = Infinity;
+  let max = -Infinity;
+  for (const r of records) {
+    if (!include(r) || r.ts <= 0) continue;
+    if (r.ts < min) min = r.ts;
+    if (r.ts > max) max = r.ts;
+  }
+  if (range) {
+    min = range[0];
+    max = range[1];
+  }
+  if (!isFinite(min) || !isFinite(max) || max < min) {
+    return { buckets: [], series: [], bucketMs: 60_000, domain: [0, 0] };
+  }
+
+  const { start, end, bucketMs, n } = bucketGrid(min, max, range ?? null, chosenBucketMs, utc);
+  const inWindow = (r: Rec) => include(r) && r.ts >= start && r.ts < end;
+
+  // pass 1: rank groups by their total over the window, keep the top N
+  const totals = new Map<string, number>();
+  for (const r of records) {
+    if (!inWindow(r)) continue;
+    const g = spec.group(r);
+    totals.set(g, (totals.get(g) ?? 0) + spec.value(r));
+  }
+  const ranked = [...totals.entries()].sort((a, b) => b[1] - a[1]);
+  const top = ranked.slice(0, spec.topN).map(([g]) => g);
+  const topSet = new Set(top);
+  const series = ranked.length > spec.topN ? [...top, otherLabel] : top;
+
+  // pass 2: bucket, folding non-top groups into Other
+  const buckets: SeriesBucket[] = Array.from({ length: n }, (_, i) => ({
+    t0: start + i * bucketMs,
+    values: {},
+    total: 0,
+  }));
+  for (const r of records) {
+    if (!inWindow(r)) continue;
+    const v = spec.value(r);
+    if (v === 0) continue; // a zero contribution changes neither stack nor height
+    const key = topSet.has(spec.group(r)) ? spec.group(r) : otherLabel;
+    const b = buckets[Math.floor((r.ts - start) / bucketMs)];
+    b.values[key] = (b.values[key] ?? 0) + v;
+    b.total += v;
+  }
+
+  return { buckets, series, bucketMs, domain: [start, end] };
+}
+
+/** `blankPartialBuckets` for the series shape: zero any bucket overlapping a
+ *  partially-loaded span, so a records-path series chart never shows a
+ *  misleadingly short bar for an interval still missing files. */
+export function blankPartialSeries(
+  result: SeriesResult,
+  incompleteSpans: [number, number][],
+): SeriesResult {
+  if (incompleteSpans.length === 0) return result;
+  const buckets = result.buckets.map((b) => {
+    const t1 = b.t0 + result.bucketMs;
+    const partial = incompleteSpans.some(([s0, s1]) => s0 < t1 && s1 > b.t0);
+    return partial ? { t0: b.t0, values: {}, total: 0 } : b;
   });
   return { ...result, buckets };
 }
@@ -201,18 +331,9 @@ export function bucketBySidecar(
     return { buckets: [], bucketMs: HOUR_MS, domain: [0, 0] };
   }
 
-  const bucketMs = resolveBucketMs(Math.max(max - min, 1), chosenBucketMs);
+  const { start, end, bucketMs, n } = bucketGrid(min, max, range ?? null, chosenBucketMs, utc);
   if (bucketMs < HOUR_MS) return null; // sub-hourly: hourly histograms can't resolve it
 
-  const anchor = zoneMidnight(min, utc);
-  const start = anchor + Math.floor((min - anchor) / bucketMs) * bucketMs;
-  // windowed end is exclusive — round UP so a range ending on a bucket edge
-  // adds no empty trailing bucket (see bucketByTime)
-  let end = range
-    ? anchor + Math.ceil((max - anchor) / bucketMs) * bucketMs
-    : anchor + Math.floor((max - anchor) / bucketMs) * bucketMs + bucketMs;
-  if (end <= start) end = start + bucketMs;
-  const n = Math.round((end - start) / bucketMs);
   const buckets: TimeBucket[] = Array.from({ length: n }, (_, i) => ({
     t0: start + i * bucketMs,
     counts: {},

@@ -3,6 +3,7 @@ import {
   bucketByTime,
   bucketBySidecar,
   blankPartialBuckets,
+  aggregateBySeries,
   zoneMidnight,
   chooseBucketMs,
   groupTransactions,
@@ -297,5 +298,80 @@ describe('blankPartialBuckets', () => {
     // span [0, H) ends exactly where the 2nd bucket starts → no overlap there
     const out = blankPartialBuckets(make(), [[0, H]]);
     expect(out.buckets.map((b) => b.total)).toEqual([0, 20, 30]);
+  });
+});
+
+describe('aggregateBySeries', () => {
+  const sumDuration = {
+    value: (r: Rec) => r.duration ?? 0,
+    group: (r: Rec) => r.name,
+    include: (r: Rec) => r.kind === 'transaction',
+  };
+
+  it('sums a field by group, keeping top-N and folding the tail into Other', () => {
+    const records = [
+      rec({ kind: 'transaction', name: 'A', ts: 1000, duration: 100 }),
+      rec({ kind: 'transaction', name: 'A', ts: 2000, duration: 100 }), // A Σ=200
+      rec({ kind: 'transaction', name: 'B', ts: 1500, duration: 50 }), // B Σ=50
+      rec({ kind: 'transaction', name: 'C', ts: 1800, duration: 10 }), // C Σ=10 → Other
+      rec({ kind: 'span', name: 'S', ts: 1000, duration: 999 }), // excluded by include
+    ];
+    const res = aggregateBySeries(records, null, 60_000, true, { ...sumDuration, topN: 2 });
+    // series ranked by total desc, Other last
+    expect(res.series).toEqual(['A', 'B', 'Other']);
+    expect(res.buckets).toHaveLength(1);
+    expect(res.buckets[0].values).toEqual({ A: 200, B: 50, Other: 10 });
+    expect(res.buckets[0].total).toBe(260); // the span is not counted
+  });
+
+  it('buckets by time and the bar height is the sum across series', () => {
+    const records = [
+      rec({ kind: 'transaction', name: 'A', ts: 1000, duration: 10 }), // bucket 0
+      rec({ kind: 'transaction', name: 'A', ts: 61_000, duration: 20 }), // bucket 1
+      rec({ kind: 'transaction', name: 'B', ts: 62_000, duration: 5 }), // bucket 1
+    ];
+    const res = aggregateBySeries(records, null, 60_000, true, { ...sumDuration, topN: 8 });
+    expect(res.series).toEqual(['A', 'B']); // only two groups, no Other
+    expect(res.buckets.map((b) => b.values)).toEqual([{ A: 10 }, { A: 20, B: 5 }]);
+    expect(res.buckets.map((b) => b.total)).toEqual([10, 25]);
+  });
+
+  it('counts (value = 1) rank by frequency', () => {
+    const records = [
+      rec({ kind: 'transaction', name: 'A', ts: 100 }),
+      rec({ kind: 'transaction', name: 'A', ts: 200 }),
+      rec({ kind: 'transaction', name: 'A', ts: 300 }), // A=3
+      rec({ kind: 'transaction', name: 'B', ts: 400 }), // B=1
+    ];
+    const res = aggregateBySeries(records, null, 60_000, true, {
+      group: (r) => r.name,
+      value: () => 1,
+      include: (r) => r.kind === 'transaction',
+      topN: 8,
+    });
+    expect(res.series).toEqual(['A', 'B']);
+    expect(res.buckets[0].values).toEqual({ A: 3, B: 1 });
+  });
+
+  it('respects the range and ignores excluded records', () => {
+    const records = [
+      rec({ kind: 'transaction', name: 'A', ts: 1000, duration: 100 }),
+      rec({ kind: 'transaction', name: 'B', ts: 5000, duration: 999 }), // outside [0,2000]
+    ];
+    const res = aggregateBySeries(records, [0, 2000], 60_000, true, { ...sumDuration, topN: 8 });
+    expect(res.series).toEqual(['A']);
+    expect(res.buckets[0].values).toEqual({ A: 100 });
+  });
+
+  it('is empty when no record participates', () => {
+    const res = aggregateBySeries(
+      [rec({ kind: 'span', name: 'S', ts: 1000, duration: 5 })],
+      null,
+      60_000,
+      true,
+      { ...sumDuration, topN: 8 },
+    );
+    expect(res.buckets).toEqual([]);
+    expect(res.series).toEqual([]);
   });
 });

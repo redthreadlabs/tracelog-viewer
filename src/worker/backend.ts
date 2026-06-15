@@ -36,12 +36,15 @@ import {
   bucketByTime,
   bucketBySidecar,
   blankPartialBuckets,
+  aggregateBySeries,
+  blankPartialSeries,
   chooseBucketMs,
   groupTransactions,
   transactionStats,
   resultFamily,
   logHistogram,
   type BucketResult,
+  type SeriesResult,
 } from '../data/aggregate';
 import { assembleTrace } from '../data/trace';
 import { deploymentMarkers, runtimeSeries, breakdownSelfTime } from '../data/metrics';
@@ -484,6 +487,50 @@ async function solveAggregate(
   return { bucketed, ghostSpans, complete: ghostSpans.length === 0 };
 }
 
+/** How many transactions the overview stacks before folding the tail into
+ *  "Other" — the readable ceiling for a stacked bar (SPEC §11.5). */
+const SERIES_TOP_N = 8;
+
+/**
+ * The aggregate solver for grouped, series-shaped metrics (SPEC §11) — e.g.
+ * SUM(duration) GROUP BY transaction for the overview chart. No index advertises
+ * per-transaction aggregates yet, so this always scans loaded records and the
+ * uncovered remainder (budget-refused intervals) becomes the ghost band; partial
+ * intervals are blanked so no bar is misleadingly short. The scan is the
+ * correctness fallback the future indexes will optimize, never replace.
+ */
+function solveSeriesAggregate(
+  s: Session,
+  metric: Metric,
+  range: TimeRange,
+  bucketMs: number | null,
+  utc: boolean,
+): { result: SeriesResult; ghostSpans: [number, number][]; complete: boolean } {
+  if (metric.groupBy !== 'transaction' || (metric.op !== 'sum' && metric.op !== 'count')) {
+    throw new Error(
+      `series solver v1 handles count/sum grouped by transaction, not ${metric.op}` +
+        (metric.groupBy ? ` by ${metric.groupBy}` : ''),
+    );
+  }
+  if (metric.op === 'sum' && metric.field !== 'duration') {
+    throw new Error(`series solver v1 sums only 'duration', not '${metric.field}'`);
+  }
+  const value = metric.op === 'sum' ? (r: Rec) => r.duration ?? 0 : () => 1;
+
+  const result = blankPartialSeries(
+    aggregateBySeries(s.store.records, range, bucketMs, utc, {
+      value,
+      group: (r) => r.name,
+      include: (r) => r.kind === 'transaction',
+      topN: SERIES_TOP_N,
+      otherLabel: 'Other',
+    }),
+    incompleteSpans(s),
+  );
+  const ghostSpans = mergeSpans(budgetRefusedSpans(s), result.domain[0], result.domain[1]);
+  return { result, ghostSpans, complete: ghostSpans.length === 0 };
+}
+
 type OpHandler = (session: Session, args: Record<string, unknown>) => Promise<unknown> | unknown;
 
 const ops: Record<string, OpHandler> = {
@@ -642,6 +689,18 @@ const ops: Record<string, OpHandler> = {
       })(),
       markers: deploymentMarkers(s.store.records),
     };
+  },
+
+  // A grouped, series-shaped aggregate for the redesigned overview chart
+  // (e.g. SUM(duration) GROUP BY transaction, top-N + Other). Same source-
+  // agnostic contract as overviewData: the solver returns the tally + the
+  // ranked series + completeness, never how it was satisfied (SPEC §11).
+  seriesAggregate: (s, a) => {
+    const range = a.range as TimeRange;
+    const bucketMs = a.bucketMs as number | null;
+    const utc = a.utc !== false;
+    const metric = a.metric as Metric;
+    return solveSeriesAggregate(s, metric, range, bucketMs, utc);
   },
 
   txnDetail: (s, a) => {
