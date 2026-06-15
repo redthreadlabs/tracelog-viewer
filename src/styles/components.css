@@ -635,22 +635,23 @@ pre.json .b {
   }
 }
 
-/* the transaction table's load spinner lives in the toggle-column header */
+/* the transaction table's load progress lives in the toggle-column header,
+   sized + aligned to match the check-toggle discs below it */
 .toggle-col-head {
   width: 30px;
   text-align: center;
 }
 
+/* determinate: a grey disc that fills red clockwise as --p (0..100) rises —
+   the fraction of the working set's bytes loaded so far */
 .col-spinner {
   display: inline-block;
-  width: 11px;
-  height: 11px;
-  border: 2px solid var(--line-strong);
-  border-top-color: var(--thread);
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
-  animation: corner-spin 0.7s linear infinite;
   vertical-align: middle;
   pointer-events: none;
+  background: conic-gradient(var(--thread) calc(var(--p, 0) * 1%), var(--line-strong) 0);
 }
 
 /* right-click recolor popover: the palette as a little swatch grid */

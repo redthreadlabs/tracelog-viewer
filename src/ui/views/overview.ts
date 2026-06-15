@@ -141,11 +141,23 @@ export function renderOverview(container: HTMLElement): () => void {
   chartSpin.style.display = 'none';
   tableSpin.style.display = 'none';
   function updateSpinners(): void {
-    const running = storeClient.snapshot.progress.running;
+    const p = storeClient.snapshot.progress;
     if (!chartSpin.isConnected) chartSection.append(chartSpin);
-    chartSpin.style.display = chartShown && running && !lastComplete ? 'block' : 'none';
-    // tableSpin is homed in the table header by renderTable; just toggle it
-    tableSpin.style.display = chartShown && running ? '' : 'none';
+    chartSpin.style.display = chartShown && p.running && !lastComplete ? 'block' : 'none';
+    // tableSpin is homed in the table header by renderTable; show it while the
+    // working set loads and fill it to the fraction loaded (bytes — the
+    // explicit load denominator — else files)
+    const loading = chartShown && p.running;
+    tableSpin.style.display = loading ? '' : 'none';
+    if (loading) {
+      const frac =
+        p.bytesTotal > 0
+          ? p.bytesDone / p.bytesTotal
+          : p.filesTotal > 0
+            ? p.filesDone / p.filesTotal
+            : 0;
+      tableSpin.style.setProperty('--p', String(Math.max(0, Math.min(100, Math.round(frac * 100)))));
+    }
   }
 
   // the page's bones render before any data arrives (worker round trip)
