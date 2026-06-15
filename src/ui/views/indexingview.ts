@@ -19,6 +19,14 @@ interface AccuracyRow {
   errorPct: number | null;
 }
 
+interface AccuracyResult {
+  /** the exact-vs-estimated P95 threshold (transactions) */
+  threshold: number;
+  /** the cube's exact in-range transaction count — what the solver thresholds on */
+  txnCount: number;
+  rows: AccuracyRow[];
+}
+
 export function renderIndexingView(container: HTMLElement): () => void {
   clear(container);
   const section = el('section', { className: 'txn-section' });
@@ -77,7 +85,7 @@ export function renderIndexingView(container: HTMLElement): () => void {
     // any worker error here rather than letting a rejection silently drop the
     // table (e.g. a stale pre-deploy worker that lacks this op).
     try {
-      const acc = await storeClient.request<AccuracyRow[]>('p95Accuracy', {
+      const acc = await storeClient.request<AccuracyResult>('p95Accuracy', {
         range: viewState.timeRange,
       });
       if (t !== token || !container.isConnected) return;
@@ -107,7 +115,8 @@ export function renderIndexingView(container: HTMLElement): () => void {
 }
 
 /** The estimated-vs-exact P95 table — the histogram's accuracy on loaded data. */
-function renderAccuracy(section: HTMLElement, rows: AccuracyRow[]): void {
+function renderAccuracy(section: HTMLElement, result: AccuracyResult): void {
+  const { rows, threshold, txnCount } = result;
   const errs = rows.map((r) => r.errorPct).filter((e): e is number => e !== null).sort((a, b) => a - b);
   const median = errs.length ? errs[Math.floor(errs.length / 2)] : undefined;
   const worst = errs.length ? errs[errs.length - 1] : undefined;
@@ -116,6 +125,9 @@ function renderAccuracy(section: HTMLElement, rows: AccuracyRow[]): void {
       ? `${median.toFixed(1)}% median · ${worst!.toFixed(1)}% worst error (${fmtCount(rows.length)} txns)`
       : 'no overlap with loaded records';
 
+  // the solver's exact-vs-estimated decision for the current range: N (exact,
+  // from the cube) against the threshold
+  const exact = txnCount <= threshold;
   section.append(
     el('div', { className: 'section-head', attrs: { style: 'margin-top:24px' } }, [
       el('span', { className: 'label', text: 'P95 accuracy' }),
@@ -123,7 +135,10 @@ function renderAccuracy(section: HTMLElement, rows: AccuracyRow[]): void {
     ]),
     el('div', { className: 'budget faint', attrs: { style: 'margin:-4px 0 8px' } }, [
       el('span', {
-        text: 'estimated (histogram) vs exact (loaded records), per transaction — the bin-resolution error',
+        text:
+          `range count ${fmtCount(txnCount)} vs threshold ${fmtCount(threshold)} → table P95 is ` +
+          `${exact ? 'EXACT (scanned)' : 'ESTIMATED (histogram)'}. ` +
+          'Below: estimated vs exact on loaded records — the bin-resolution error.',
       }),
     ]),
   );

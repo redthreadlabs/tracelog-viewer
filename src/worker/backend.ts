@@ -36,9 +36,11 @@ import {
   logHistogram,
   type SeriesResult,
   type WeightedPoint,
+  type TxnGroup,
 } from '../data/aggregate';
-import { matchIndex, INDEXES } from '../data/indexes';
+import { matchIndex, INDEXES, TXN_EXACT_P95_MAX } from '../data/indexes';
 import { durHistRecords, mergeRangeBins, quantileFromBins, type Bins } from '../data/durhist';
+import { txnIndexRecords, mergeRangeTotals, type TxnTotals } from '../data/txnindex';
 import { assembleTrace } from '../data/trace';
 import { deploymentMarkers, runtimeSeries, breakdownSelfTime } from '../data/metrics';
 import {
@@ -398,6 +400,66 @@ async function solveSeriesAggregate(
   return { result, ghostSpans, complete: ghostSpans.length === 0 };
 }
 
+/**
+ * The transaction TABLE, solver-served (SPEC §11). count / Σ duration / errors /
+ * avg are distributive — always exact, from the cube — so they need no record
+ * scan even for a 90-day range. P95 is holistic; its source is chosen up front
+ * from the cube's EXACT in-range count (the cost driver of an exact pass, known
+ * without scanning): below the threshold AND fully loaded → exact scan+sort;
+ * otherwise the merged-histogram ESTIMATE (instant, no scan, no load). So the
+ * table is always complete and instant; only P95's precision flips.
+ */
+async function solveTransactionTotals(
+  s: Session,
+  range: TimeRange,
+): Promise<{ groups: TxnGroup[]; p95Estimated: boolean; n: number }> {
+  const [from, to] = range ?? operatingRange(s);
+  const prefix = s.bucket.bucket + SEP;
+  const inRange = s.currentPlan.filter((f) => overlapsRange(f, from, to));
+  const fullyLoaded = inRange.every((f) => s.store.files.has(f.key));
+
+  // exact P95 needs every in-range duration in memory, and a scan+sort cheap
+  // enough to be worth it. When fully loaded we know N from the store itself
+  // (O(log n), no IndexedDB) — so the common small-range case never reads the
+  // cube at all; it just scans, exactly as before.
+  if (fullyLoaded) {
+    const txns = s.store.kindRecords('transaction');
+    const n = rangeSlice(txns, range).length;
+    if (n <= TXN_EXACT_P95_MAX) {
+      return { groups: groupTransactions(txns, range), p95Estimated: false, n };
+    }
+  }
+
+  // estimated path: cube totals + a P95 read off the merged duration histograms
+  // of the same in-range files. No record scan, no load — instant at any size.
+  const cube = new Map((await txnIndexRecords(s.bucket.bucket)).map((r) => [r.id, r]));
+  const totals = new Map<string, TxnTotals>();
+  for (const f of inRange) {
+    const rec = cube.get(prefix + f.key);
+    if (!rec || !f.etag || rec.etag !== f.etag) continue; // unindexed/stale → omitted
+    mergeRangeTotals(rec.index, from, to, totals);
+  }
+  let n = 0;
+  for (const t of totals.values()) n += t.c;
+
+  const hist = new Map((await durHistRecords(s.bucket.bucket)).map((r) => [r.id, r]));
+  const merged = new Map<string, Bins>();
+  for (const f of inRange) {
+    const rec = hist.get(prefix + f.key);
+    if (!rec || !f.etag || rec.etag !== f.etag) continue;
+    mergeRangeBins(rec.index, from, to, merged);
+  }
+  const groups: TxnGroup[] = [...totals].map(([name, t]) => ({
+    name,
+    count: t.c,
+    totalDuration: t.d,
+    errors: t.e,
+    avg: t.c > 0 ? t.d / t.c : undefined,
+    p95: quantileFromBins(merged.get(name) ?? {}, 0.95),
+  }));
+  return { groups, p95Estimated: true, n };
+}
+
 type OpHandler = (session: Session, args: Record<string, unknown>) => Promise<unknown> | unknown;
 
 const ops: Record<string, OpHandler> = {
@@ -538,12 +600,24 @@ const ops: Record<string, OpHandler> = {
   p95Accuracy: async (s, a) => {
     const range = a.range as TimeRange;
     const [from, to] = range ?? operatingRange(s);
-    const merged = new Map<string, Bins>();
     const prefix = s.bucket.bucket + SEP;
+    const merged = new Map<string, Bins>();
     for (const r of await durHistRecords(s.bucket.bucket)) {
       if (s.store.files.has(r.id.slice(prefix.length))) mergeRangeBins(r.index, from, to, merged);
     }
-    return groupTransactions(s.store.kindRecords('transaction'), range)
+    // the cube's exact in-range count — the same N the solver thresholds on to
+    // pick exact vs estimated P95 (shown beside the threshold on the page)
+    const cube = new Map((await txnIndexRecords(s.bucket.bucket)).map((r) => [r.id, r]));
+    const cubeTotals = new Map<string, TxnTotals>();
+    for (const f of s.currentPlan) {
+      if (!overlapsRange(f, from, to)) continue;
+      const rec = cube.get(prefix + f.key);
+      if (rec && f.etag && rec.etag === f.etag) mergeRangeTotals(rec.index, from, to, cubeTotals);
+    }
+    let txnCount = 0;
+    for (const t of cubeTotals.values()) txnCount += t.c;
+
+    const rows = groupTransactions(s.store.kindRecords('transaction'), range)
       .filter((g) => g.p95 !== undefined)
       .map((g) => {
         const exact = g.p95!;
@@ -557,6 +631,7 @@ const ops: Record<string, OpHandler> = {
         };
       })
       .sort((a2, b) => b.n - a2.n);
+    return { threshold: TXN_EXACT_P95_MAX, txnCount, rows };
   },
   wipeCache: (s) => {
     s.mem.clear();
@@ -620,13 +695,10 @@ const ops: Record<string, OpHandler> = {
     );
 
     // the table lists ALL transactions (so any can be toggled into the chart),
-    // independent of which the chart is currently displaying
-    return {
-      series: result,
-      ghostSpans,
-      complete,
-      groups: groupTransactions(s.store.kindRecords('transaction'), range),
-    };
+    // independent of which the chart is currently displaying — solver-served, so
+    // it's complete and instant whether or not the records are loaded
+    const { groups, p95Estimated } = await solveTransactionTotals(s, range);
+    return { series: result, ghostSpans, complete, groups, p95Estimated };
   },
 
   txnDetail: (s, a) => {

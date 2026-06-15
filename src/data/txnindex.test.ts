@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildTxnIndex, txnIndexPoints } from './txnindex';
+import { buildTxnIndex, txnIndexPoints, mergeRangeTotals, type TxnTotals } from './txnindex';
 import type { Rec } from './types';
 
 function rec(partial: Partial<Rec>): Rec {
@@ -84,5 +84,28 @@ describe('txnIndexPoints', () => {
       { name: 'web-01', t: Date.UTC(2026, 5, 11, 0), weight: 2 },
       { name: 'web-01', t: Date.UTC(2026, 5, 11, 1), weight: 1 },
     ]);
+  });
+});
+
+describe('mergeRangeTotals', () => {
+  const idx = buildTxnIndex([
+    rec({ kind: 'transaction', name: 'GET /a', ts: Date.UTC(2026, 5, 11, 0, 30), duration: 100, result: 'HTTP 5xx' }),
+    rec({ kind: 'transaction', name: 'GET /b', ts: Date.UTC(2026, 5, 11, 0, 45), duration: 50 }),
+    rec({ kind: 'transaction', name: 'GET /a', ts: Date.UTC(2026, 5, 11, 1, 15), duration: 5 }),
+    rec({ kind: 'transaction', name: 'GET /a', ts: Date.UTC(2026, 5, 11, 2, 15), duration: 999 }), // outside [0,2)
+  ]);
+
+  it('sums count / Σduration / errors per name over whole-in-range hours', () => {
+    const into = new Map<string, TxnTotals>();
+    mergeRangeTotals(idx, Date.UTC(2026, 5, 11, 0), Date.UTC(2026, 5, 11, 2), into);
+    expect(into.get('GET /a')).toEqual({ c: 2, d: 105, e: 1 }); // 100 + 5, one 5xx; excludes the 02:00 row
+    expect(into.get('GET /b')).toEqual({ c: 1, d: 50, e: 0 });
+  });
+
+  it('accumulates across files (distributive merge)', () => {
+    const into = new Map<string, TxnTotals>();
+    mergeRangeTotals(idx, Date.UTC(2026, 5, 11, 0), Date.UTC(2026, 5, 11, 2), into);
+    mergeRangeTotals(idx, Date.UTC(2026, 5, 11, 0), Date.UTC(2026, 5, 11, 2), into); // same file twice → doubles
+    expect(into.get('GET /a')).toEqual({ c: 4, d: 210, e: 2 });
   });
 });

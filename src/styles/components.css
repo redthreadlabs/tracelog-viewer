@@ -747,6 +747,21 @@ pre.json .b {
   font-weight: 600;
 }
 
+/* an estimated metric: the value is grey-italic, the column header carries a
+ * help-cursor asterisk explaining why (SPEC §11.5) */
+.est-cell {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+.est-mark {
+  color: var(--ink-faint);
+  cursor: help;
+  text-decoration: none;
+  padding-left: 1px;
+  font-style: normal;
+}
+
 .indexing-json {
   margin: 12px 28px;
   padding: 12px 14px;

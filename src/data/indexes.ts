@@ -28,6 +28,17 @@ import {
   type DurHistFileIndex,
 } from './durhist';
 
+/**
+ * The exact-vs-estimated P95 threshold (SPEC §11.5): the most transactions the
+ * solver will scan+sort for an EXACT P95 before serving the histogram ESTIMATE
+ * instead. The decision is made up front from the cube's exact in-range count
+ * (the cost driver of the exact pass) — no scan needed to decide. ~1M keeps the
+ * exact pass well under ~100ms; above it the table is served entirely from the
+ * cube + histogram (instant, P95 marked estimated). Tunable; surfaced on
+ * /internals/indexing alongside the live count.
+ */
+export const TXN_EXACT_P95_MAX = 1_000_000;
+
 export type AggOp = 'count' | 'sum' | 'min' | 'max' | 'avg' | 'p95';
 
 /** One (op, field) aggregate an index answers. `count` ignores `field`. */

@@ -901,6 +901,40 @@ the schema-on-read work below.)
    `fileGroupBy: [host, channel]`; the solver derives the host/channel plan at
    runtime from the file structure. (No host index exists or is needed.)
 
+5. **The transaction table, fully index-served** *(done, 2026-06-15)* — count, Σ
+   duration, errors and avg now come from the cube (distributive, exact) with no
+   record scan even over a 90-day range; only **P95** is special, because it's
+   *holistic* (can't be summed across intervals from a single weight). Two pieces:
+
+   - **A mergeable P95 sketch** (`data/durhist.ts`, DB v7): per (UTC hour,
+     transaction) a log-spaced duration histogram on **fixed** bins (10 µs → 1 h,
+     5 per decade → 43 bins). Fixed edges are the whole point — every file's
+     histogram aligns, so files merge by summing bin counts (`mergeRangeBins`) and
+     a quantile is a cumulative-then-log-interpolate over the merged bins. (The
+     display histogram in `aggregate.ts` uses data-dependent edges and so can't be
+     merged — hence a separate fixed-edge scheme.) Measured error on the synthetic
+     fleet: ~4% median, ~12% worst, and worst precisely where it matters least
+     (fast, tightly-clustered endpoints); the bias is consistently *upward*, the
+     safe direction for a latency P95.
+
+   - **An up-front cost estimate decides exact vs. estimated.** The cube's exact
+     in-range `count` is the cost driver of an exact P95 (the scan+sort), and it's
+     known *without scanning*. So `solveTransactionTotals` reads it first: when the
+     range is fully loaded **and** `count ≤ TXN_EXACT_P95_MAX` (~1M), it scans for
+     an exact P95; otherwise it serves the merged-histogram estimate — instant, no
+     scan, no load. Estimated results are marked (an asterisk-with-tooltip on the
+     P95 header, grey-italic cells); count/Σduration/errors/avg are always exact.
+     Estimates **stay** estimates — no background churn upgrades them. The
+     `/internals/indexing` page surfaces the live count vs. the threshold (so the
+     current exact/estimated decision is visible) and the measured per-transaction
+     estimated-vs-exact error (so the bin resolution is tunable on real data).
+
+   This is the first **holistic** capability the solver actually serves — the
+   `merge: 'holistic'` class declared in step 4 now has its read path. The cube
+   stays the matched distributive index; the histogram is merged directly by the
+   table solver (a quantile isn't a weighted point, so it doesn't go through
+   `matchIndex`/`points`).
+
 ### 11.5 Philosophy
 
 - **Declarative separation.** A chart names a question; it never encodes a

@@ -105,6 +105,38 @@ export function txnIndexPoints(
   return points;
 }
 
+/** Summed transaction totals for a name over a range (count, Σ duration, errors). */
+export type TxnTotals = { c: number; d: number; e: number };
+
+/**
+ * Merge one file's hourly cells — for hours fully inside [from, to) — into a
+ * per-transaction totals accumulator. The whole-range counterpart of
+ * `txnIndexPoints`: where that emits per-bucket points for a series chart, this
+ * collapses to one totals row per name for the transaction table. Distributive,
+ * so summing across files is exact. (`count` here also serves as the up-front
+ * cost estimate for whether an exact P95 scan is affordable — SPEC §11.5.)
+ */
+export function mergeRangeTotals(
+  index: TxnFileIndex,
+  from: number,
+  to: number,
+  into: Map<string, TxnTotals>,
+): void {
+  for (const label in index) {
+    const t = hourLabelToMs(label);
+    if (t === null || t < from || t + HOUR_MS > to) continue; // hour fully in range
+    const byName = index[label];
+    for (const name in byName) {
+      const src = byName[name];
+      let dst = into.get(name);
+      if (!dst) into.set(name, (dst = { c: 0, d: 0, e: 0 }));
+      dst.c += src.c;
+      dst.d += src.d;
+      dst.e += src.e;
+    }
+  }
+}
+
 // --------------------------------------------------------------- IndexedDB I/O
 
 /**

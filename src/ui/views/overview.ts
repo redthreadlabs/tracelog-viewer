@@ -21,6 +21,7 @@ export function renderOverview(container: HTMLElement): () => void {
   let lastGeneration = -1;
   let token = 0;
   let groups: TxnGroup[] = []; // last fetch — re-sorts don't re-query
+  let p95Estimated = false; // P95 served from the histogram sketch, not exact (SPEC §11.5)
   let chartShown = false; // true once a chart is rendered
   let lastComplete = false; // whether the last answer fully covered the range (no ghost)
   // The transactions the chart displays, each as its own colored band (no
@@ -189,6 +190,7 @@ export function renderOverview(container: HTMLElement): () => void {
       ghostSpans: [number, number][];
       complete: boolean;
       groups: TxnGroup[];
+      p95Estimated: boolean;
     }>('overviewData', {
       range,
       bucketMs: chosenBucketMs(),
@@ -199,6 +201,7 @@ export function renderOverview(container: HTMLElement): () => void {
     });
     if (t !== token || !container.isConnected) return;
     groups = res.groups;
+    p95Estimated = res.p95Estimated;
     displayed = new Set(res.series.series);
     if (selection === null) {
       // default mode: color slots track the current top-N by rank
@@ -377,7 +380,7 @@ export function renderOverview(container: HTMLElement): () => void {
           attrs: { style: 'text-align:right' },
         }),
         el('td', {
-          className: 'num',
+          className: p95Estimated ? 'num est-cell' : 'num',
           text: group.p95 !== undefined ? fmtDuration(group.p95) : '',
           attrs: { style: 'text-align:right' },
         }),
@@ -409,6 +412,22 @@ export function renderOverview(container: HTMLElement): () => void {
       text: text + arrow,
       attrs: style ? { style } : undefined,
     });
+    // mark P95 as estimated when the solver served it from the histogram sketch
+    // rather than an exact scan+sort (SPEC §11.5)
+    if (key === 'p95' && p95Estimated) {
+      th.append(
+        el('abbr', {
+          className: 'est-mark',
+          text: '*',
+          attrs: {
+            title:
+              'Estimated from a duration-histogram sketch — exact P95 would mean ' +
+              'scanning over a million transactions. Typically within a few percent; ' +
+              'see /internals/indexing for the measured error.',
+          },
+        }),
+      );
+    }
     th.addEventListener('click', () => {
       if (sortKey === key) sortDesc = !sortDesc;
       else {
