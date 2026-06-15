@@ -121,6 +121,10 @@ export interface SeriesSpec {
   topN: number;
   /** label for the folded tail (default 'Other') */
   otherLabel?: string;
+  /** groups to BLANK from the buckets without changing the ranking — their bars
+   *  vanish but the top-N membership (and colors) stay put, so hiding one never
+   *  promotes another. Hidden tail groups also drop out of `otherLabel`. */
+  hidden?: Set<string>;
 }
 
 /**
@@ -158,7 +162,10 @@ export function aggregateBySeries(
   const { start, end, bucketMs, n } = bucketGrid(min, max, range ?? null, chosenBucketMs, utc);
   const inWindow = (r: Rec) => include(r) && r.ts >= start && r.ts < end;
 
-  // pass 1: rank groups by their total over the window, keep the top N
+  // pass 1: rank groups by their total over the window, keep the top N. This
+  // is deliberately blind to `hidden` — membership (and thus color slots) is
+  // chosen from the full population, so toggling a series off never promotes
+  // another into its place.
   const totals = new Map<string, number>();
   for (const r of records) {
     if (!inWindow(r)) continue;
@@ -170,7 +177,9 @@ export function aggregateBySeries(
   const topSet = new Set(top);
   const series = ranked.length > spec.topN ? [...top, otherLabel] : top;
 
-  // pass 2: bucket, folding non-top groups into Other
+  // pass 2: bucket, folding non-top groups into Other. `hidden` groups are
+  // blanked here only — they keep their place in `series` (a reserved, undrawn
+  // color slot) but contribute nothing to any bar.
   const buckets: SeriesBucket[] = Array.from({ length: n }, (_, i) => ({
     t0: start + i * bucketMs,
     values: {},
@@ -178,9 +187,11 @@ export function aggregateBySeries(
   }));
   for (const r of records) {
     if (!inWindow(r)) continue;
+    const g = spec.group(r);
+    if (spec.hidden?.has(g)) continue;
     const v = spec.value(r);
     if (v === 0) continue; // a zero contribution changes neither stack nor height
-    const key = topSet.has(spec.group(r)) ? spec.group(r) : otherLabel;
+    const key = topSet.has(g) ? g : otherLabel;
     const b = buckets[Math.floor((r.ts - start) / bucketMs)];
     b.values[key] = (b.values[key] ?? 0) + v;
     b.total += v;

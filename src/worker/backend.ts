@@ -309,7 +309,10 @@ function solveSeriesAggregate(
     aggregateBySeries(s.store.records, range, bucketMs, utc, {
       value,
       group: (r) => r.name,
-      include: (r) => r.kind === 'transaction' && !exclude.has(r.name),
+      include: (r) => r.kind === 'transaction',
+      // exclude only BLANKS the toggled-off transactions from the bars — the
+      // top-N ranking ignores it, so hiding one never promotes another
+      hidden: exclude,
       topN: SERIES_TOP_N,
       otherLabel: 'Other',
     }),

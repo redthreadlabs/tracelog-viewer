@@ -209,6 +209,24 @@ describe('aggregateBySeries', () => {
     expect(res.buckets[0].values).toEqual({ A: 3, B: 1 });
   });
 
+  it('blanks hidden groups without changing the ranking (no promotion)', () => {
+    const records = [
+      rec({ kind: 'transaction', name: 'A', ts: 1000, duration: 100 }), // A=100
+      rec({ kind: 'transaction', name: 'B', ts: 1100, duration: 50 }), // B=50
+      rec({ kind: 'transaction', name: 'C', ts: 1200, duration: 10 }), // C=10 → Other
+    ];
+    // topN=2 → membership [A, B, Other]; hide A
+    const res = aggregateBySeries(records, null, 60_000, true, {
+      ...sumDuration,
+      topN: 2,
+      hidden: new Set(['A']),
+    });
+    // A keeps its series slot (no promotion of C) but draws nothing; B + Other unchanged
+    expect(res.series).toEqual(['A', 'B', 'Other']);
+    expect(res.buckets[0].values).toEqual({ B: 50, Other: 10 });
+    expect(res.buckets[0].total).toBe(60);
+  });
+
   it('respects the range and ignores excluded records', () => {
     const records = [
       rec({ kind: 'transaction', name: 'A', ts: 1000, duration: 100 }),
