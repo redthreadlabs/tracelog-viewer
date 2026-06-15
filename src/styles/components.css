@@ -635,6 +635,52 @@ pre.json .b {
   }
 }
 
+/* the transaction table's load spinner lives in the toggle-column header */
+.toggle-col-head {
+  width: 30px;
+  text-align: center;
+}
+
+.col-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--thread);
+  border-radius: 50%;
+  animation: corner-spin 0.7s linear infinite;
+  vertical-align: middle;
+  pointer-events: none;
+}
+
+/* right-click recolor popover: the palette as a little swatch grid */
+.color-menu {
+  position: fixed;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: repeat(4, auto);
+  gap: 5px;
+  padding: 7px;
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.color-swatch {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.color-swatch.on {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
 .section-head {
   display: flex;
   align-items: center;

@@ -65,6 +65,65 @@ export function renderOverview(container: HTMLElement): () => void {
     void render();
   }
 
+  // double-click: isolate this transaction, or — if it's already the only one
+  // shown — restore the default top-N. (Restore-to-default beats "previous set":
+  // predictable, and simpler.)
+  function soloOrRestore(name: string): void {
+    if (selection?.length === 1 && selection[0] === name) {
+      selection = null; // back to the default top-N
+      slot.clear();
+    } else {
+      const keep = slot.get(name); // preserve its color if it had one
+      selection = [name];
+      slot.clear();
+      if (keep !== undefined) slot.set(name, keep);
+      else assignSlots([name]);
+    }
+    void render();
+  }
+
+  // right-click: a small palette popover to recolor a row's slot. Collisions
+  // (two rows sharing a hue) are allowed, same as the >PALETTE colour cycling.
+  function openColorMenu(name: string, anchor: HTMLElement): void {
+    document.querySelector('.color-menu')?.remove();
+    const styles = getComputedStyle(chartHost);
+    const menu = el('div', { className: 'color-menu' });
+    const current = (slot.get(name) ?? -1) % PALETTE;
+    for (let i = 0; i < PALETTE; i++) {
+      const sw = el('button', {
+        className: current === i ? 'color-swatch on' : 'color-swatch',
+        attrs: { style: `background:${styles.getPropertyValue(`--series-${i + 1}`).trim()}` },
+      });
+      sw.addEventListener('click', (e) => {
+        e.stopPropagation();
+        slot.set(name, i);
+        menu.remove();
+        void render();
+      });
+      menu.append(sw);
+    }
+    const r = anchor.getBoundingClientRect();
+    menu.style.left = `${r.left}px`;
+    menu.style.top = `${r.bottom + 4}px`;
+    document.body.append(menu);
+    // dismiss on tap-away or Esc
+    setTimeout(() => {
+      const close = (): void => {
+        menu.remove();
+        document.removeEventListener('mousedown', onDown);
+        document.removeEventListener('keydown', onKey);
+      };
+      const onDown = (ev: MouseEvent): void => {
+        if (!menu.contains(ev.target as Node)) close();
+      };
+      const onKey = (ev: KeyboardEvent): void => {
+        if (ev.key === 'Escape') close();
+      };
+      document.addEventListener('mousedown', onDown);
+      document.addEventListener('keydown', onKey);
+    }, 0);
+  }
+
   const chartSection = el('section', { className: 'chart-section' });
   const chartHead = el('div', { className: 'section-head' });
   const chartHost = el('div', { className: 'chart-host' });
@@ -73,22 +132,20 @@ export function renderOverview(container: HTMLElement): () => void {
   const tableSection = el('section', { className: 'txn-section' });
   container.append(chartSection, tableSection);
 
-  // corner spinners shown while each widget is still populating: the chart's
-  // only while its answer is still incomplete (ghost present) and loading,
-  // the table's whenever a scan is feeding it
+  // spinners shown while each widget is still populating: the chart's corner
+  // spinner only while its answer is still incomplete (ghost present) and
+  // loading; the table's lives in the toggle-column header (re-homed there by
+  // renderTable) and shows whenever a scan is feeding it
   const chartSpin = el('div', { className: 'corner-spinner' });
-  const tableSpin = el('div', { className: 'corner-spinner' });
+  const tableSpin = el('div', { className: 'col-spinner' });
   chartSpin.style.display = 'none';
   tableSpin.style.display = 'none';
   function updateSpinners(): void {
     const running = storeClient.snapshot.progress.running;
     if (!chartSpin.isConnected) chartSection.append(chartSpin);
-    if (!tableSpin.isConnected) tableSection.append(tableSpin);
-    // show the chart spinner only while the answer is still incomplete (ghost
-    // present) and loading — a complete answer needs no spinner even if a
-    // background prefetch keeps running
     chartSpin.style.display = chartShown && running && !lastComplete ? 'block' : 'none';
-    tableSpin.style.display = chartShown && running ? 'block' : 'none';
+    // tableSpin is homed in the table header by renderTable; just toggle it
+    tableSpin.style.display = chartShown && running ? '' : 'none';
   }
 
   // the page's bones render before any data arrives (worker round trip)
@@ -230,7 +287,7 @@ export function renderOverview(container: HTMLElement): () => void {
     const thead = el('thead');
     thead.append(
       el('tr', {}, [
-        el('th', { attrs: { style: 'width:30px' } }), // the chart-toggle swatch
+        el('th', { className: 'toggle-col-head' }, [tableSpin]), // toggle swatch + load spinner
         sortableTh('transaction', 'name', ''),
         sortableTh('count', 'count', 'width:90px;text-align:right'),
         sortableTh('errors', 'errors', 'width:90px;text-align:right'),
@@ -252,9 +309,30 @@ export function renderOverview(container: HTMLElement): () => void {
           ...(shown ? { style: `background:${colorForSlot(group.name, chartStyles)}` } : {}),
         },
       });
+      // single click toggles; double click solos/restores. Debounce the single
+      // so a double-click doesn't fire two toggles first (the ~200ms lag is
+      // imperceptible — a toggle already awaits a worker round-trip).
+      let clickTimer: ReturnType<typeof setTimeout> | undefined;
       toggleBtn.addEventListener('click', (e) => {
         e.stopPropagation(); // don't open the drill-down
-        toggle(group.name);
+        if (clickTimer !== undefined) {
+          clearTimeout(clickTimer);
+          clickTimer = undefined;
+          soloOrRestore(group.name);
+        } else {
+          clickTimer = setTimeout(() => {
+            clickTimer = undefined;
+            toggle(group.name);
+          }, 200);
+        }
+      });
+      // right-click recolors the row (desktop). TODO(mobile): when we do mobile
+      // UI, wire long-press to open this same recolor menu on touch devices —
+      // contextmenu/right-click is desktop-only.
+      toggleBtn.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openColorMenu(group.name, toggleBtn);
       });
       const tr = el('tr', {}, [
         el('td', { className: 'toggle-cell' }, [toggleBtn]),
@@ -296,6 +374,7 @@ export function renderOverview(container: HTMLElement): () => void {
     const wrap = el('div', { className: 'txn-wrap' });
     wrap.append(table);
     tableSection.append(wrap);
+    updateSpinners(); // tableSpin was just re-homed into the header — set its state
   }
 
   function sortableTh(text: string, key: TxnSortKey, style: string): HTMLElement {
