@@ -866,11 +866,16 @@ the schema-on-read work below.)
    transaction (even off the top-N) with a stable auto-assigned color. No index
    advertises this metric, so the solver scans loaded records with ghost bands:
    correct from day one, just not yet cheap.
-4. **Consumer-side durable indexes** *(next)* register capabilities (per-file
-   parse-time rollups that outlive the byte cache — the schema-on-read index
-   plan). The *same* solver begins satisfying SUM/by-transaction from them with
-   **no change to any chart**: charts already ask declaratively, so they simply
-   get faster. An index is always an optimization, never a correctness
+4. **Consumer-side durable indexes** *(in progress)* — per-file parse-time
+   rollups that outlive the byte cache (the schema-on-read index plan). The
+   first index is built: `data/txnindex.ts` rolls up transaction COUNT + Σ
+   duration by transaction name per UTC hour, built at parse time and persisted
+   in its own IndexedDB store (`txnindex`, DB v5) keyed by file+ETag — so it
+   survives byte eviction (parse once, keep the rollup, drop the bytes). Still to
+   come: the capability-matching solver that *reads* it. Once wired, the *same*
+   solver begins satisfying SUM/by-transaction from the index with **no change to
+   any chart** — charts already ask declaratively, so they simply get faster. An
+   index is always an optimization, never a correctness
    requirement — drop every index and the answers are identical, only slower.
 
 ### 11.5 Philosophy

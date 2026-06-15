@@ -12,11 +12,15 @@ const DB_NAME = 'tracelog-viewer';
 const STORE = 'files';
 /** the size ledger (data/ledger.ts) — per-file metadata that outlives bytes */
 export const SIZES_STORE = 'sizes';
+/** per-file aggregate indexes (data/txnindex.ts) — parse-time rollups that
+ *  outlive bytes, so a query can be satisfied without re-fetching (SPEC §11) */
+export const INDEX_STORE = 'txnindex';
 // v2: record keys gained the bucket namespace. v3: added the `sizes` ledger,
 // which survives byte eviction (so we still know file sizes after a purge).
 // v4: `files` now holds gzip-COMPRESSED bytes (was decompressed), so the old
 // entries are dropped once and re-fetched in compressed form.
-const DB_VERSION = 4;
+// v5: added the `txnindex` store (per-file transaction rollup index).
+const DB_VERSION = 5;
 
 /** `bucket + \0 + key` — \0 can appear in neither, so the join is unambiguous. */
 export const SEP = '\u0000';
@@ -50,6 +54,9 @@ export function openDb(): Promise<IDBDatabase | null> {
         if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
         if (!db.objectStoreNames.contains(SIZES_STORE)) {
           db.createObjectStore(SIZES_STORE, { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains(INDEX_STORE)) {
+          db.createObjectStore(INDEX_STORE, { keyPath: 'id' });
         }
       };
       request.onsuccess = () => resolve(request.result);
@@ -184,14 +191,16 @@ export async function cacheWipeBucket(bucket: string): Promise<void> {
   });
 }
 
-/** Drop every cached file for this origin (full purge). */
+/** Full purge: drop everything this origin stores — bytes AND the per-file
+ *  metadata that outlives them (the size ledger and the aggregate indexes). */
 export async function cacheWipeAll(): Promise<void> {
   const db = await openDb();
   if (!db) return;
   return new Promise((resolve) => {
     try {
-      const tx = db.transaction(STORE, 'readwrite');
-      tx.objectStore(STORE).clear();
+      const names = [...db.objectStoreNames];
+      const tx = db.transaction(names, 'readwrite');
+      for (const name of names) tx.objectStore(name).clear();
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();
       tx.onabort = () => resolve();
