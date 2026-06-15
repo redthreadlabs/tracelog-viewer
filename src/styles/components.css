@@ -717,6 +717,36 @@ pre.json .b {
   min-width: 80px;
 }
 
+.idx-acc {
+  margin: 0 28px;
+}
+
+.idx-acc-row,
+.idx-acc-head {
+  display: grid;
+  grid-template-columns: 1fr 90px 110px 110px 80px;
+  gap: 12px;
+  padding: 5px 0;
+}
+
+.idx-acc-head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  border-bottom: 1px solid var(--line);
+}
+
+.idx-num {
+  font-family: var(--font-data);
+  text-align: right;
+}
+
+.idx-err-hi {
+  color: var(--level-warn);
+  font-weight: 600;
+}
+
 .indexing-json {
   margin: 12px 28px;
   padding: 12px 14px;

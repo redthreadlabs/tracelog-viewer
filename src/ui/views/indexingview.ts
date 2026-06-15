@@ -8,7 +8,16 @@
 import { el, clear } from '../dom';
 import { storeClient } from '../../data/storeclient';
 import { internalsTabs } from './internals';
-import { fmtBytes, fmtCount } from '../format';
+import { fmtBytes, fmtCount, fmtDuration } from '../format';
+import { viewState } from '../../state';
+
+interface AccuracyRow {
+  name: string;
+  n: number;
+  exact: number;
+  estimated: number | null;
+  errorPct: number | null;
+}
 
 export function renderIndexingView(container: HTMLElement): () => void {
   clear(container);
@@ -62,10 +71,65 @@ export function renderIndexingView(container: HTMLElement): () => void {
     }
 
     section.append(el('pre', { className: 'indexing-json', text: json }));
+
+    // P95 accuracy: the histogram's estimate beside the exact (loaded-records)
+    // value, per transaction — the bin-resolution error on real data
+    const acc = await storeClient.request<AccuracyRow[]>('p95Accuracy', {
+      range: viewState.timeRange,
+    });
+    if (t !== token || !container.isConnected) return;
+    if (acc.length > 0) renderAccuracy(section, acc);
   }
 
   void render();
   return () => {
     token++;
   };
+}
+
+/** The estimated-vs-exact P95 table — the histogram's accuracy on loaded data. */
+function renderAccuracy(section: HTMLElement, rows: AccuracyRow[]): void {
+  const errs = rows.map((r) => r.errorPct).filter((e): e is number => e !== null).sort((a, b) => a - b);
+  const median = errs.length ? errs[Math.floor(errs.length / 2)] : undefined;
+  const worst = errs.length ? errs[errs.length - 1] : undefined;
+  const summary =
+    median !== undefined
+      ? `${median.toFixed(1)}% median · ${worst!.toFixed(1)}% worst error (${fmtCount(rows.length)} txns)`
+      : 'no overlap with loaded records';
+
+  section.append(
+    el('div', { className: 'section-head', attrs: { style: 'margin-top:24px' } }, [
+      el('span', { className: 'label', text: 'P95 accuracy' }),
+      el('span', { className: 'budget faint', text: summary }),
+    ]),
+    el('div', { className: 'budget faint', attrs: { style: 'margin:-4px 0 8px' } }, [
+      el('span', {
+        text: 'estimated (histogram) vs exact (loaded records), per transaction — the bin-resolution error',
+      }),
+    ]),
+  );
+
+  const head = el('div', { className: 'index-row idx-acc-head' }, [
+    el('span', { text: 'transaction' }),
+    el('span', { className: 'idx-num', text: 'count' }),
+    el('span', { className: 'idx-num', text: 'exact P95' }),
+    el('span', { className: 'idx-num', text: 'estimated' }),
+    el('span', { className: 'idx-num', text: 'error' }),
+  ]);
+  const table = el('div', { className: 'idx-acc' }, [head]);
+  for (const r of rows) {
+    table.append(
+      el('div', { className: 'index-row idx-acc-row' }, [
+        el('span', { className: 'index-name', text: r.name }),
+        el('span', { className: 'idx-num faint', text: fmtCount(r.n) }),
+        el('span', { className: 'idx-num', text: fmtDuration(r.exact) }),
+        el('span', { className: 'idx-num', text: r.estimated !== null ? fmtDuration(r.estimated) : '—' }),
+        el('span', {
+          className: 'idx-num' + (r.errorPct !== null && r.errorPct > 25 ? ' idx-err-hi' : ''),
+          text: r.errorPct !== null ? `${r.errorPct.toFixed(1)}%` : '—',
+        }),
+      ]),
+    );
+  }
+  section.append(table);
 }

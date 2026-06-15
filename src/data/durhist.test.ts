@@ -4,6 +4,7 @@ import {
   durationBin,
   binValue,
   mergeBins,
+  mergeRangeBins,
   quantileFromBins,
   DURHIST_BINS,
   type Bins,
@@ -76,5 +77,30 @@ describe('quantileFromBins', () => {
 
   it('is undefined when empty', () => {
     expect(quantileFromBins({}, 0.95)).toBeUndefined();
+  });
+});
+
+describe('mergeRangeBins', () => {
+  const H0 = Date.UTC(2026, 5, 11, 0); // 00:00
+  const H1 = Date.UTC(2026, 5, 11, 1); // 01:00
+  const H2 = Date.UTC(2026, 5, 11, 2); // 02:00
+  const idx = {
+    '2026-06-11T00': { 'GET /a': { [durationBin(100)]: 3 } },
+    '2026-06-11T01': { 'GET /a': { [durationBin(100)]: 2 }, 'GET /b': { [durationBin(50)]: 4 } },
+    '2026-06-11T02': { 'GET /a': { [durationBin(100)]: 9 } },
+  };
+
+  it('merges only hours fully inside [from, to), summing per name', () => {
+    const into = new Map<string, Bins>();
+    // [00:00, 02:00) → includes the 00 and 01 hours, excludes 02 (its end spills past `to`)
+    mergeRangeBins(idx, H0, H2, into);
+    expect(into.get('GET /a')![durationBin(100)]).toBe(5); // 3 + 2, not the 9 at 02:00
+    expect(into.get('GET /b')![durationBin(50)]).toBe(4);
+  });
+
+  it('excludes an hour whose end spills past `to`', () => {
+    const into = new Map<string, Bins>();
+    mergeRangeBins(idx, H0, H1 + 1, into); // only the 00 hour fits whole
+    expect(into.get('GET /a')![durationBin(100)]).toBe(3);
   });
 });

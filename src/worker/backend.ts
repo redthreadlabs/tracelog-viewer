@@ -38,6 +38,7 @@ import {
   type WeightedPoint,
 } from '../data/aggregate';
 import { matchIndex, INDEXES } from '../data/indexes';
+import { durHistRecords, mergeRangeBins, quantileFromBins, type Bins } from '../data/durhist';
 import { assembleTrace } from '../data/trace';
 import { deploymentMarkers, runtimeSeries, breakdownSelfTime } from '../data/metrics';
 import {
@@ -527,6 +528,35 @@ const ops: Record<string, OpHandler> = {
       });
     }
     return out;
+  },
+  /** Tuning aid for the /internals/indexing page: per transaction, the EXACT
+   *  P95 (from loaded records) beside the ESTIMATED P95 the holistic histogram
+   *  merge produces — so we can see the bin-resolution error on real data and
+   *  decide whether 5 bins/decade is enough. The merge is restricted to LOADED
+   *  files so both sides cover the same records (isolating bin error, not a
+   *  loaded-vs-all-files population gap). */
+  p95Accuracy: async (s, a) => {
+    const range = a.range as TimeRange;
+    const [from, to] = range ?? operatingRange(s);
+    const merged = new Map<string, Bins>();
+    const prefix = s.bucket.bucket + SEP;
+    for (const r of await durHistRecords(s.bucket.bucket)) {
+      if (s.store.files.has(r.id.slice(prefix.length))) mergeRangeBins(r.index, from, to, merged);
+    }
+    return groupTransactions(s.store.kindRecords('transaction'), range)
+      .filter((g) => g.p95 !== undefined)
+      .map((g) => {
+        const exact = g.p95!;
+        const estimated = quantileFromBins(merged.get(g.name) ?? {}, 0.95);
+        return {
+          name: g.name,
+          n: g.count,
+          exact,
+          estimated,
+          errorPct: estimated !== undefined ? (Math.abs(estimated - exact) / exact) * 100 : null,
+        };
+      })
+      .sort((a2, b) => b.n - a2.n);
   },
   wipeCache: (s) => {
     s.mem.clear();

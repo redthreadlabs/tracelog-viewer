@@ -55,6 +55,38 @@ export function mergeBins(into: Bins, from: Bins): void {
   for (const k in from) into[k] = (into[k] ?? 0) + from[k];
 }
 
+const HOUR_MS = 3_600_000;
+
+/** Parse a UTC hour label 'YYYY-MM-DDTHH' back to epoch-ms, or null. */
+function hourLabelToMs(label: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})$/.exec(label);
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4]) : null;
+}
+
+/**
+ * Merge one file's histograms — for hours fully inside [from, to) — into a
+ * per-transaction accumulator. The holistic counterpart of `txnIndexPoints`:
+ * summed bins across files give a range-wide distribution to read a quantile
+ * from. (Only whole-in-range hours, so a bin is never split at a range edge.)
+ */
+export function mergeRangeBins(
+  index: DurHistFileIndex,
+  from: number,
+  to: number,
+  into: Map<string, Bins>,
+): void {
+  for (const label in index) {
+    const t = hourLabelToMs(label);
+    if (t === null || t < from || t + HOUR_MS > to) continue;
+    const byName = index[label];
+    for (const name in byName) {
+      let bins = into.get(name);
+      if (!bins) into.set(name, (bins = {}));
+      mergeBins(bins, byName[name]);
+    }
+  }
+}
+
 /**
  * Estimate the `p` (0..1) quantile from merged bins: walk bins in ascending
  * order to the one where the cumulative count crosses `p·total`, then
