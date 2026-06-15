@@ -642,7 +642,7 @@ pre.json .b {
 .records th.toggle-col-head,
 .records td.toggle-cell {
   width: 30px;
-  padding: 0;
+  padding: 0 0 0 12px; /* match the table's 12px left inset; identical on both so they stay aligned */
   text-align: center;
   vertical-align: middle;
 }
