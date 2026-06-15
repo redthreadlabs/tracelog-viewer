@@ -7,7 +7,7 @@ import { type ParsedKey, overlapsRange } from '../s3/keys';
 import { parseFile } from './parse';
 import { cachedDecompressed, storeFetched, type MemBytes } from './blobs';
 import { recordFetched, enforceCacheLimit, recordSidecarsBatch, ledgerRecords } from './ledger';
-import { buildTxnIndex, putTxnIndex } from './txnindex';
+import { INDEXES } from './indexes';
 import { SEP } from './cache';
 import type { Store } from './store';
 import type { Rec } from './types';
@@ -88,12 +88,14 @@ async function fetchAndParse(
   // loaded for display (feeds the per-channel ratio + LRU recency); awaited
   // so the ledger is settled before post-scan cache eviction reads it
   await recordFetched(bucket.bucket, file, result.byteLength, !file.current, Date.now());
-  // build + persist the transaction index for finalized (immutable) files, so a
-  // later query can be served from it without re-fetching (SPEC §11). Current
-  // snapshots change, so we don't index them — they're always loaded fresh.
-  // Fire-and-forget: nothing depends on it yet (the matcher is a later step).
+  // build + persist every registered aggregate index for finalized (immutable)
+  // files, so a later query can be served from one without re-fetching (SPEC
+  // §11). Current snapshots change, so we don't index them — they're always
+  // loaded fresh. Fire-and-forget; the solver reads these when it can.
   if (!file.current) {
-    void putTxnIndex(bucket.bucket, file.key, file.etag, buildTxnIndex(result.records));
+    for (const ix of INDEXES) {
+      void ix.persist(bucket.bucket, file.key, file.etag, ix.build(result.records));
+    }
   }
   return { result, fromCache };
 }

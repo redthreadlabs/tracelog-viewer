@@ -883,6 +883,16 @@ the schema-on-read work below.)
    optimization, never a correctness
    requirement — drop every index and the answers are identical, only slower.
 
+   Each index is a **declaration** in a registry (`data/indexes.ts`): an
+   `AggregateIndex` carries an `IndexCapability` (the `{op,field}` pairs it
+   provides, its `groupBy`, `granularityMs`, and decomposability class) plus
+   `build`/`persist`/`load`/`points`. The solver calls `matchIndex(metric, grid)`
+   instead of hard-coding which index serves what, so adding one (by host,
+   errors, …) is a declaration, not a new solver branch. Today only
+   `merge: 'distributive'` capabilities are matched (count/sum, summed weights);
+   `algebraic` (avg) and `holistic` (p95 via sketches) are declarable but need a
+   richer contribution than a weighted point, so they stay unmatched for now.
+
 ### 11.5 Philosophy
 
 - **Declarative separation.** A chart names a question; it never encodes a

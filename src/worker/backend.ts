@@ -37,7 +37,7 @@ import {
   type SeriesResult,
   type WeightedPoint,
 } from '../data/aggregate';
-import { txnIndexRecords, txnIndexPoints } from '../data/txnindex';
+import { matchIndex } from '../data/indexes';
 import { assembleTrace } from '../data/trace';
 import { deploymentMarkers, runtimeSeries, breakdownSelfTime } from '../data/metrics';
 import {
@@ -280,29 +280,28 @@ function mergeSpans(spans: [number, number][], lo: number, hi: number): [number,
 /** How many transactions the overview stacks before folding the tail into
  *  "Other" — the readable ceiling for a stacked bar (SPEC §11.5). */
 const SERIES_TOP_N = 8;
-const HOUR_MS = 3_600_000;
 
 /**
- * Gather index contributions for a query (SPEC §11, the matcher). For each
- * selected file that is NOT loaded, whose interval lies FULLY inside the range,
- * and whose persisted index is ETag-valid, emit its per-hour rollups as weighted
- * points and mark the file "covered". Returns `[]`/empty unless the bucket grid
- * is ≥1h and hour-aligned (an hourly index can't resolve a finer or misaligned
- * grid). Restricting to not-loaded, fully-in-range files keeps it disjoint from
- * the record scan (no double count) and avoids splitting an hour at a range edge.
+ * Gather index contributions for a query (SPEC §11, the matcher). The registry
+ * (`matchIndex`) decides whether a registered index can satisfy the metric at
+ * this grid; if so, each selected file that is NOT loaded, whose interval lies
+ * FULLY inside the range, and whose stored index is ETag-valid contributes its
+ * rollups as weighted points and is marked "covered". Restricting to not-loaded,
+ * fully-in-range files keeps it disjoint from the record scan (no double count)
+ * and avoids splitting a rollup bucket at a range edge.
  */
 async function indexContributions(
   s: Session,
   range: [number, number],
-  op: 'count' | 'sum',
+  metric: Metric,
   showSet: Set<string> | undefined,
   bucketMs: number | null,
   utc: boolean,
 ): Promise<{ extra: WeightedPoint[]; covered: Set<string> }> {
   const empty = { extra: [] as WeightedPoint[], covered: new Set<string>() };
   const grid = bucketGrid(range[0], range[1], range, bucketMs, utc);
-  const aligned = grid.bucketMs >= HOUR_MS && grid.start % HOUR_MS === 0 && grid.bucketMs % HOUR_MS === 0;
-  if (!aligned) return empty;
+  const ix = matchIndex(metric.op, metric.field, metric.groupBy, grid.bucketMs, grid.start);
+  if (!ix) return empty; // no registered index satisfies this metric/grid → scan
 
   // candidates: selected files that aren't loaded and lie fully inside the range
   // (so an index could cover them). When everything is loaded — the common
@@ -314,14 +313,16 @@ async function indexContributions(
   });
   if (candidates.length === 0) return empty;
 
-  const recs = new Map((await txnIndexRecords(s.bucket.bucket)).map((r) => [r.id, r]));
+  const stored = await ix.load(s.bucket.bucket);
   const extra: WeightedPoint[] = [];
   const covered = new Set<string>();
   for (const f of candidates) {
-    const rec = recs.get(s.bucket.bucket + SEP + f.key);
+    const rec = stored.get(s.bucket.bucket + SEP + f.key);
     if (!rec || !f.etag || rec.etag !== f.etag) continue; // no index, or unverifiable/stale
     covered.add(f.key);
-    for (const p of txnIndexPoints(rec.index, op, range[0], range[1], showSet)) extra.push(p);
+    for (const p of ix.points(rec.payload, metric.op, metric.field, range[0], range[1], showSet)) {
+      extra.push(p);
+    }
   }
   return { extra, covered };
 }
@@ -355,15 +356,14 @@ async function solveSeriesAggregate(
   if (metric.op === 'sum' && metric.field !== 'duration') {
     throw new Error(`series solver v1 sums only 'duration', not '${metric.field}'`);
   }
-  const op = metric.op;
-  const value = op === 'sum' ? (r: Rec) => r.duration ?? 0 : () => 1;
+  const value = metric.op === 'sum' ? (r: Rec) => r.duration ?? 0 : () => 1;
   const isTxn = (r: Rec) => r.kind === 'transaction';
   const showSet = show && new Set(show);
 
   // index-served files (not loaded, fully in range) contribute pre-aggregated
   // points; loaded files are scanned. Disjoint, so no double count.
   const { extra, covered } = range
-    ? await indexContributions(s, range, op, showSet, bucketMs, utc)
+    ? await indexContributions(s, range, metric, showSet, bucketMs, utc)
     : { extra: [] as WeightedPoint[], covered: new Set<string>() };
 
   // explicit selection → show exactly those (include-filtered, all broken out);
