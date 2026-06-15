@@ -515,26 +515,17 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
     fine-zoom-only drift beats re-introducing per-record search.
   - **Working-set fulfillment (ghost band)** — one overlay primitive meaning
     *the working set is unfulfilled in this span*, drawn as a muted band in the
-    chart background. Two flavors: **momentary**, while a fetch is in flight
-    (metadata streaming in on first paint — see §8 prefetch horizon), and
-    **persistent**, while a fetch is *blocked* (over budget — the records can't
-    be loaded). Bar heights stay truthful: where a sidecar gives the exact
-    count we draw the real bars and lay the ghost *behind* them — the counts are
-    real, the underlying records just aren't in memory (you can't drill in
-    here); where we have neither metadata nor records the ghost stands alone
-    (no bars). Three layers: metadata + records → clean bars; metadata only
-    (loading or over budget) → accurate bars + ghost background; neither →
-    ghost only. This is strictly more honest than *blanking* an over-budget
-    interval (which reads as "no traffic") and lands the over-budget signal
-    spatially on the chart, not only in the inspector banner. It coexists with
-    the no-partial-intervals rule rather than fighting it: that rule forbids a
-    *misleadingly short* bar, so the records-only path (sub-hour, no sidecar)
-    still blanks a partial interval — we can't know its true height — while the
-    metadata path shows the true height plus the ghost. **Scoping:** the band
-    means *intended-but-unfulfilled* — it tracks the working set's unmet demand
-    (in-flight + budget-refused), NOT the ordinary absence of records outside
-    the loaded window (records load lazily by window, so most of a long chart
-    has none by design and must stay un-ghosted).
+    chart background. It marks intervals the memory budget **refused** — in the
+    selection but clamped out of what the loader will load, so their records
+    will never arrive — landing that over-budget signal spatially on the chart,
+    not only in the inspector banner. This coexists with the no-partial-intervals
+    rule: an interval whose files are still loading is *blanked* (we can't know
+    its true height — a misleadingly short bar is worse than none), while a
+    budget-refused interval is ghosted (it will never fill, so say so). **Scoping:**
+    the band means *intended-but-unfulfilled* — the working set's unmet demand
+    (budget-refused), NOT the ordinary absence of records outside the loaded
+    window (records load lazily by window, so most of a long chart has none by
+    design and must stay un-ghosted).
     - **Drill-down (records-based charts).** The transaction detail carries the
       same primitive for the over-budget (records-refused) case. The
       duration-over-time **scatter** has a time axis, so it draws the band over
@@ -625,19 +616,15 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
   persistent ghost band over the intervals it couldn't load; raising the limit
   or narrowing the range clears it. (No blocking modal — that was removed
   2026-06-13.)
-- **Metadata prefetch horizon** (sidecars): scanning records every file's
-  *existence* (key/size/etag/interval) from the S3 listing with no per-file
-  GET. A file's sidecar (hourly histogram + exact decompressed size) is
-  hydrated only for intervals *in the operating range*; first paint is bounded
-  to the recent **horizon** (~75 days back from the window end, anchored to the
-  latest interval present) and draws immediately, while the rest of the
-  operating range hydrates in the background, recent-first, riding the existing
-  working-set `progress` signal so the overview re-renders and the ghost band
-  (§7) fills in — momentary, not a separate poll. No cap *within* the operating
-  range: the whole selection loads and is retained (the size ledger is
-  persistent and metadata is tiny). Intervals *outside* the operating range
-  stay existence-only until selected — a yearlong, many-host bucket therefore
-  costs a listing on connect, not 10k+ sidecar GETs.
+- **Sidecar-based sizing** (no per-file GET to plan): the S3 listing gives
+  every file's *existence* (key/size/etag/interval); a file's sidecar (exact
+  decompressed size + record count) is hydrated **on demand** when the budget
+  needs it factual — the download estimate and the store inspector's rollups.
+  The persistent size ledger retains what's been probed, so estimates are exact
+  (not ratio-based) and revisits are free. Intervals stay existence-only until
+  selected, so a yearlong, many-host bucket costs a listing on connect, not
+  10k+ sidecar GETs. (The eager "prefetch horizon" + background sidecar fill that
+  fed the old metadata volume chart were removed with it, 2026-06-14.)
 - IndexedDB cache (§5) makes every revisit to finalized days free; `ETag`
   equality is the immutability check.
 
@@ -854,27 +841,28 @@ The result is a *plan* that partitions the range into three interval sets:
 `ghost` (coverable by neither — not in any index, not loaded, or budget-refused).
 The honesty invariant is that these three **partition the range exactly** — which
 means **the ghost band is a derivation of the plan, not a special case bolted
-on.** Today the only registered index is the sidecar, advertising
-`COUNT(record) [GROUP BY kind] @ hourly`; so a request for `COUNT` at ≥1h is
-index-served and everything else (durations, by-transaction, sub-hour) scans —
-precisely the `metadataVolume`-vs-`bucketByTime` branch in `overviewData`,
-generalized into a planner.
+on.** Today **no index is registered**, so every aggregate scans the loaded
+records and the uncovered remainder (budget-refused intervals) is ghosted —
+`solveSeriesAggregate` in `backend.ts`. (An earlier `COUNT[kind]@hourly`
+sidecar index served the old volume chart from metadata; it was retired with
+that chart on 2026-06-14, since the duration-by-transaction overview can't be
+satisfied from the kind-only sidecar. Re-registering a per-transaction index is
+the schema-on-read work below.)
 
 ### 11.4 Build order (each step earns the next)
 
-1. **Source-agnostic contract** *(done, 2026-06-14)*. `overviewData` returns
-   only the tally plus completeness (`ghostSpans` + a `complete` boolean); the
-   view renders tally + ghost and reasons about neither metadata nor records.
-   This is the seam the solver slots into.
-2. **A `Metric` type and a v1 solver.** The chart sends a declarative
-   `{ metric, groupBy, bucketMs, range }`. The v1 solver knows one index (the
-   sidecar) and the scan fallback — i.e. it *reproduces today's behavior through
-   the new abstraction*, proving the seam before adding power.
-3. **The redesigned overview chart** (Σ-duration by transaction). This is a
-   metric no index advertises yet, so the solver routes it to a scan with ghost
-   bands — correct from day one, just not yet cheap. It validates the
-   record-path and the grouping end to end.
-4. **Consumer-side durable indexes** register capabilities (per-file
+1. **Source-agnostic contract** *(done, 2026-06-14)*. The query op returns only
+   the tally plus completeness (`ghostSpans` + a `complete` boolean); the view
+   renders tally + ghost and reasons about neither records nor index. This is
+   the seam the solver slots into.
+2. **A `Metric` type and the solver** *(done)*. The chart sends a declarative
+   `{ metric, groupBy, bucketMs, range }`; the solver dispatches on it. The
+   contract is deliberately duplicated UI/worker (`query.ts`) while it
+   stabilizes, ahead of extracting the worker as its own library.
+3. **The redesigned overview chart** *(done, 2026-06-14)* — Σ-duration by
+   transaction (top-N + "Other"). No index advertises this, so the solver scans
+   loaded records with ghost bands: correct from day one, just not yet cheap.
+4. **Consumer-side durable indexes** *(next)* register capabilities (per-file
    parse-time rollups that outlive the byte cache — the schema-on-read index
    plan). The *same* solver begins satisfying SUM/by-transaction from them with
    **no change to any chart**: charts already ask declaratively, so they simply
@@ -905,10 +893,11 @@ generalized into a planner.
     is correct forever once built — compute it once, keep the tiny rollup after
     evicting the heavy bytes (cf. `ledger.ts`).
   - **Time locality & recency bias.** Queries cluster on recent windows and scan
-    contiguous ranges; this is what makes a bounded prefetch horizon and
-    interval-aligned indexes pay off (§8).
-  - **Bounded categorical cardinality.** Record kinds are a fixed set of five,
-    which is why the sidecar's `COUNT GROUP BY kind` is nearly free and worth
-    baking into the manifest, while richer breakdowns stay consumer-side.
+    contiguous ranges; interval-aligned, recent-first indexes pay off, and a
+    bounded working set keeps memory in check (§8).
+  - **Bounded categorical cardinality.** Record kinds are a fixed set of five —
+    cheap enough that the sidecar *manifest* can carry a `COUNT GROUP BY kind`
+    histogram essentially for free, while richer, higher-cardinality breakdowns
+    (by transaction, host) stay consumer-side.
   Good heuristics here are not generic database tricks; they come from knowing
   what telemetry *looks like*.

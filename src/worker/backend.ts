@@ -18,13 +18,7 @@ import type { FileInfo, ScanProgress } from '../data/store';
 import { LogBucket } from '../s3/client';
 import type { Profile } from '../ui/profiles';
 import { planScan, type ScanPlan } from '../s3/scanner';
-import {
-  LoadController,
-  loadOneFile,
-  hydrateSidecars,
-  hydrateSidecarsInBackground,
-  SIDECAR_PREFETCH_HORIZON_MS,
-} from '../data/scan';
+import { LoadController, loadOneFile, hydrateSidecars } from '../data/scan';
 import { LiveUpdater } from '../data/live';
 import { perf, type PerfEntry } from '../data/perf';
 import { cacheKeys, cacheWipeBucket, SEP } from '../data/cache';
@@ -33,17 +27,12 @@ import { parseKey, dedupeCurrents, overlapsRange, intervalSpan, type ParsedKey }
 import { nthLine } from '../data/parse';
 import type { Rec, RecordKind } from '../data/types';
 import {
-  bucketByTime,
-  bucketBySidecar,
-  blankPartialBuckets,
   aggregateBySeries,
   blankPartialSeries,
-  chooseBucketMs,
   groupTransactions,
   transactionStats,
   resultFamily,
   logHistogram,
-  type BucketResult,
   type SeriesResult,
 } from '../data/aggregate';
 import { assembleTrace } from '../data/trace';
@@ -121,10 +110,6 @@ class Session {
   currentRange: TimeRange = null;
   /** the working-set loader — re-scoped on range change, reset on new plan */
   loader: LoadController;
-  /** the plan a background sidecar fill is currently running for — dedupes
-   *  overlapping fills and lets one abort when the plan changes */
-  private metaFillPlan: ParsedKey[] | null = null;
-
   constructor(profile: Profile) {
     this.bucket = new LogBucket(profile);
     this.cacheLimitBytes = mbToBytes(profile.cacheLimitMb);
@@ -158,39 +143,6 @@ class Session {
     for (const port of this.ports) port.postMessage(message);
   }
 
-  /**
-   * Hydrate the rest of the operating range's sidecars in the background,
-   * recent-first, after the eager (recent-horizon) slice has painted. Each
-   * landed chunk bumps the store so the overview re-renders and the metadata
-   * chart fills in. Deduped per plan; aborts when the plan changes.
-   */
-  startMetaFill(deferred: ParsedKey[]): void {
-    // dedupe: one fill per plan. metaFillPlan stays pinned to the plan even
-    // after it finishes, so the same selection is never re-filled with no-op
-    // chunks; a plan change (new array) is what frees a fresh fill, and also
-    // aborts this one via the keepGoing check.
-    if (deferred.length === 0 || this.metaFillPlan === this.currentPlan) return;
-    const plan = this.currentPlan;
-    this.metaFillPlan = plan;
-    // Each landed chunk re-renders the overview (which re-reads the ledger), so
-    // throttle the intermediate notifications and always flush once at the end
-    // — the ghost band still fills smoothly without hundreds of ledger scans.
-    let lastNotify = 0;
-    const notify = (): void => {
-      const now = performance.now();
-      if (now - lastNotify >= META_NOTIFY_MS) {
-        lastNotify = now;
-        this.store.markChanged();
-      }
-    };
-    void hydrateSidecarsInBackground(this.bucket, deferred, notify, () => this.currentPlan === plan)
-      .then(() => {
-        if (this.currentPlan === plan) this.store.markChanged(); // final flush
-      })
-      .catch(() => {
-        /* best-effort: a network error just leaves the tail to estimate/retry */
-      });
-  }
 }
 
 const sessions = new Map<string, Session>();
@@ -244,32 +196,6 @@ function sampleInstances(instances: Rec[]): { rows: Rec[]; sample?: SampleNote }
   rows.push(...problems);
   rows.sort((a, b) => a.ts - b.ts);
   return { rows, sample: { drawn: rows.length, total: instances.length, okStep } };
-}
-
-/**
- * Build the volume chart from the current selection's sidecar histograms.
- * Returns null when it can't (no plan/sidecars, or the resolved bucket is
- * sub-hourly) — the caller falls back to bucketByTime over loaded records.
- */
-const CHART_HOUR_MS = 3_600_000;
-/** Min gap between background-metadata-fill re-render notifications. */
-const META_NOTIFY_MS = 500;
-// Below this range span, the 1h metadata fallback isn't worth it — it'd be one
-// or two coarse bars over-extending the brush — so go straight to the finer
-// records-based bucket regardless of load state.
-const MIN_METADATA_FALLBACK_MS = 2 * CHART_HOUR_MS;
-
-/**
- * Whether every file overlapping the range is already loaded — so a sub-hour
- * (records-only) chart of that range would be complete, not partial or empty.
- * Used to gate auto-downgrading the bucket below the 1h metadata floor.
- */
-function rangeFullyLoaded(s: Session, range: TimeRange): boolean {
-  if (!range) return true;
-  for (const f of s.currentPlan) {
-    if (overlapsRange(f, range[0], range[1]) && !s.store.files.has(f.key)) return false;
-  }
-  return true;
 }
 
 /**
@@ -344,147 +270,6 @@ function mergeSpans(spans: [number, number][], lo: number, hi: number): [number,
     else out.push([a, b]);
   }
   return out;
-}
-
-/** The volume chart from sidecars, plus the unfilled (ghost) spans within the
- *  view whose sidecars haven't all been probed yet. */
-interface MetaVolume {
-  bucketed: BucketResult;
-  unfilled: [number, number][];
-}
-
-async function metadataVolume(
-  s: Session,
-  range: TimeRange,
-  bucketMs: number | null,
-  utc: boolean,
-): Promise<MetaVolume | null> {
-  if (s.currentPlan.length === 0) return null;
-  // Bound the blocking first paint: eagerly hydrate only the sidecars the
-  // current view needs — the visible range, but no more than the recency
-  // horizon back from its end (anchored to the latest interval present, so a
-  // dormant bucket still shows its newest slice). The rest of the operating
-  // range hydrates in the background, recent-first (startMetaFill), so a
-  // yearlong selection paints now instead of stalling behind 10k GETs.
-  const [earliestStart, latestEnd] = operatingRange(s);
-  const winStart = range ? range[0] : earliestStart;
-  const winEnd = range ? range[1] : latestEnd;
-  const eagerStart = Math.max(winStart, winEnd - SIDECAR_PREFETCH_HORIZON_MS);
-  const eager: ParsedKey[] = [];
-  const deferred: ParsedKey[] = [];
-  for (const f of s.currentPlan) {
-    (overlapsRange(f, eagerStart, winEnd) ? eager : deferred).push(f);
-  }
-  await hydrateSidecars(s.bucket, eager); // one-time per file; cheap after
-  s.startMetaFill(deferred); // fill the rest of the operating range in the background
-  const byId = new Map((await ledgerRecords(s.bucket.bucket)).map((r) => [r.id, r]));
-
-  // Group the in-view selection by interval. An interval's bar is drawn only
-  // when ALL its files' sidecars have been probed (sidecarChecked) — a
-  // partially-probed interval would undercount, a misleadingly short bar — so
-  // those become *unfilled* ghost spans (SPEC §7) that fill in as the
-  // background hydration reaches them.
-  const byInterval = new Map<
-    string,
-    { checked: number; total: number; hists: Record<string, Record<string, number>>[] }
-  >();
-  for (const f of s.currentPlan) {
-    if (!overlapsRange(f, winStart, winEnd)) continue; // outside the view
-    const rec = byId.get(s.bucket.bucket + SEP + f.key);
-    const e = byInterval.get(f.interval) ?? { checked: 0, total: 0, hists: [] };
-    e.total++;
-    if (rec?.sidecarChecked) {
-      e.checked++;
-      if (rec.intervals) e.hists.push(rec.intervals);
-    }
-    byInterval.set(f.interval, e);
-  }
-
-  const hists: Record<string, Record<string, number>>[] = [];
-  const unfilledIntervals: [number, number][] = [];
-  for (const [interval, e] of byInterval) {
-    if (e.checked === e.total) {
-      hists.push(...e.hists); // fully probed — its bar is accurate
-    } else {
-      const span = intervalSpan(interval);
-      if (span) unfilledIntervals.push(span);
-    }
-  }
-
-  // Nothing to show and nothing pending (e.g. a sidecarless bucket) → fall back
-  // to the records path. Otherwise stay on the metadata path even with zero
-  // histograms so far: the ghost band covers the whole intended range from
-  // first paint and bars fill in as the background hydration lands.
-  if (hists.length === 0 && unfilledIntervals.length === 0) return null;
-
-  // domain = the intended view (the range, or the whole operating range) so
-  // the chart spans the full range and the ghost band has room to render even
-  // where no sidecar has landed yet
-  const bucketed = bucketBySidecar(hists, range ?? [earliestStart, latestEnd], bucketMs, utc);
-  if (!bucketed) return null; // sub-hourly: hourly histograms can't resolve it
-  return { bucketed, unfilled: mergeSpans(unfilledIntervals, winStart, winEnd) };
-}
-
-/**
- * The aggregate solver (SPEC §11), v1. Satisfies a bucketed-aggregation query
- * the cheapest way it can and reports completeness — never the source.
- *
- * v1 capability registry is hard-coded: the only metric is COUNT grouped by
- * kind, and the only index is the sidecar (which advertises COUNT[kind]@hourly).
- * So a bucket ≥1h is served from metadata; otherwise we scan loaded records.
- * The uncovered remainder (in-flight + budget-refused) becomes the ghost band —
- * a derivation of the plan, not a special case. Future metrics (SUM(duration)
- * by transaction, …) and future indexes register their capabilities here; the
- * scan path is always the correctness fallback.
- */
-async function solveAggregate(
-  s: Session,
-  metric: Metric,
-  range: TimeRange,
-  bucketMs: number | null,
-  utc: boolean,
-): Promise<{ bucketed: BucketResult; ghostSpans: [number, number][]; complete: boolean }> {
-  if (metric.op !== 'count' || (metric.groupBy ?? 'kind') !== 'kind') {
-    throw new Error(
-      `aggregate solver v1 handles only COUNT grouped by kind, not ${metric.op}` +
-        (metric.field ? `(${metric.field})` : '') +
-        (metric.groupBy ? ` by ${metric.groupBy}` : ''),
-    );
-  }
-
-  // Data-aware auto bucketing: a sub-hour bucket can only come from loaded
-  // records, so don't *automatically* drop below the 1h metadata floor for a
-  // range whose records aren't all in yet — that would render empty. Hold at 1h
-  // (complete, from metadata) and let it refine once the records finish loading.
-  // An explicit choice (bucketMs set) is always honored.
-  if (bucketMs === null && range) {
-    const span = Math.max(range[1] - range[0], 1);
-    const natural = chooseBucketMs(span);
-    if (natural < CHART_HOUR_MS && span >= MIN_METADATA_FALLBACK_MS && !rangeFullyLoaded(s, range)) {
-      bucketMs = CHART_HOUR_MS;
-    }
-  }
-
-  // COUNT[kind] is exactly what the sidecar histograms hold (hourly), so a
-  // bucket ≥1h is served from metadata: instant, complete (all selected files),
-  // and works even when the records aren't loaded. Sub-hour falls to records.
-  const meta = await metadataVolume(s, range, bucketMs, utc);
-  const refused = budgetRefusedSpans(s);
-  let bucketed: BucketResult;
-  let ghostSpans: [number, number][];
-  if (meta) {
-    bucketed = meta.bucketed;
-    ghostSpans = mergeSpans([...meta.unfilled, ...refused], bucketed.domain[0], bucketed.domain[1]);
-  } else {
-    // records path: blank any interval still missing files, so a bucket is
-    // fully populated or blank — never a misleadingly short partial bar
-    bucketed = blankPartialBuckets(
-      bucketByTime(s.store.records, range, bucketMs, utc),
-      incompleteSpans(s),
-    );
-    ghostSpans = mergeSpans(refused, bucketed.domain[0], bucketed.domain[1]);
-  }
-  return { bucketed, ghostSpans, complete: ghostSpans.length === 0 };
 }
 
 /** How many transactions the overview stacks before folding the tail into
@@ -688,20 +473,6 @@ const ops: Record<string, OpHandler> = {
       complete,
       groups: groupTransactions(s.store.kindRecords('transaction'), range),
     };
-  },
-
-  // COUNT(record) GROUP BY kind, time-bucketed — the volume tally the sidecar's
-  // COUNT[kind]@hourly index can satisfy instantly over never-loaded history
-  // (SPEC §11). No UI consumes it since the overview chart became Σ-duration by
-  // transaction; kept as the metadata-served capability pending a volume view /
-  // metric toggle. (If that never materializes, this + metadataVolume +
-  // bucketBySidecar can be retired.)
-  volumeData: async (s, a) => {
-    const range = a.range as TimeRange;
-    const bucketMs = a.bucketMs as number | null;
-    const utc = a.utc !== false;
-    const metric = (a.metric as Metric | undefined) ?? { op: 'count', groupBy: 'kind' };
-    return solveAggregate(s, metric, range, bucketMs, utc);
   },
 
   txnDetail: (s, a) => {

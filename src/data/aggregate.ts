@@ -2,22 +2,8 @@
  * Pure aggregation helpers for the overview: time-bucketed volume and
  * per-transaction-name rollups. No DOM, no D3 — unit-testable.
  */
-import type { Rec, RecordKind } from './types';
+import type { Rec } from './types';
 import { rangeSlice } from './store';
-
-export interface TimeBucket {
-  /** bucket start, epoch-ms */
-  t0: number;
-  counts: Partial<Record<RecordKind, number>>;
-  total: number;
-}
-
-export interface BucketResult {
-  buckets: TimeBucket[];
-  bucketMs: number;
-  /** [domainStart, domainEnd] epoch-ms, bucket-aligned */
-  domain: [number, number];
-}
 
 /** Candidate bucket widths, smallest first. */
 export const BUCKET_STEPS_MS = [
@@ -101,67 +87,6 @@ export function bucketGrid(
   if (end <= start) end = start + bucketMs; // at least one bucket
   const n = Math.round((end - start) / bucketMs);
   return { start, end, bucketMs, n };
-}
-
-export function bucketByTime(
-  records: Rec[],
-  range?: [number, number] | null,
-  chosenBucketMs: number | null = null,
-  utc = true,
-): BucketResult {
-  records = rangeSlice(records, range); // O(log n) on the sorted store
-  let min = Infinity;
-  let max = -Infinity;
-  for (const r of records) {
-    if (r.ts <= 0) continue;
-    if (r.ts < min) min = r.ts;
-    if (r.ts > max) max = r.ts;
-  }
-  if (range) {
-    min = range[0];
-    max = range[1];
-  }
-  if (!isFinite(min) || !isFinite(max) || max < min) {
-    return { buckets: [], bucketMs: 60_000, domain: [0, 0] };
-  }
-
-  const { start, end, bucketMs, n } = bucketGrid(min, max, range ?? null, chosenBucketMs, utc);
-
-  const buckets: TimeBucket[] = Array.from({ length: n }, (_, i) => ({
-    t0: start + i * bucketMs,
-    counts: {},
-    total: 0,
-  }));
-
-  for (const r of records) {
-    if (r.ts < start || r.ts >= end) continue;
-    const bucket = buckets[Math.floor((r.ts - start) / bucketMs)];
-    bucket.counts[r.kind] = (bucket.counts[r.kind] ?? 0) + 1;
-    bucket.total++;
-  }
-
-  return { buckets, bucketMs, domain: [start, end] };
-}
-
-/**
- * Blank (zero) any bucket overlapping a time span whose data is only partially
- * loaded, so a records-path chart never shows a misleadingly short bar for an
- * interval still missing files — an interval is either fully populated or left
- * blank. `incompleteSpans` are [startMs, endMs) ranges of intervals whose files
- * aren't all loaded. The bucketed input is returned unchanged when nothing is
- * partial. (The metadata path is always complete, so it doesn't need this.)
- */
-export function blankPartialBuckets(
-  result: BucketResult,
-  incompleteSpans: [number, number][],
-): BucketResult {
-  if (incompleteSpans.length === 0) return result;
-  const buckets = result.buckets.map((b) => {
-    const t1 = b.t0 + result.bucketMs;
-    const partial = incompleteSpans.some(([s0, s1]) => s0 < t1 && s1 > b.t0);
-    return partial ? { t0: b.t0, counts: {}, total: 0 } : b;
-  });
-  return { ...result, buckets };
 }
 
 // ---------- generalized series aggregation (SPEC §11) ----------
@@ -278,79 +203,6 @@ export function blankPartialSeries(
     return partial ? { t0: b.t0, values: {}, total: 0 } : b;
   });
   return { ...result, buckets };
-}
-
-const HOUR_MS = 3_600_000;
-
-/** Parse a sidecar hour label 'YYYY-MM-DDTHH' to epoch-ms (UTC), or null. */
-function hourLabelToMs(label: string): number | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})$/.exec(label);
-  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4]) : null;
-}
-
-/**
- * Build the volume chart from sidecar histograms instead of records. The
- * histograms are hourly (`{ 'YYYY-MM-DDTHH': { kind: count } }`), so this is
- * EXACT for any bucket ≥ 1h (the ≥1h `BUCKET_STEPS_MS` are clean hour
- * multiples). Returns null when the resolved bucket would be sub-hourly — the
- * caller must then fall back to bucketByTime over loaded records. Pure.
- */
-export function bucketBySidecar(
-  histograms: Record<string, Record<string, number>>[],
-  range: [number, number] | null,
-  chosenBucketMs: number | null = null,
-  utc = true,
-): BucketResult | null {
-  // sum every file's hourly histogram into one hour → kind-counts map
-  const byHour = new Map<number, Partial<Record<RecordKind, number>>>();
-  let min = Infinity;
-  let max = -Infinity;
-  for (const hist of histograms) {
-    for (const label in hist) {
-      const t = hourLabelToMs(label);
-      if (t === null) continue;
-      if (range && (t >= range[1] || t + HOUR_MS <= range[0])) continue; // hour fully outside
-      if (t < min) min = t;
-      if (t > max) max = t;
-      let counts = byHour.get(t);
-      if (!counts) {
-        counts = {};
-        byHour.set(t, counts);
-      }
-      const kinds = hist[label];
-      for (const k in kinds) {
-        counts[k as RecordKind] = (counts[k as RecordKind] ?? 0) + kinds[k];
-      }
-    }
-  }
-  if (range) {
-    min = range[0];
-    max = range[1];
-  }
-  if (!isFinite(min) || !isFinite(max) || max < min) {
-    return { buckets: [], bucketMs: HOUR_MS, domain: [0, 0] };
-  }
-
-  const { start, end, bucketMs, n } = bucketGrid(min, max, range ?? null, chosenBucketMs, utc);
-  if (bucketMs < HOUR_MS) return null; // sub-hourly: hourly histograms can't resolve it
-
-  const buckets: TimeBucket[] = Array.from({ length: n }, (_, i) => ({
-    t0: start + i * bucketMs,
-    counts: {},
-    total: 0,
-  }));
-
-  for (const [t, counts] of byHour) {
-    if (t < start || t >= end) continue;
-    const bucket = buckets[Math.floor((t - start) / bucketMs)];
-    for (const k in counts) {
-      const v = counts[k as RecordKind] ?? 0;
-      bucket.counts[k as RecordKind] = (bucket.counts[k as RecordKind] ?? 0) + v;
-      bucket.total += v;
-    }
-  }
-
-  return { buckets, bucketMs, domain: [start, end] };
 }
 
 export type ResultFamily = 'ok' | 'warn' | 'bad' | 'other';
