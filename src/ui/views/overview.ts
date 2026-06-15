@@ -25,14 +25,14 @@ export function renderOverview(container: HTMLElement): () => void {
   let lastComplete = false; // whether the last answer fully covered the range (no ghost)
   // The transactions the chart displays, each as its own colored band (no
   // "Other"). null = default to the worker's top-N; the first toggle materializes
-  // it into an explicit, editable selection. PALETTE caps how many show at once
-  // (one --series-* color each).
+  // it into an explicit, editable selection. Any number can be shown — the
+  // PALETTE distinct colors cycle past that (unique for the first PALETTE).
   const PALETTE = 8;
   let selection: string[] | null = null;
   let displayed = new Set<string>(); // names drawn by the last response
-  // a stable color slot (0..PALETTE-1) per transaction, so toggling one never
-  // recolors the others: in default mode it tracks the top-N by rank, in explicit
-  // mode it persists (freed on removal)
+  // a stable color slot per transaction, so toggling one never recolors the
+  // others: in default mode it tracks the top-N by rank, in explicit mode it
+  // persists (freed on removal). slot % PALETTE picks the hue.
   const slot = new Map<string, number>();
   const colorForSlot = (name: string, styles: CSSStyleDeclaration): string => {
     const i = slot.get(name);
@@ -45,7 +45,7 @@ export function renderOverview(container: HTMLElement): () => void {
       if (slot.has(name)) continue;
       const used = new Set(slot.values());
       let i = 0;
-      while (used.has(i)) i++; // lowest free slot
+      while (used.has(i)) i++; // lowest free slot (cycles colors past PALETTE)
       slot.set(name, i);
     }
   };
@@ -58,11 +58,9 @@ export function renderOverview(container: HTMLElement): () => void {
     if (i !== -1) {
       selection.splice(i, 1);
       slot.delete(name); // free the color
-    } else if (selection.length < PALETTE) {
+    } else {
       selection.push(name);
       assignSlots([name]);
-    } else {
-      return; // palette full — remove one before adding another
     }
     void render();
   }
@@ -227,7 +225,6 @@ export function renderOverview(container: HTMLElement): () => void {
 
     const maxDuration = Math.max(...sorted.map((g) => g.totalDuration), 1);
     const chartStyles = getComputedStyle(chartHost);
-    const atCap = selection !== null && selection.length >= PALETTE;
 
     const table = el('table', { className: 'records txn-table' });
     const thead = el('thead');
@@ -246,12 +243,9 @@ export function renderOverview(container: HTMLElement): () => void {
     const tbody = el('tbody');
     for (const group of sorted) {
       const shown = displayed.has(group.name);
-      // a shown row can always be hidden; a hidden row can be shown unless the
-      // palette is full (then it's disabled until one is freed)
-      const disabled = !shown && atCap;
-      const title = shown ? 'hide from chart' : disabled ? 'chart is full (8 max)' : 'show in chart';
+      const title = shown ? 'hide from chart' : 'show in chart';
       const toggleBtn = el('button', {
-        className: `txn-toggle${shown ? ' on' : ''}${disabled ? ' disabled' : ''}`,
+        className: shown ? 'txn-toggle on' : 'txn-toggle',
         attrs: {
           title,
           'aria-label': title,

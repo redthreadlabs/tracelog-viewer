@@ -778,12 +778,6 @@ pre.json .b {
   opacity: 1;
 }
 
-/* palette full: this row can't be added until another is removed */
-.txn-toggle.disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
 th.sortable {
   cursor: pointer;
   user-select: none;
