@@ -93,7 +93,8 @@ export interface AggregateIndex<P = unknown> {
 export const txnIndex: AggregateIndex<TxnFileIndex> = {
   name: 'txn',
   capability: {
-    provides: [{ op: 'count' }, { op: 'sum', field: 'duration' }],
+    // sum(errors) totals the per-cell bad-result counter — distributive, like count
+    provides: [{ op: 'count' }, { op: 'sum', field: 'duration' }, { op: 'sum', field: 'errors' }],
     groupBy: 'transaction',
     fileGroupBy: ['host', 'channel'],
     granularityMs: 3_600_000, // hourly
@@ -110,7 +111,15 @@ export const txnIndex: AggregateIndex<TxnFileIndex> = {
     // value; the native groupBy (transaction) keeps per-name points
     const fixedKey =
       q.groupBy in file ? (file as unknown as Record<string, string>)[q.groupBy] : undefined;
-    return txnIndexPoints(payload, q.op === 'sum' ? 'sum' : 'count', q.from, q.to, q.show, fixedKey);
+    return txnIndexPoints(
+      payload,
+      q.op === 'sum' ? 'sum' : 'count',
+      q.field,
+      q.from,
+      q.to,
+      q.show,
+      fixedKey,
+    );
   },
 };
 

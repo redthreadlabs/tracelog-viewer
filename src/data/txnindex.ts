@@ -11,7 +11,7 @@
  * optimization, never a correctness requirement (drop it → same answers, slower).
  */
 import type { Rec } from './types';
-import type { WeightedPoint } from './aggregate';
+import { type WeightedPoint, resultFamily } from './aggregate';
 import { hourBucket } from '@redthreadlabs/tracelog-schema';
 import { openDb, INDEX_STORE, SEP, bucketRange } from './cache';
 
@@ -28,6 +28,8 @@ export interface TxnHourEntry {
   c: number;
   /** Σ duration, ms */
   d: number;
+  /** count whose result family is 'bad' (5xx / error / failure) */
+  e: number;
 }
 
 /** UTC hour label 'YYYY-MM-DDTHH' → transaction name → entry */
@@ -49,9 +51,10 @@ export function buildTxnIndex(records: Rec[]): TxnFileIndex {
   for (const r of records) {
     if (r.kind !== 'transaction' || r.ts <= 0) continue;
     const byName = (index[hourBucket(r.ts)] ??= {});
-    const entry = (byName[r.name] ??= { c: 0, d: 0 });
+    const entry = (byName[r.name] ??= { c: 0, d: 0, e: 0 });
     entry.c += 1;
     entry.d += r.duration ?? 0;
+    if (resultFamily(r) === 'bad') entry.e += 1;
   }
   return index;
 }
@@ -72,11 +75,15 @@ export function buildTxnIndex(records: Rec[]): TxnFileIndex {
 export function txnIndexPoints(
   index: TxnFileIndex,
   op: 'count' | 'sum',
+  field: string | undefined,
   from: number,
   to: number,
   show?: Set<string>,
   fixedKey?: string,
 ): WeightedPoint[] {
+  // count → c; sum(duration) → d; sum(errors) → e
+  const weigh = (entry: TxnHourEntry): number =>
+    op === 'count' ? entry.c : field === 'errors' ? entry.e : entry.d;
   const points: WeightedPoint[] = [];
   for (const label in index) {
     const t = hourLabelToMs(label);
@@ -85,12 +92,12 @@ export function txnIndexPoints(
     if (fixedKey !== undefined) {
       if (show && !show.has(fixedKey)) continue; // whole file is one group
       let weight = 0;
-      for (const name in byName) weight += op === 'sum' ? byName[name].d : byName[name].c;
+      for (const name in byName) weight += weigh(byName[name]);
       if (weight !== 0) points.push({ name: fixedKey, t, weight });
     } else {
       for (const name in byName) {
         if (show && !show.has(name)) continue;
-        const weight = op === 'sum' ? byName[name].d : byName[name].c;
+        const weight = weigh(byName[name]);
         if (weight !== 0) points.push({ name, t, weight });
       }
     }

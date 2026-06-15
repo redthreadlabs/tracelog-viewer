@@ -7,6 +7,7 @@ describe('matchIndex', () => {
   it('matches the txn index for count/sum(duration) by transaction at an aligned ≥1h grid', () => {
     expect(matchIndex('sum', 'duration', 'transaction', HOUR, 0)).toBe(txnIndex);
     expect(matchIndex('count', undefined, 'transaction', HOUR, 0)).toBe(txnIndex);
+    expect(matchIndex('sum', 'errors', 'transaction', HOUR, 0)).toBe(txnIndex); // bad-result counter
     expect(matchIndex('sum', 'duration', 'transaction', 24 * HOUR, 0)).toBe(txnIndex);
   });
 
