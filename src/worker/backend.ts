@@ -313,6 +313,14 @@ async function indexContributions(
   });
   if (candidates.length === 0) return empty;
 
+  const q = {
+    op: metric.op,
+    field: metric.field,
+    groupBy: metric.groupBy ?? '',
+    from: range[0],
+    to: range[1],
+    show: showSet,
+  };
   const stored = await ix.load(s.bucket.bucket);
   const extra: WeightedPoint[] = [];
   const covered = new Set<string>();
@@ -320,9 +328,8 @@ async function indexContributions(
     const rec = stored.get(s.bucket.bucket + SEP + f.key);
     if (!rec || !f.etag || rec.etag !== f.etag) continue; // no index, or unverifiable/stale
     covered.add(f.key);
-    for (const p of ix.points(rec.payload, metric.op, metric.field, range[0], range[1], showSet)) {
-      extra.push(p);
-    }
+    const file = { key: f.key, host: f.host, channel: f.channel, interval: f.interval };
+    for (const p of ix.points(rec.payload, q, file)) extra.push(p);
   }
   return { extra, covered };
 }

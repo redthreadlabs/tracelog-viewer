@@ -887,11 +887,19 @@ the schema-on-read work below.)
    `AggregateIndex` carries an `IndexCapability` (the `{op,field}` pairs it
    provides, its `groupBy`, `granularityMs`, and decomposability class) plus
    `build`/`persist`/`load`/`points`. The solver calls `matchIndex(metric, grid)`
-   instead of hard-coding which index serves what, so adding one (by host,
-   errors, …) is a declaration, not a new solver branch. Today only
-   `merge: 'distributive'` capabilities are matched (count/sum, summed weights);
-   `algebraic` (avg) and `holistic` (p95 via sketches) are declarable but need a
-   richer contribution than a weighted point, so they stay unmatched for now.
+   instead of hard-coding which index serves what, so adding one (errors, …) is a
+   declaration, not a new solver branch. Today only `merge: 'distributive'`
+   capabilities are matched (count/sum, summed weights); `algebraic` (avg) and
+   `holistic` (p95 via sketches) are declarable but need a richer contribution
+   than a weighted point, so they stay unmatched for now.
+
+   **File-level projection** (`fileGroupBy`) is where the files' inherent shape
+   earns its keep: because each file is one host on one channel (it's in the S3
+   key), a per-file index can answer the *same* metric grouped by **host** or
+   **channel** for free — collapse the file's payload onto the file's value, no
+   extra storage. So `txnIndex` advertises `groupBy: transaction` natively *and*
+   `fileGroupBy: [host, channel]`; the solver derives the host/channel plan at
+   runtime from the file structure. (No host index exists or is needed.)
 
 ### 11.5 Philosophy
 

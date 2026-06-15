@@ -60,7 +60,14 @@ export function buildTxnIndex(records: Rec[]): TxnFileIndex {
  * Turn a file's index into pre-aggregated points for the series aggregator.
  * `weight` is the transaction count (op='count') or Σ duration (op='sum').
  * Only hours that fall fully inside [from, to) are emitted — an hourly entry
- * can't be split at a range edge — and only `show`n transactions when given.
+ * can't be split at a range edge.
+ *
+ * Two projections, both exact:
+ *  - native (`fixedKey` omitted): one point per transaction name (filtered by
+ *    `show` = transaction names).
+ *  - file-level (`fixedKey` set, e.g. the file's host): every name in the file
+ *    collapses into ONE group keyed by `fixedKey` — valid because the file is
+ *    homogeneous in that attribute. `show` then filters on `fixedKey`.
  */
 export function txnIndexPoints(
   index: TxnFileIndex,
@@ -68,16 +75,24 @@ export function txnIndexPoints(
   from: number,
   to: number,
   show?: Set<string>,
+  fixedKey?: string,
 ): WeightedPoint[] {
   const points: WeightedPoint[] = [];
   for (const label in index) {
     const t = hourLabelToMs(label);
     if (t === null || t < from || t + HOUR_MS > to) continue; // hour fully in range
     const byName = index[label];
-    for (const name in byName) {
-      if (show && !show.has(name)) continue;
-      const weight = op === 'sum' ? byName[name].d : byName[name].c;
-      if (weight !== 0) points.push({ name, t, weight });
+    if (fixedKey !== undefined) {
+      if (show && !show.has(fixedKey)) continue; // whole file is one group
+      let weight = 0;
+      for (const name in byName) weight += op === 'sum' ? byName[name].d : byName[name].c;
+      if (weight !== 0) points.push({ name: fixedKey, t, weight });
+    } else {
+      for (const name in byName) {
+        if (show && !show.has(name)) continue;
+        const weight = op === 'sum' ? byName[name].d : byName[name].c;
+        if (weight !== 0) points.push({ name, t, weight });
+      }
     }
   }
   return points;

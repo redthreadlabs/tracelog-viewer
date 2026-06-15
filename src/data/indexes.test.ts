@@ -15,10 +15,16 @@ describe('matchIndex', () => {
     expect(matchIndex('sum', 'duration', 'transaction', HOUR, HOUR / 2)).toBeUndefined(); // :30 start
   });
 
+  it('matches via a file-level groupBy (host/channel projection, no extra index)', () => {
+    expect(matchIndex('sum', 'duration', 'host', HOUR, 0)).toBe(txnIndex);
+    expect(matchIndex('count', undefined, 'channel', HOUR, 0)).toBe(txnIndex);
+    expect(matchIndex('sum', 'duration', 'user', HOUR, 0)).toBeUndefined(); // not file-homogeneous
+  });
+
   it('declines a metric it does not provide', () => {
     expect(matchIndex('sum', 'bytes', 'transaction', HOUR, 0)).toBeUndefined(); // wrong field
     expect(matchIndex('max', 'duration', 'transaction', HOUR, 0)).toBeUndefined(); // op not provided
     expect(matchIndex('avg', 'duration', 'transaction', HOUR, 0)).toBeUndefined(); // algebraic, not matched
-    expect(matchIndex('sum', 'duration', 'host', HOUR, 0)).toBeUndefined(); // wrong groupBy
+    expect(matchIndex('sum', 'duration', 'user', HOUR, 0)).toBeUndefined(); // not a supported groupBy
   });
 });

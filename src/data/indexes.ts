@@ -33,8 +33,13 @@ export interface AggregateSig {
 export interface IndexCapability {
   /** the (op, field) pairs it answers directly */
   provides: AggregateSig[];
-  /** the dimension it is grouped by, e.g. 'transaction' */
+  /** the dimension its payload is keyed by, e.g. 'transaction' */
   groupBy: string;
+  /** file-HOMOGENEOUS attributes it can ALSO project onto for free: each file
+   *  is constant in these (host, channel — they're in the S3 key), so summing
+   *  the payload and keying by the file's value is exact, no per-record work.
+   *  This is the seed of runtime query plans from the files' inherent shape. */
+  fileGroupBy?: string[];
   /** rollup granularity; the solver rolls finer→coarser, never the reverse */
   granularityMs: number;
   /** decomposability over interval-merge (SPEC §11.2) */
@@ -46,6 +51,26 @@ export interface StoredIndex<P> {
   payload: P;
 }
 
+/** A query the index is asked to satisfy over [from, to). */
+export interface IndexQuery {
+  op: AggOp;
+  field?: string;
+  groupBy: string;
+  from: number;
+  to: number;
+  /** group keys to include (transaction names, or hosts, … per groupBy) */
+  show?: Set<string>;
+}
+
+/** The file-homogeneous attributes a file carries (from its S3 key) — what a
+ *  file-level `groupBy` projects onto. */
+export interface FileFacets {
+  key: string;
+  host: string;
+  channel: string;
+  interval: string;
+}
+
 export interface AggregateIndex<P = unknown> {
   readonly name: string;
   readonly capability: IndexCapability;
@@ -55,23 +80,22 @@ export interface AggregateIndex<P = unknown> {
   persist(bucket: string, key: string, etag: string | undefined, payload: P): Promise<void>;
   /** every stored payload for a bucket, by file id (`${bucket}\0${key}`) */
   load(bucket: string): Promise<Map<string, StoredIndex<P>>>;
-  /** pre-aggregated points for a query over [from, to) (distributive merge) */
-  points(
-    payload: P,
-    op: AggOp,
-    field: string | undefined,
-    from: number,
-    to: number,
-    show?: Set<string>,
-  ): WeightedPoint[];
+  /** pre-aggregated points for the query, from one file's payload + its facets
+   *  (distributive merge). `file` lets a file-level groupBy collapse the payload
+   *  onto the file's host/channel/… value. */
+  points(payload: P, q: IndexQuery, file: FileFacets): WeightedPoint[];
 }
 
-/** Transaction COUNT + Σ duration, grouped by transaction name, hourly. */
+/** Transaction COUNT + Σ duration, grouped by transaction name, hourly. Because
+ *  each file is one host on one channel, the same payload also answers the same
+ *  metrics grouped by host or channel — by collapsing all names onto the file's
+ *  value (`fileGroupBy`), no extra storage. */
 export const txnIndex: AggregateIndex<TxnFileIndex> = {
   name: 'txn',
   capability: {
     provides: [{ op: 'count' }, { op: 'sum', field: 'duration' }],
     groupBy: 'transaction',
+    fileGroupBy: ['host', 'channel'],
     granularityMs: 3_600_000, // hourly
     merge: 'distributive',
   },
@@ -81,8 +105,13 @@ export const txnIndex: AggregateIndex<TxnFileIndex> = {
     new Map(
       (await txnIndexRecords(bucket)).map((r) => [r.id, { etag: r.etag, payload: r.index }]),
     ),
-  points: (payload, op, _field, from, to, show) =>
-    txnIndexPoints(payload, op === 'sum' ? 'sum' : 'count', from, to, show),
+  points: (payload, q, file) => {
+    // a file-level groupBy (host/channel) collapses the whole file onto its
+    // value; the native groupBy (transaction) keeps per-name points
+    const fixedKey =
+      q.groupBy in file ? (file as unknown as Record<string, string>)[q.groupBy] : undefined;
+    return txnIndexPoints(payload, q.op === 'sum' ? 'sum' : 'count', q.from, q.to, q.show, fixedKey);
+  },
 };
 
 export const INDEXES: AggregateIndex[] = [txnIndex];
@@ -103,10 +132,11 @@ export function matchIndex(
   return INDEXES.find((ix) => {
     const c = ix.capability;
     const opOk = c.provides.some((p) => p.op === op && (op === 'count' || p.field === field));
+    const groupOk = c.groupBy === groupBy || (c.fileGroupBy?.includes(groupBy ?? '') ?? false);
     const granularityOk =
       bucketMs >= c.granularityMs &&
       bucketMs % c.granularityMs === 0 &&
       gridStart % c.granularityMs === 0;
-    return opOk && c.groupBy === groupBy && c.merge === 'distributive' && granularityOk;
+    return opOk && groupOk && c.merge === 'distributive' && granularityOk;
   });
 }
