@@ -10,6 +10,7 @@ import { setView } from '../hashstate';
 const TABS: { view: string; label: string }[] = [
   { view: '/internals/store', label: 'Store' },
   { view: '/internals/perf', label: 'Performance' },
+  { view: '/internals/indexing', label: 'Indexing' },
 ];
 
 export function internalsTabs(active: string): HTMLElement {

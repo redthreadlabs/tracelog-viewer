@@ -37,7 +37,7 @@ import {
   type SeriesResult,
   type WeightedPoint,
 } from '../data/aggregate';
-import { matchIndex } from '../data/indexes';
+import { matchIndex, INDEXES } from '../data/indexes';
 import { assembleTrace } from '../data/trace';
 import { deploymentMarkers, runtimeSeries, breakdownSelfTime } from '../data/metrics';
 import {
@@ -301,7 +301,8 @@ async function indexContributions(
   const empty = { extra: [] as WeightedPoint[], covered: new Set<string>() };
   const grid = bucketGrid(range[0], range[1], range, bucketMs, utc);
   const ix = matchIndex(metric.op, metric.field, metric.groupBy, grid.bucketMs, grid.start);
-  if (!ix) return empty; // no registered index satisfies this metric/grid → scan
+  if (!ix?.points) return empty; // no distributive index satisfies this metric/grid → scan
+  const points = ix.points;
 
   // candidates: selected files that aren't loaded and lie fully inside the range
   // (so an index could cover them). When everything is loaded — the common
@@ -329,7 +330,7 @@ async function indexContributions(
     if (!rec || !f.etag || rec.etag !== f.etag) continue; // no index, or unverifiable/stale
     covered.add(f.key);
     const file = { key: f.key, host: f.host, channel: f.channel, interval: f.interval };
-    for (const p of ix.points(rec.payload, q, file)) extra.push(p);
+    for (const p of points(rec.payload, q, file)) extra.push(p);
   }
   return { extra, covered };
 }
@@ -501,6 +502,29 @@ const ops: Record<string, OpHandler> = {
       if (r.id.startsWith(prefix)) {
         out[r.id.slice(prefix.length)] = { decompressed: r.decompressed, records: r.records };
       }
+    }
+    return out;
+  },
+  /** Metrics for the /internals/indexing page: per registered index, its
+   *  capability + how much it's storing (files, serialized bytes) + its own
+   *  stats (e.g. the duration histogram's bin occupancy). */
+  indexStats: async (s) => {
+    const out: Record<string, unknown>[] = [];
+    for (const ix of INDEXES) {
+      const stored = await ix.load(s.bucket.bucket);
+      let bytes = 0;
+      const payloads: unknown[] = [];
+      for (const rec of stored.values()) {
+        bytes += JSON.stringify(rec.payload).length;
+        payloads.push(rec.payload);
+      }
+      out.push({
+        name: ix.name,
+        capability: ix.capability,
+        files: stored.size,
+        bytes,
+        ...(ix.stats ? ix.stats(payloads as never[]) : {}),
+      });
     }
     return out;
   },

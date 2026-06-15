@@ -15,6 +15,9 @@ export const SIZES_STORE = 'sizes';
 /** per-file aggregate indexes (data/txnindex.ts) — parse-time rollups that
  *  outlive bytes, so a query can be satisfied without re-fetching (SPEC §11) */
 export const INDEX_STORE = 'txnindex';
+/** per-file duration histograms (data/durhist.ts) — the holistic P95 sketch,
+ *  kept separate so the chart's hot path doesn't load it */
+export const DURHIST_STORE = 'durhist';
 // v2: record keys gained the bucket namespace. v3: added the `sizes` ledger,
 // which survives byte eviction (so we still know file sizes after a purge).
 // v4: `files` now holds gzip-COMPRESSED bytes (was decompressed), so the old
@@ -22,7 +25,8 @@ export const INDEX_STORE = 'txnindex';
 // v5: added the `txnindex` store (per-file transaction rollup index).
 // v6: txnindex cells gained an error counter ({c,d}→{c,d,e}); drop the stale
 //     payloads once so they rebuild on next load.
-const DB_VERSION = 6;
+// v7: added the `durhist` store (per-file duration histograms for P95).
+const DB_VERSION = 7;
 
 /** `bucket + \0 + key` — \0 can appear in neither, so the join is unambiguous. */
 export const SEP = '\u0000';
@@ -64,6 +68,9 @@ export function openDb(): Promise<IDBDatabase | null> {
         }
         if (!db.objectStoreNames.contains(INDEX_STORE)) {
           db.createObjectStore(INDEX_STORE, { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains(DURHIST_STORE)) {
+          db.createObjectStore(DURHIST_STORE, { keyPath: 'id' });
         }
       };
       request.onsuccess = () => resolve(request.result);

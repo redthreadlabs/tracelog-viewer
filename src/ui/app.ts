@@ -29,6 +29,7 @@ import { renderMetricsView } from './views/metrics';
 import { renderClientsView } from './views/clients';
 import { renderScannerView } from './views/scanner';
 import { renderStoreView } from './views/storeview';
+import { renderIndexingView } from './views/indexingview';
 import { renderOverview } from './views/overview';
 import { renderTraceView } from './views/trace';
 import { renderTransactionView } from './views/transaction';
@@ -218,6 +219,7 @@ export function startApp(root: HTMLElement): void {
     // viewer-internals family (#/internals/…): about the app, not the logs
     if (view === '/internals/store') return renderStoreView(main);
     if (view === '/internals/perf') return renderPerfView(main);
+    if (view === '/internals/indexing') return renderIndexingView(main);
     if (view.startsWith('/trace/')) {
       return renderTraceView(main, view.slice('/trace/'.length));
     }

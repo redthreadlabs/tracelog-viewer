@@ -20,8 +20,15 @@ import {
   txnIndexPoints,
   type TxnFileIndex,
 } from './txnindex';
+import {
+  buildDurHist,
+  putDurHist,
+  durHistRecords,
+  DURHIST_BINS,
+  type DurHistFileIndex,
+} from './durhist';
 
-export type AggOp = 'count' | 'sum' | 'min' | 'max' | 'avg';
+export type AggOp = 'count' | 'sum' | 'min' | 'max' | 'avg' | 'p95';
 
 /** One (op, field) aggregate an index answers. `count` ignores `field`. */
 export interface AggregateSig {
@@ -82,8 +89,11 @@ export interface AggregateIndex<P = unknown> {
   load(bucket: string): Promise<Map<string, StoredIndex<P>>>;
   /** pre-aggregated points for the query, from one file's payload + its facets
    *  (distributive merge). `file` lets a file-level groupBy collapse the payload
-   *  onto the file's host/channel/… value. */
-  points(payload: P, q: IndexQuery, file: FileFacets): WeightedPoint[];
+   *  onto the file's host/channel/… value. Distributive indexes only; holistic
+   *  ones (merge !== 'distributive') are served by a future merge path, not this. */
+  points?(payload: P, q: IndexQuery, file: FileFacets): WeightedPoint[];
+  /** optional metrics for the /internals/indexing page (e.g. bin occupancy) */
+  stats?(payloads: P[]): Record<string, unknown>;
 }
 
 /** Transaction COUNT + Σ duration, grouped by transaction name, hourly. Because
@@ -121,9 +131,60 @@ export const txnIndex: AggregateIndex<TxnFileIndex> = {
       fixedKey,
     );
   },
+  stats: (payloads) => {
+    let cells = 0;
+    const names = new Set<string>();
+    for (const p of payloads)
+      for (const hour in p)
+        for (const name in p[hour]) {
+          cells++;
+          names.add(name);
+        }
+    return { cells, distinctNames: names.size };
+  },
 };
 
-export const INDEXES: AggregateIndex[] = [txnIndex];
+/** Per-(hour, transaction) duration histogram — the holistic P95 sketch.
+ *  Registered so it builds + persists at parse time; the solver doesn't query it
+ *  yet (matchIndex serves only distributive metrics — the holistic merge path is
+ *  the next step), so it has no `points`. */
+export const durHistIndex: AggregateIndex<DurHistFileIndex> = {
+  name: 'durhist',
+  capability: {
+    provides: [{ op: 'p95', field: 'duration' }],
+    groupBy: 'transaction',
+    fileGroupBy: ['host', 'channel'],
+    granularityMs: 3_600_000,
+    merge: 'holistic',
+  },
+  build: buildDurHist,
+  persist: putDurHist,
+  load: async (bucket) =>
+    new Map((await durHistRecords(bucket)).map((r) => [r.id, { etag: r.etag, payload: r.index }])),
+  stats: (payloads) => {
+    const perBin: Record<string, number> = {};
+    let cells = 0;
+    for (const p of payloads)
+      for (const hour in p)
+        for (const name in p[hour]) {
+          cells++;
+          const bins = p[hour][name];
+          for (const b in bins) perBin[b] = (perBin[b] ?? 0) + bins[b];
+        }
+    const used = Object.keys(perBin)
+      .map(Number)
+      .sort((a, b) => a - b);
+    return {
+      cells,
+      binsPopulated: used.length, // how many of the 43 bins are actually used
+      binsTotal: DURHIST_BINS,
+      binRange: used.length ? [used[0], used[used.length - 1]] : null,
+      perBin, // bin index → total duration count (occupancy)
+    };
+  },
+};
+
+export const INDEXES: AggregateIndex[] = [txnIndex, durHistIndex];
 
 /**
  * The first registered index that can satisfy the metric at this bucket grid:
