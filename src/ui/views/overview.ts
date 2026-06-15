@@ -7,8 +7,8 @@
 import { el, clear, pendingBlock } from '../dom';
 import { storeClient } from '../../data/storeclient';
 import { perf } from '../../data/perf';
-import { sortTxnGroups, type TxnGroup, type TxnSortKey, type BucketResult } from '../../data/aggregate';
-import { renderTimebars } from '../../viz/timebars';
+import { sortTxnGroups, type TxnGroup, type TxnSortKey, type SeriesResult } from '../../data/aggregate';
+import { renderSeriesbars, seriesPaletteColor } from '../../viz/seriesbars';
 import { viewState } from '../../state';
 import { pushParams, setView, RANGE_NAV_EVENT } from '../hashstate';
 import { chosenBucketMs, bucketLabel } from '../bucketpicker';
@@ -66,15 +66,13 @@ export function renderOverview(container: HTMLElement): () => void {
     const doneRender = perf.begin('render', '/overview');
     const range = viewState.timeRange;
     // the chart declares the metric it wants; the worker's solver (SPEC §11)
-    // decides how to satisfy it. Today: record COUNT broken out by kind.
-    const metric: Metric = { op: 'count', groupBy: 'kind' };
+    // decides how to satisfy it. Σ duration broken out by transaction.
+    const metric: Metric = { op: 'sum', field: 'duration', groupBy: 'transaction' };
     const res = await storeClient.request<{
-      bucketed: BucketResult;
+      series: SeriesResult;
       ghostSpans: [number, number][];
       complete: boolean;
       groups: TxnGroup[];
-      inRange: number;
-      markers: unknown;
     }>('overviewData', { range, bucketMs: chosenBucketMs(), utc: isUtcMode(), metric });
     if (t !== token || !container.isConnected) return;
     groups = res.groups;
@@ -82,7 +80,7 @@ export function renderOverview(container: HTMLElement): () => void {
     // No tally for the range → empty/loading state (renderEmpty distinguishes
     // "still loading" from "nothing here" via progress). The worker has already
     // decided how to satisfy the query; we just render what it returned.
-    if (res.bucketed.buckets.length === 0) {
+    if (res.series.buckets.length === 0) {
       chartShown = false;
       renderEmpty();
       updateSpinners();
@@ -93,7 +91,7 @@ export function renderOverview(container: HTMLElement): () => void {
 
     // --- chart head ---
     clear(chartHead);
-    chartHead.append(el('span', { className: 'label', text: 'Volume' }));
+    chartHead.append(el('span', { className: 'label', text: 'Time by transaction' }));
     if (!range) {
       chartHead.append(
         el('span', {
@@ -104,8 +102,8 @@ export function renderOverview(container: HTMLElement): () => void {
     }
     chartHead.append(el('span', { className: 'masthead-spacer' }));
 
-    const data = res.bucketed;
-    // count from the buckets themselves, so the label always matches what's
+    const data = res.series;
+    // total from the buckets themselves, so the label always matches what's
     // actually drawn (the tally need not equal the records currently in the store)
     const total = data.buckets.reduce((s, b) => s + b.total, 0);
     chartHead.append(
@@ -115,21 +113,28 @@ export function renderOverview(container: HTMLElement): () => void {
       }),
       el('span', {
         className: 'budget',
-        text: `${fmtCount(total)} records`,
+        text: `${fmtDuration(total)} total`,
       }),
     );
 
     // --- chart ---
-    renderTimebars(chartHost, data, {
-      onRange: (w) => {
-        if (!w) return;
-        // dragging sets the time range (from/to): push a history entry (so Back
-        // returns to the previous range) and let the scanbar adopt it + reload
-        viewState.timeRange = w; // optimistic, so the chart doesn't flash the old range
-        pushParams({ from: String(Math.round(w[0])), to: String(Math.round(w[1])) });
-        globalThis.dispatchEvent(new Event(RANGE_NAV_EVENT));
+    renderSeriesbars(
+      chartHost,
+      data,
+      {
+        colorOf: seriesPaletteColor,
+        formatValue: fmtDuration,
+        onRange: (w) => {
+          if (!w) return;
+          // dragging sets the time range (from/to): push a history entry (so Back
+          // returns to the previous range) and let the scanbar adopt it + reload
+          viewState.timeRange = w; // optimistic, so the chart doesn't flash the old range
+          pushParams({ from: String(Math.round(w[0])), to: String(Math.round(w[1])) });
+          globalThis.dispatchEvent(new Event(RANGE_NAV_EVENT));
+        },
       },
-    }, res.ghostSpans);
+      res.ghostSpans,
+    );
 
     renderTable();
     updateSpinners();

@@ -13,7 +13,7 @@
  * (`sample: {drawn, total, okStep}`), the same disclosure contract as the
  * scatter pill.
  */
-import { Store, mergeByTime, rangeBounds, rangeSlice } from '../data/store';
+import { Store, mergeByTime, rangeSlice } from '../data/store';
 import type { FileInfo, ScanProgress } from '../data/store';
 import { LogBucket } from '../s3/client';
 import type { Profile } from '../ui/profiles';
@@ -665,42 +665,43 @@ const ops: Record<string, OpHandler> = {
   },
 
   // ---- views ----
-  // The overview's data: a bucketed aggregate for the chart (solved by the
-  // aggregate solver — SPEC §11 — so the caller never learns whether metadata,
-  // records, or an index satisfied it; it gets the tally + completeness) plus
-  // the transaction-table ranking. The chart names the metric it wants; today
-  // that is COUNT grouped by kind, the only one v1 can solve.
-  overviewData: async (s, a) => {
+  // The overview's data: the series-shaped chart aggregate (solved by the
+  // aggregate solver — SPEC §11 — so the caller never learns whether records or
+  // an index satisfied it; it gets the tally, the ranked series, and
+  // completeness) plus the transaction-table ranking. The chart names the metric
+  // it wants; today that is SUM(duration) GROUP BY transaction, top-N + Other.
+  overviewData: (s, a) => {
     const range = a.range as TimeRange;
     const bucketMs = a.bucketMs as number | null;
     const utc = a.utc !== false; // align the bucket grid to the active display zone
-    const metric = (a.metric as Metric | undefined) ?? { op: 'count', groupBy: 'kind' };
+    const metric = (a.metric as Metric | undefined) ?? {
+      op: 'sum',
+      field: 'duration',
+      groupBy: 'transaction',
+    };
 
-    const { bucketed, ghostSpans, complete } = await solveAggregate(s, metric, range, bucketMs, utc);
+    const { result, ghostSpans, complete } = solveSeriesAggregate(s, metric, range, bucketMs, utc);
 
     return {
-      bucketed,
+      series: result,
       ghostSpans,
       complete,
       groups: groupTransactions(s.store.kindRecords('transaction'), range),
-      inRange: (() => {
-        const [lo, hi] = rangeBounds(s.store.records, range);
-        return hi - lo;
-      })(),
-      markers: deploymentMarkers(s.store.records),
     };
   },
 
-  // A grouped, series-shaped aggregate for the redesigned overview chart
-  // (e.g. SUM(duration) GROUP BY transaction, top-N + Other). Same source-
-  // agnostic contract as overviewData: the solver returns the tally + the
-  // ranked series + completeness, never how it was satisfied (SPEC §11).
-  seriesAggregate: (s, a) => {
+  // COUNT(record) GROUP BY kind, time-bucketed — the volume tally the sidecar's
+  // COUNT[kind]@hourly index can satisfy instantly over never-loaded history
+  // (SPEC §11). No UI consumes it since the overview chart became Σ-duration by
+  // transaction; kept as the metadata-served capability pending a volume view /
+  // metric toggle. (If that never materializes, this + metadataVolume +
+  // bucketBySidecar can be retired.)
+  volumeData: async (s, a) => {
     const range = a.range as TimeRange;
     const bucketMs = a.bucketMs as number | null;
     const utc = a.utc !== false;
-    const metric = a.metric as Metric;
-    return solveSeriesAggregate(s, metric, range, bucketMs, utc);
+    const metric = (a.metric as Metric | undefined) ?? { op: 'count', groupBy: 'kind' };
+    return solveAggregate(s, metric, range, bucketMs, utc);
   },
 
   txnDetail: (s, a) => {
