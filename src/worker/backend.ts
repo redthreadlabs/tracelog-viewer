@@ -46,7 +46,7 @@ import {
   type AggregateIndex,
   type StoredIndex,
 } from '../data/indexes';
-import { mergeRangeBins, quantileFromBins, type Bins } from '../data/durhist';
+import { mergeRangeBins, quantileFromBins, binValue, type Bins } from '../data/durhist';
 import { mergeRangeTotals, type TxnTotals } from '../data/txnindex';
 import { assembleTrace } from '../data/trace';
 import { deploymentMarkers, runtimeSeries, breakdownSelfTime } from '../data/metrics';
@@ -749,6 +749,56 @@ const ops: Record<string, OpHandler> = {
     // it's complete and instant whether or not the records are loaded
     const { groups, p95Estimated } = await solveTransactionTotals(s, range);
     return { series: result, ghostSpans, complete, groups, p95Estimated };
+  },
+
+  /** The drill-down's headline, served entirely from the indexes (SPEC §11) —
+   *  so the detail page shows its summary + duration distribution INSTANTLY,
+   *  before the working set loads. count/avg/errors are exact from the cube;
+   *  p50/p95/p99/max and the histogram come from the duration sketch (estimated).
+   *  The records-based sections (scatter, slowest, result mix) fill in once the
+   *  load that this view triggers completes — they need raw instances. */
+  txnSummary: async (s, a) => {
+    const name = a.name as string;
+    const range = a.range as TimeRange;
+    const [from, to] = range ?? operatingRange(s);
+    const prefix = s.bucket.bucket + SEP;
+    const inRange = s.currentPlan.filter((f) => overlapsRange(f, from, to));
+
+    const cube = await s.loadIndex(txnIndex);
+    const totals = new Map<string, TxnTotals>();
+    for (const f of inRange) {
+      const rec = cube.get(prefix + f.key);
+      if (rec && f.etag && rec.etag === f.etag) mergeRangeTotals(rec.payload, from, to, totals);
+    }
+    const t = totals.get(name);
+
+    const hist = await s.loadIndex(durHistIndex);
+    const merged = new Map<string, Bins>();
+    for (const f of inRange) {
+      const rec = hist.get(prefix + f.key);
+      if (rec && f.etag && rec.etag === f.etag) mergeRangeBins(rec.payload, from, to, merged);
+    }
+    const bins = merged.get(name) ?? {};
+    const binIdxs = Object.keys(bins).map(Number).sort((x, y) => x - y);
+    // a HistBucket[] straight off the fixed sketch bins (same shape the records
+    // path's logHistogram produces, so the same renderer draws either)
+    const histogram = binIdxs.map((i) => ({ x0: binValue(i), x1: binValue(i + 1), count: bins[i] }));
+    const count = t?.c ?? 0;
+    const spanMin = (to - from) / 60_000;
+    return {
+      name,
+      count,
+      errors: t?.e ?? 0,
+      avg: count > 0 ? (t?.d ?? 0) / count : undefined,
+      p50: quantileFromBins(bins, 0.5),
+      p95: quantileFromBins(bins, 0.95),
+      p99: quantileFromBins(bins, 0.99),
+      // top populated bin's upper edge — the sketch's coarse ceiling
+      max: binIdxs.length ? binValue(binIdxs[binIdxs.length - 1] + 1) : undefined,
+      rpm: count > 0 && spanMin > 0 ? count / spanMin : undefined,
+      histogram,
+      estimated: true,
+    };
   },
 
   txnDetail: (s, a) => {

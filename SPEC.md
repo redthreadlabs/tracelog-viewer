@@ -957,6 +957,15 @@ the schema-on-read work below.)
    working-set prefetch) and is deliberately not built yet — the solver (#1) and
    the prefetch (#2) operate independently.
 
+   The **drill-down** applies the same fastest-plan split (`txnSummary`): its
+   summary — count, rate, p50/p95/p99/max (estimated from the sketch) and the
+   duration distribution — renders INSTANTLY from the indexes, before any load.
+   The records-based sections (duration-over-time scatter, result mix, slowest
+   instances, exact percentiles) fill in once the load this view triggers
+   completes; until then they show a progress placeholder. So the headline is
+   immediate even though the scatter still needs the ~80s on-demand load (which
+   #2 will hide).
+
 ### 11.5 Philosophy
 
 - **Declarative separation.** A chart names a question; it never encodes a
