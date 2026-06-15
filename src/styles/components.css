@@ -635,11 +635,16 @@ pre.json .b {
   }
 }
 
-/* the transaction table's load progress lives in the toggle-column header,
-   sized + aligned to match the check-toggle discs below it */
-.toggle-col-head {
+/* the toggle column: the header (load disc) and the body cells (check toggles)
+   share one identical box — fixed width, no padding, centered — so the disc
+   sits exactly above the toggles and showing/hiding it never reflows the table.
+   The `.records th/td` qualifier matches the base table rule's specificity. */
+.records th.toggle-col-head,
+.records td.toggle-cell {
   width: 30px;
+  padding: 0;
   text-align: center;
+  vertical-align: middle;
 }
 
 /* determinate: a grey disc that fills red clockwise as --p (0..100) rises —
@@ -791,11 +796,6 @@ pre.json .b {
 
 /* chart-legend toggle: a solid circle in the transaction's chart color with a
    check; toggling hides it from the chart and greys the circle */
-.toggle-cell {
-  width: 30px;
-  text-align: center;
-  padding-right: 0 !important;
-}
 
 .txn-toggle {
   width: 15px;

@@ -139,7 +139,7 @@ export function renderOverview(container: HTMLElement): () => void {
   const chartSpin = el('div', { className: 'corner-spinner' });
   const tableSpin = el('div', { className: 'col-spinner' });
   chartSpin.style.display = 'none';
-  tableSpin.style.display = 'none';
+  tableSpin.style.visibility = 'hidden'; // reserve its box so toggling never reflows the table
   function updateSpinners(): void {
     const p = storeClient.snapshot.progress;
     if (!chartSpin.isConnected) chartSection.append(chartSpin);
@@ -148,7 +148,7 @@ export function renderOverview(container: HTMLElement): () => void {
     // working set loads and fill it to the fraction loaded (bytes — the
     // explicit load denominator — else files)
     const loading = chartShown && p.running;
-    tableSpin.style.display = loading ? '' : 'none';
+    tableSpin.style.visibility = loading ? 'visible' : 'hidden';
     if (loading) {
       const frac =
         p.bytesTotal > 0
