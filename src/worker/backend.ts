@@ -38,9 +38,16 @@ import {
   type WeightedPoint,
   type TxnGroup,
 } from '../data/aggregate';
-import { matchIndex, INDEXES } from '../data/indexes';
-import { durHistRecords, mergeRangeBins, quantileFromBins, type Bins } from '../data/durhist';
-import { txnIndexRecords, mergeRangeTotals, type TxnTotals } from '../data/txnindex';
+import {
+  matchIndex,
+  INDEXES,
+  txnIndex,
+  durHistIndex,
+  type AggregateIndex,
+  type StoredIndex,
+} from '../data/indexes';
+import { mergeRangeBins, quantileFromBins, type Bins } from '../data/durhist';
+import { mergeRangeTotals, type TxnTotals } from '../data/txnindex';
 import { assembleTrace } from '../data/trace';
 import { deploymentMarkers, runtimeSeries, breakdownSelfTime } from '../data/metrics';
 import {
@@ -116,6 +123,12 @@ class Session {
   currentRange: TimeRange = null;
   /** the working-set loader — re-scoped on range change, reset on new plan */
   loader: LoadController;
+  /** loaded aggregate-index maps, cached by store generation (SPEC §11). The
+   *  index-only overview reads each index from IndexedDB once; every subsequent
+   *  toggle/zoom reuses the parsed map. A parse bumps the generation (it rebuilds
+   *  indexes), which invalidates this — so it can never go stale. */
+  private indexCache: { gen: number; maps: Map<string, Map<string, StoredIndex<unknown>>> } | null =
+    null;
   constructor(profile: Profile) {
     this.bucket = new LogBucket(profile);
     this.cacheLimitBytes = mbToBytes(profile.cacheLimitMb);
@@ -130,6 +143,27 @@ class Session {
     this.live = new LiveUpdater(this.store, this.bucket, () => this.liveChannels);
     this.store.addEventListener('data', () => this.broadcast('data'));
     this.store.addEventListener('progress', () => this.broadcast('progress'));
+  }
+
+  /** A registered index's loaded payloads, by file id — cached for the current
+   *  store generation (see `indexCache`). */
+  async loadIndex<P>(ix: AggregateIndex<P>): Promise<Map<string, StoredIndex<P>>> {
+    const gen = this.store.generation;
+    if (!this.indexCache || this.indexCache.gen !== gen) {
+      this.indexCache = { gen, maps: new Map() };
+    }
+    let m = this.indexCache.maps.get(ix.name);
+    if (!m) {
+      m = (await ix.load(this.bucket.bucket)) as Map<string, StoredIndex<unknown>>;
+      this.indexCache.maps.set(ix.name, m);
+    }
+    return m as Map<string, StoredIndex<P>>;
+  }
+
+  /** Drop the cached index maps — for when the stored indexes change without a
+   *  store-generation bump (a cache wipe deletes them out from under us). */
+  clearIndexCache(): void {
+    this.indexCache = null;
   }
 
   snapshot(): Snapshot {
@@ -325,7 +359,7 @@ async function indexContributions(
     show: showSet,
   };
   const prefix = s.bucket.bucket + SEP;
-  const stored = await ix.load(s.bucket.bucket);
+  const stored = await s.loadIndex(ix);
   const valid = (f: ParsedKey) => {
     const rec = stored.get(prefix + f.key);
     return rec && f.etag && rec.etag === f.etag ? rec : null;
@@ -438,22 +472,22 @@ async function solveTransactionTotals(
   const prefix = s.bucket.bucket + SEP;
   const inRange = s.currentPlan.filter((f) => overlapsRange(f, from, to));
 
-  const cube = new Map((await txnIndexRecords(s.bucket.bucket)).map((r) => [r.id, r]));
+  const cube = await s.loadIndex(txnIndex);
   const totals = new Map<string, TxnTotals>();
   for (const f of inRange) {
     const rec = cube.get(prefix + f.key);
     if (!rec || !f.etag || rec.etag !== f.etag) continue; // unindexed/stale → omitted
-    mergeRangeTotals(rec.index, from, to, totals);
+    mergeRangeTotals(rec.payload, from, to, totals);
   }
   let n = 0;
   for (const t of totals.values()) n += t.c;
 
-  const hist = new Map((await durHistRecords(s.bucket.bucket)).map((r) => [r.id, r]));
+  const hist = await s.loadIndex(durHistIndex);
   const merged = new Map<string, Bins>();
   for (const f of inRange) {
     const rec = hist.get(prefix + f.key);
     if (!rec || !f.etag || rec.etag !== f.etag) continue;
-    mergeRangeBins(rec.index, from, to, merged);
+    mergeRangeBins(rec.payload, from, to, merged);
   }
   const groups: TxnGroup[] = [...totals].map(([name, t]) => ({
     name,
@@ -611,8 +645,8 @@ const ops: Record<string, OpHandler> = {
     const overlapping = s.currentPlan.filter((f) => overlapsRange(f, range[0], range[1]));
     if (overlapping.length === 0) return false;
     const prefix = s.bucket.bucket + SEP;
-    const cube = new Map((await txnIndexRecords(s.bucket.bucket)).map((r) => [r.id, r]));
-    const hist = new Map((await durHistRecords(s.bucket.bucket)).map((r) => [r.id, r]));
+    const cube = await s.loadIndex(txnIndex);
+    const hist = await s.loadIndex(durHistIndex);
     return overlapping.every((f) => {
       const c = cube.get(prefix + f.key);
       const h = hist.get(prefix + f.key);
@@ -630,8 +664,8 @@ const ops: Record<string, OpHandler> = {
     const [from, to] = range ?? operatingRange(s);
     const prefix = s.bucket.bucket + SEP;
     const merged = new Map<string, Bins>();
-    for (const r of await durHistRecords(s.bucket.bucket)) {
-      if (s.store.files.has(r.id.slice(prefix.length))) mergeRangeBins(r.index, from, to, merged);
+    for (const [id, rec] of await s.loadIndex(durHistIndex)) {
+      if (s.store.files.has(id.slice(prefix.length))) mergeRangeBins(rec.payload, from, to, merged);
     }
     return groupTransactions(s.store.kindRecords('transaction'), range)
       .filter((g) => g.p95 !== undefined)
@@ -650,6 +684,7 @@ const ops: Record<string, OpHandler> = {
   },
   wipeCache: (s) => {
     s.mem.clear();
+    s.clearIndexCache(); // the wipe deletes the stored indexes too
     return cacheWipeBucket(s.bucket.bucket);
   },
   listAllFiles: async (s) => {
