@@ -866,16 +866,21 @@ the schema-on-read work below.)
    transaction (even off the top-N) with a stable auto-assigned color. No index
    advertises this metric, so the solver scans loaded records with ghost bands:
    correct from day one, just not yet cheap.
-4. **Consumer-side durable indexes** *(in progress)* — per-file parse-time
-   rollups that outlive the byte cache (the schema-on-read index plan). The
-   first index is built: `data/txnindex.ts` rolls up transaction COUNT + Σ
-   duration by transaction name per UTC hour, built at parse time and persisted
-   in its own IndexedDB store (`txnindex`, DB v5) keyed by file+ETag — so it
-   survives byte eviction (parse once, keep the rollup, drop the bytes). Still to
-   come: the capability-matching solver that *reads* it. Once wired, the *same*
-   solver begins satisfying SUM/by-transaction from the index with **no change to
-   any chart** — charts already ask declaratively, so they simply get faster. An
-   index is always an optimization, never a correctness
+4. **Consumer-side durable indexes** *(done, 2026-06-15)* — per-file parse-time
+   rollups that outlive the byte cache (the schema-on-read index plan).
+   `data/txnindex.ts` rolls up transaction COUNT + Σ duration by transaction name
+   per UTC hour, built at parse time and persisted in its own IndexedDB store
+   (`txnindex`, DB v5) keyed by file+ETag — so it survives byte eviction (parse
+   once, keep the rollup, drop the bytes). The solver (`solveSeriesAggregate`)
+   now **matches**: each selected file is served from its index when it's not
+   loaded, lies fully inside the range, is ETag-valid, and the grid is ≥1h and
+   hour-aligned — otherwise its loaded records are scanned. The two sources merge
+   through `aggregateBySeries`'s `extra` weighted-points input (a record and an
+   equivalent index point produce the identical tally — verified by test), and an
+   index-covered interval no longer blanks or ghosts. So an over-budget range now
+   shows real bars from the index where it used to show only ghost — **with no
+   change to any chart** (they ask declaratively). An index is always an
+   optimization, never a correctness
    requirement — drop every index and the answers are identical, only slower.
 
 ### 11.5 Philosophy

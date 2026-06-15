@@ -11,8 +11,17 @@
  * optimization, never a correctness requirement (drop it → same answers, slower).
  */
 import type { Rec } from './types';
+import type { WeightedPoint } from './aggregate';
 import { hourBucket } from '@redthreadlabs/tracelog-schema';
 import { openDb, INDEX_STORE, SEP, bucketRange } from './cache';
+
+const HOUR_MS = 3_600_000;
+
+/** Parse a UTC hour label 'YYYY-MM-DDTHH' back to epoch-ms, or null. */
+function hourLabelToMs(label: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})$/.exec(label);
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4]) : null;
+}
 
 export interface TxnHourEntry {
   /** transaction count */
@@ -45,6 +54,33 @@ export function buildTxnIndex(records: Rec[]): TxnFileIndex {
     entry.d += r.duration ?? 0;
   }
   return index;
+}
+
+/**
+ * Turn a file's index into pre-aggregated points for the series aggregator.
+ * `weight` is the transaction count (op='count') or Σ duration (op='sum').
+ * Only hours that fall fully inside [from, to) are emitted — an hourly entry
+ * can't be split at a range edge — and only `show`n transactions when given.
+ */
+export function txnIndexPoints(
+  index: TxnFileIndex,
+  op: 'count' | 'sum',
+  from: number,
+  to: number,
+  show?: Set<string>,
+): WeightedPoint[] {
+  const points: WeightedPoint[] = [];
+  for (const label in index) {
+    const t = hourLabelToMs(label);
+    if (t === null || t < from || t + HOUR_MS > to) continue; // hour fully in range
+    const byName = index[label];
+    for (const name in byName) {
+      if (show && !show.has(name)) continue;
+      const weight = op === 'sum' ? byName[name].d : byName[name].c;
+      if (weight !== 0) points.push({ name, t, weight });
+    }
+  }
+  return points;
 }
 
 // --------------------------------------------------------------- IndexedDB I/O

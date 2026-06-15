@@ -29,12 +29,15 @@ import type { Rec, RecordKind } from '../data/types';
 import {
   aggregateBySeries,
   blankPartialSeries,
+  bucketGrid,
   groupTransactions,
   transactionStats,
   resultFamily,
   logHistogram,
   type SeriesResult,
+  type WeightedPoint,
 } from '../data/aggregate';
+import { txnIndexRecords, txnIndexPoints } from '../data/txnindex';
 import { assembleTrace } from '../data/trace';
 import { deploymentMarkers, runtimeSeries, breakdownSelfTime } from '../data/metrics';
 import {
@@ -200,20 +203,21 @@ function sampleInstances(instances: Rec[]): { rows: Rec[]; sample?: SampleNote }
 
 /**
  * The time spans of intervals in the selection (currentPlan) whose files aren't
- * ALL loaded yet — used to blank partially-loaded buckets in the records-path
- * chart, so an interval is either fully populated or left blank, never partial.
+ * ALL accounted for yet — used to blank partially-covered buckets, so an
+ * interval is either fully populated or left blank, never partial. A file is
+ * "accounted" if its records are loaded OR an index covers it (`covered`).
  */
-function incompleteSpans(s: Session): [number, number][] {
-  const byInterval = new Map<string, { total: number; loaded: number }>();
+function incompleteSpans(s: Session, covered: Set<string> = new Set()): [number, number][] {
+  const byInterval = new Map<string, { total: number; have: number }>();
   for (const f of s.currentPlan) {
-    const e = byInterval.get(f.interval) ?? { total: 0, loaded: 0 };
+    const e = byInterval.get(f.interval) ?? { total: 0, have: 0 };
     e.total++;
-    if (s.store.files.has(f.key)) e.loaded++;
+    if (s.store.files.has(f.key) || covered.has(f.key)) e.have++;
     byInterval.set(f.interval, e);
   }
   const spans: [number, number][] = [];
-  for (const [interval, { total, loaded }] of byInterval) {
-    if (loaded < total) {
+  for (const [interval, { total, have }] of byInterval) {
+    if (have < total) {
       const span = intervalSpan(interval);
       if (span) spans.push(span);
     }
@@ -240,14 +244,15 @@ function operatingRange(s: Session): [number, number] {
  * arrive. They have metadata (still in currentPlan, so sidecars hydrate), hence
  * the *persistent* ghost flavor: accurate bars + ghost background (SPEC §7).
  * Empty when within budget (the loader plan equals the selection) or when no
- * scan is loading yet (so transitions don't flash an all-refused chart).
+ * scan is loading yet (so transitions don't flash an all-refused chart). A
+ * refused file that an index `covered` is NOT a ghost — its bar is accurate.
  */
-function budgetRefusedSpans(s: Session): [number, number][] {
+function budgetRefusedSpans(s: Session, covered: Set<string> = new Set()): [number, number][] {
   const loaded = s.loader.planKeySet();
   if (loaded.size === 0) return [];
   const refused = new Set<string>();
   for (const f of s.currentPlan) {
-    if (!loaded.has(f.key)) refused.add(f.interval);
+    if (!loaded.has(f.key) && !covered.has(f.key)) refused.add(f.interval);
   }
   const spans: [number, number][] = [];
   for (const interval of refused) {
@@ -275,16 +280,62 @@ function mergeSpans(spans: [number, number][], lo: number, hi: number): [number,
 /** How many transactions the overview stacks before folding the tail into
  *  "Other" — the readable ceiling for a stacked bar (SPEC §11.5). */
 const SERIES_TOP_N = 8;
+const HOUR_MS = 3_600_000;
+
+/**
+ * Gather index contributions for a query (SPEC §11, the matcher). For each
+ * selected file that is NOT loaded, whose interval lies FULLY inside the range,
+ * and whose persisted index is ETag-valid, emit its per-hour rollups as weighted
+ * points and mark the file "covered". Returns `[]`/empty unless the bucket grid
+ * is ≥1h and hour-aligned (an hourly index can't resolve a finer or misaligned
+ * grid). Restricting to not-loaded, fully-in-range files keeps it disjoint from
+ * the record scan (no double count) and avoids splitting an hour at a range edge.
+ */
+async function indexContributions(
+  s: Session,
+  range: [number, number],
+  op: 'count' | 'sum',
+  showSet: Set<string> | undefined,
+  bucketMs: number | null,
+  utc: boolean,
+): Promise<{ extra: WeightedPoint[]; covered: Set<string> }> {
+  const empty = { extra: [] as WeightedPoint[], covered: new Set<string>() };
+  const grid = bucketGrid(range[0], range[1], range, bucketMs, utc);
+  const aligned = grid.bucketMs >= HOUR_MS && grid.start % HOUR_MS === 0 && grid.bucketMs % HOUR_MS === 0;
+  if (!aligned) return empty;
+
+  // candidates: selected files that aren't loaded and lie fully inside the range
+  // (so an index could cover them). When everything is loaded — the common
+  // in-budget case — there are none, so we skip the IndexedDB read entirely.
+  const candidates = s.currentPlan.filter((f) => {
+    if (s.store.files.has(f.key)) return false; // loaded → scanned, not indexed (no double count)
+    const span = intervalSpan(f.interval);
+    return !!span && span[0] >= range[0] && span[1] <= range[1];
+  });
+  if (candidates.length === 0) return empty;
+
+  const recs = new Map((await txnIndexRecords(s.bucket.bucket)).map((r) => [r.id, r]));
+  const extra: WeightedPoint[] = [];
+  const covered = new Set<string>();
+  for (const f of candidates) {
+    const rec = recs.get(s.bucket.bucket + SEP + f.key);
+    if (!rec || !f.etag || rec.etag !== f.etag) continue; // no index, or unverifiable/stale
+    covered.add(f.key);
+    for (const p of txnIndexPoints(rec.index, op, range[0], range[1], showSet)) extra.push(p);
+  }
+  return { extra, covered };
+}
 
 /**
  * The aggregate solver for grouped, series-shaped metrics (SPEC §11) — e.g.
- * SUM(duration) GROUP BY transaction for the overview chart. No index advertises
- * per-transaction aggregates yet, so this always scans loaded records and the
- * uncovered remainder (budget-refused intervals) becomes the ghost band; partial
- * intervals are blanked so no bar is misleadingly short. The scan is the
- * correctness fallback the future indexes will optimize, never replace.
+ * SUM(duration) GROUP BY transaction for the overview chart. It serves each file
+ * the cheapest way available: from its persisted index when possible (not
+ * loaded, fully in range, ETag-valid, ≥1h aligned grid), else by scanning the
+ * loaded records. The two sources merge into one tally; the uncovered remainder
+ * (budget-refused, un-indexed) becomes the ghost band, partial intervals blank.
+ * The scan is always the correctness fallback the index optimizes, never replaces.
  */
-function solveSeriesAggregate(
+async function solveSeriesAggregate(
   s: Session,
   metric: Metric,
   range: TimeRange,
@@ -294,7 +345,7 @@ function solveSeriesAggregate(
    *  selection). Undefined = default to the top-N by total. Either way there is
    *  no "Other" — the chart shows exactly the chosen/top transactions. */
   show: string[] | undefined,
-): { result: SeriesResult; ghostSpans: [number, number][]; complete: boolean } {
+): Promise<{ result: SeriesResult; ghostSpans: [number, number][]; complete: boolean }> {
   if (metric.groupBy !== 'transaction' || (metric.op !== 'sum' && metric.op !== 'count')) {
     throw new Error(
       `series solver v1 handles count/sum grouped by transaction, not ${metric.op}` +
@@ -304,23 +355,37 @@ function solveSeriesAggregate(
   if (metric.op === 'sum' && metric.field !== 'duration') {
     throw new Error(`series solver v1 sums only 'duration', not '${metric.field}'`);
   }
-  const value = metric.op === 'sum' ? (r: Rec) => r.duration ?? 0 : () => 1;
+  const op = metric.op;
+  const value = op === 'sum' ? (r: Rec) => r.duration ?? 0 : () => 1;
   const isTxn = (r: Rec) => r.kind === 'transaction';
+  const showSet = show && new Set(show);
+
+  // index-served files (not loaded, fully in range) contribute pre-aggregated
+  // points; loaded files are scanned. Disjoint, so no double count.
+  const { extra, covered } = range
+    ? await indexContributions(s, range, op, showSet, bucketMs, utc)
+    : { extra: [] as WeightedPoint[], covered: new Set<string>() };
 
   // explicit selection → show exactly those (include-filtered, all broken out);
   // default → the top-N by total. No "Other" in either case.
-  const showSet = show && new Set(show);
   const result = blankPartialSeries(
-    aggregateBySeries(s.store.records, range, bucketMs, utc, {
-      value,
-      group: (r) => r.name,
-      include: showSet ? (r) => isTxn(r) && showSet.has(r.name) : isTxn,
-      topN: showSet ? showSet.size : SERIES_TOP_N,
-      noOther: true,
-    }),
-    incompleteSpans(s),
+    aggregateBySeries(
+      s.store.records,
+      range,
+      bucketMs,
+      utc,
+      {
+        value,
+        group: (r) => r.name,
+        include: showSet ? (r) => isTxn(r) && showSet.has(r.name) : isTxn,
+        topN: showSet ? showSet.size : SERIES_TOP_N,
+        noOther: true,
+      },
+      extra,
+    ),
+    incompleteSpans(s, covered),
   );
-  const ghostSpans = mergeSpans(budgetRefusedSpans(s), result.domain[0], result.domain[1]);
+  const ghostSpans = mergeSpans(budgetRefusedSpans(s, covered), result.domain[0], result.domain[1]);
   return { result, ghostSpans, complete: ghostSpans.length === 0 };
 }
 
@@ -464,7 +529,7 @@ const ops: Record<string, OpHandler> = {
   // completeness) plus the transaction-table ranking. The chart names the metric
   // it wants — SUM(duration) GROUP BY transaction — and optionally `show`, the
   // exact transactions to display (its legend selection); absent → top-N.
-  overviewData: (s, a) => {
+  overviewData: async (s, a) => {
     const range = a.range as TimeRange;
     const bucketMs = a.bucketMs as number | null;
     const utc = a.utc !== false; // align the bucket grid to the active display zone
@@ -475,7 +540,7 @@ const ops: Record<string, OpHandler> = {
     };
     const show = a.show as string[] | undefined;
 
-    const { result, ghostSpans, complete } = solveSeriesAggregate(
+    const { result, ghostSpans, complete } = await solveSeriesAggregate(
       s,
       metric,
       range,

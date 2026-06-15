@@ -127,10 +127,24 @@ export interface SeriesSpec {
 }
 
 /**
+ * A pre-aggregated contribution to the series: a group (`name`) gets `weight`
+ * added at time `t`. Lets an index supply already-rolled-up points (e.g. an
+ * hour's Σ duration for a transaction) into the same buckets as raw records —
+ * the solver merges index + scan through this (SPEC §11).
+ */
+export interface WeightedPoint {
+  name: string;
+  t: number;
+  weight: number;
+}
+
+/**
  * Time-bucket a metric, broken out by an arbitrary grouping dimension and
  * reduced to the top-N groups (by total over the window) plus an "Other" roll-up
  * — the generalized cousin of `bucketByTime`. The two-pass shape (rank, then
- * bucket) keeps the stack readable regardless of group cardinality. Pure.
+ * bucket) keeps the stack readable regardless of group cardinality. `extra`
+ * folds in pre-aggregated points (from an index) alongside the raw records, into
+ * the same ranking and buckets. Pure.
  */
 export function aggregateBySeries(
   records: Rec[],
@@ -138,6 +152,7 @@ export function aggregateBySeries(
   chosenBucketMs: number | null,
   utc: boolean,
   spec: SeriesSpec,
+  extra: WeightedPoint[] = [],
 ): SeriesResult {
   const otherLabel = spec.otherLabel ?? 'Other';
   const include = spec.include ?? (() => true);
@@ -150,6 +165,11 @@ export function aggregateBySeries(
     if (r.ts < min) min = r.ts;
     if (r.ts > max) max = r.ts;
   }
+  for (const p of extra) {
+    if (p.t <= 0) continue;
+    if (p.t < min) min = p.t;
+    if (p.t > max) max = p.t;
+  }
   if (range) {
     min = range[0];
     max = range[1];
@@ -160,6 +180,7 @@ export function aggregateBySeries(
 
   const { start, end, bucketMs, n } = bucketGrid(min, max, range ?? null, chosenBucketMs, utc);
   const inWindow = (r: Rec) => include(r) && r.ts >= start && r.ts < end;
+  const pInWindow = (p: WeightedPoint) => p.t >= start && p.t < end;
 
   // pass 1: rank the included groups by total over the window, keep the top N
   const totals = new Map<string, number>();
@@ -167,6 +188,10 @@ export function aggregateBySeries(
     if (!inWindow(r)) continue;
     const g = spec.group(r);
     totals.set(g, (totals.get(g) ?? 0) + spec.value(r));
+  }
+  for (const p of extra) {
+    if (!pInWindow(p)) continue;
+    totals.set(p.name, (totals.get(p.name) ?? 0) + p.weight);
   }
   const ranked = [...totals.entries()].sort((a, b) => b[1] - a[1]);
   const top = ranked.slice(0, spec.topN).map(([g]) => g);
@@ -180,6 +205,11 @@ export function aggregateBySeries(
     values: {},
     total: 0,
   }));
+  const add = (key: string, t: number, v: number): void => {
+    const b = buckets[Math.floor((t - start) / bucketMs)];
+    b.values[key] = (b.values[key] ?? 0) + v;
+    b.total += v;
+  };
   for (const r of records) {
     if (!inWindow(r)) continue;
     const g = spec.group(r);
@@ -187,10 +217,14 @@ export function aggregateBySeries(
     if (!inTop && spec.noOther) continue; // tail dropped, not folded
     const v = spec.value(r);
     if (v === 0) continue; // a zero contribution changes neither stack nor height
-    const key = inTop ? g : otherLabel;
-    const b = buckets[Math.floor((r.ts - start) / bucketMs)];
-    b.values[key] = (b.values[key] ?? 0) + v;
-    b.total += v;
+    add(inTop ? g : otherLabel, r.ts, v);
+  }
+  for (const p of extra) {
+    if (!pInWindow(p)) continue;
+    const inTop = topSet.has(p.name);
+    if (!inTop && spec.noOther) continue;
+    if (p.weight === 0) continue;
+    add(inTop ? p.name : otherLabel, p.t, p.weight);
   }
 
   return { buckets, series, bucketMs, domain: [start, end] };

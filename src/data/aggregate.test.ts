@@ -251,6 +251,24 @@ describe('aggregateBySeries', () => {
     expect(res.buckets[0].values).toEqual({ A: 100 });
   });
 
+  it('merges extra (pre-aggregated) points identically to raw records', () => {
+    const records = [
+      rec({ kind: 'transaction', name: 'A', ts: 1000, duration: 100 }),
+      rec({ kind: 'transaction', name: 'A', ts: 61_000, duration: 50 }),
+      rec({ kind: 'transaction', name: 'B', ts: 2000, duration: 10 }),
+    ];
+    const allRecords = aggregateBySeries(records, [0, 120_000], 60_000, true, {
+      ...sumDuration,
+      topN: 8,
+    });
+    // move the two A records into `extra` weighted points — same answer
+    const split = aggregateBySeries([records[2]], [0, 120_000], 60_000, true, { ...sumDuration, topN: 8 }, [
+      { name: 'A', t: 1000, weight: 100 },
+      { name: 'A', t: 61_000, weight: 50 },
+    ]);
+    expect(split).toEqual(allRecords);
+  });
+
   it('is empty when no record participates', () => {
     const res = aggregateBySeries(
       [rec({ kind: 'span', name: 'S', ts: 1000, duration: 5 })],
