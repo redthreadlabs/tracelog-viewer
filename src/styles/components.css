@@ -659,7 +659,9 @@ pre.json .b {
   background: conic-gradient(var(--thread) calc(var(--p, 0) * 1%), var(--line-strong) 0);
 }
 
-/* right-click recolor popover: the palette as a little swatch grid */
+/* right-click recolor popover: the palette as a little swatch grid, floated to
+   the right of the toggle with a left-pointing arrow at the toggle's centre
+   (--arrow-top, set in JS, so it stays aligned even if the popover is clamped) */
 .color-menu {
   position: fixed;
   z-index: 50;
@@ -671,6 +673,19 @@ pre.json .b {
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
+}
+
+.color-menu::before {
+  content: '';
+  position: absolute;
+  left: -7px;
+  top: var(--arrow-top, 50%);
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+  border-right: 7px solid var(--surface-raised); /* matches the popover fill */
 }
 
 .color-swatch {
@@ -798,31 +813,37 @@ pre.json .b {
    check; toggling hides it from the chart and greys the circle */
 
 .txn-toggle {
+  box-sizing: border-box;
   width: 15px;
   height: 15px;
   padding: 0;
-  border: 0;
+  border: 1.5px solid var(--ink-faint); /* off: a hollow ✕-in-a-ring */
   border-radius: 50%;
-  background: var(--ink-faint); /* grey when off */
+  background: transparent;
+  color: var(--ink-faint);
   cursor: pointer;
   vertical-align: middle;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 120ms ease;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 
 .txn-toggle::before {
-  content: '✓';
-  color: #fff;
-  font-size: 9px;
+  content: '✕'; /* off */
+  font-size: 8px;
   font-weight: 700;
   line-height: 1;
-  opacity: 0; /* hidden when off */
+}
+
+/* on: a solid disc in the series colour (background + border set inline) + a check */
+.txn-toggle.on {
+  color: #fff;
 }
 
 .txn-toggle.on::before {
-  opacity: 1;
+  content: '✓';
+  font-size: 9px;
 }
 
 th.sortable {

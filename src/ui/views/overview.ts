@@ -102,10 +102,16 @@ export function renderOverview(container: HTMLElement): () => void {
       });
       menu.append(sw);
     }
-    const r = anchor.getBoundingClientRect();
-    menu.style.left = `${r.left}px`;
-    menu.style.top = `${r.bottom + 4}px`;
+    // float to the right of the toggle, vertically centered on it, with the
+    // left-pointing arrow aimed at the toggle's center
     document.body.append(menu);
+    const r = anchor.getBoundingClientRect();
+    const centerY = r.top + r.height / 2;
+    const mh = menu.offsetHeight;
+    const top = Math.max(6, Math.min(centerY - mh / 2, window.innerHeight - mh - 6));
+    menu.style.left = `${r.right + 8}px`; // 8 ≈ arrow width, so its apex meets the toggle
+    menu.style.top = `${top}px`;
+    menu.style.setProperty('--arrow-top', `${centerY - top}px`);
     // dismiss on tap-away or Esc
     setTimeout(() => {
       const close = (): void => {
@@ -318,7 +324,13 @@ export function renderOverview(container: HTMLElement): () => void {
         attrs: {
           title,
           'aria-label': title,
-          ...(shown ? { style: `background:${colorForSlot(group.name, chartStyles)}` } : {}),
+          // on: fill + matching border → a full solid disc in the series colour
+          ...(shown
+            ? (() => {
+                const c = colorForSlot(group.name, chartStyles);
+                return { style: `background:${c};border-color:${c}` };
+              })()
+            : {}),
         },
       });
       // single click toggles; double click solos/restores. Debounce the single
