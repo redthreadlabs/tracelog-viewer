@@ -933,3 +933,33 @@ the schema-on-read work below.)
     (by transaction, host) stay consumer-side.
   Good heuristics here are not generic database tricks; they come from knowing
   what telemetry *looks like*.
+
+### 11.6 Boundary: an aggregate cube, not an inverted index
+
+These indexes are **pre-aggregated rollups** (an OLAP cube), not inverted
+indexes. The distinction is a hard boundary on what they can answer, orthogonal
+to the §11.2 decomposability axis:
+
+- §11.2 is about **aggregate decomposability** — can I merge partial sums across
+  intervals? (distributive / algebraic / holistic.)
+- This is about **predicate composability** — can I intersect doc-sets? The cube
+  has **none**. Summing records into `{count, Σduration}` per `(hour, name)`
+  discards record identity, so any predicate the cube didn't pre-materialize
+  along an axis is simply unanswerable from it.
+
+So the index can group/select on its **key dimension** (transaction — `show`
+picks keys) and filter/project on **file-homogeneous dimensions** (host/channel
+— really a file selection), but it **cannot** evaluate a boolean predicate across
+record-level, multi-valued dimensions (`name=X AND result=5xx AND user=u1`):
+there are no postings to intersect.
+
+The general tool for that is an **inverted index** (`term → {doc-ids}`), whose
+postings-list intersections drive the boolean — but it doesn't replace the cube:
+to then aggregate the matched set it still needs the per-record values (load
+records, or keep doc-values alongside). So the two are **complementary** — the
+cube serves fixed, pre-known aggregations without loading anything (the
+dashboards); an inverted index would serve ad-hoc boolean search (the
+events/records views, which scan today). The cube can stretch to *low*-cardinality
+filters by materializing more cells (`hour → name → result-family → {c,d}`), but
+that's the limit; high-cardinality boolean (`user`, `trace_id`) is inverted-index
+territory if we ever want it.
