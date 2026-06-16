@@ -17,19 +17,24 @@ import { spanTypeColorToken } from '../../data/trace';
 import { chosenBucketMs, bucketLabel } from '../bucketpicker';
 import { viewState } from '../../state';
 import { THEME_CHANGE_EVENT } from '../theme';
-import { fmtBytes, fmtDuration, isUtcMode } from '../format';
+import { fmtBytes, fmtDuration, durationAxisFormat, bytesAxisFormat, omitZero, isUtcMode } from '../format';
 
 interface SeriesSpec {
   key: string;
   label: string;
+  /** per-value formatter for the tooltip */
   fmt: (v: number) => string;
+  /** y-axis label formatter built from the tick set (consistent unit/precision) */
+  axisFmt: (ticks: number[]) => (v: number) => string;
 }
 
+const pctAxis = (_ticks: number[]) => omitZero(fmtPct);
+
 const SERIES: SeriesSpec[] = [
-  { key: 'nodejs.eventloop.delay.avg.ms', label: 'event-loop delay', fmt: fmtDuration },
-  { key: 'nodejs.memory.heap.used.bytes', label: 'heap used', fmt: fmtBytes },
-  { key: 'system.process.memory.rss.bytes', label: 'process rss', fmt: fmtBytes },
-  { key: 'system.process.cpu.total.norm.pct', label: 'cpu', fmt: fmtPct },
+  { key: 'nodejs.eventloop.delay.avg.ms', label: 'event-loop delay', fmt: fmtDuration, axisFmt: durationAxisFormat },
+  { key: 'nodejs.memory.heap.used.bytes', label: 'heap used', fmt: fmtBytes, axisFmt: bytesAxisFormat },
+  { key: 'system.process.memory.rss.bytes', label: 'process rss', fmt: fmtBytes, axisFmt: bytesAxisFormat },
+  { key: 'system.process.cpu.total.norm.pct', label: 'cpu', fmt: fmtPct, axisFmt: pctAxis },
 ];
 
 function fmtPct(v: number): string {
@@ -119,7 +124,7 @@ export function renderMetricsView(container: HTMLElement): () => void {
         row.append(cell);
         // render after attach so clientWidth is real
         requestAnimationFrame(() =>
-          renderLine(chart, host_series, { fmt: spec.fmt, domain, markers }),
+          renderLine(chart, host_series, { fmt: spec.fmt, axisFmt: spec.axisFmt, domain, markers }),
         );
       }
       body.append(row);

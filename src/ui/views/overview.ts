@@ -14,7 +14,7 @@ import { pushParams, setView, RANGE_NAV_EVENT } from '../hashstate';
 import { THEME_CHANGE_EVENT } from '../theme';
 import { chosenBucketMs, bucketLabel } from '../bucketpicker';
 import type { Metric } from '../query';
-import { fmtBytes, fmtCount, fmtDuration, isUtcMode } from '../format';
+import { fmtBytes, fmtCount, fmtDuration, durationAxisFormat, isUtcMode } from '../format';
 
 export function renderOverview(container: HTMLElement): () => void {
   let sortKey: TxnSortKey = 'totalDuration';
@@ -264,6 +264,7 @@ export function renderOverview(container: HTMLElement): () => void {
       {
         colorOf: (name, _i, styles) => colorForSlot(name, styles),
         formatValue: fmtDuration,
+        axisFormat: durationAxisFormat,
         onRange: (w) => {
           if (!w) return;
           // dragging sets the time range (from/to): push a history entry (so Back

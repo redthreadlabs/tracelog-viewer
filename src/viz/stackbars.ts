@@ -9,7 +9,7 @@ import { axisLeft } from 'd3-axis';
 import { el, clear } from '../ui/dom';
 import type { BreakdownResult } from '../data/metrics';
 import { spanTypeColorToken } from '../data/trace';
-import { fmtScaleTime, fmtDuration, isUtcMode } from '../ui/format';
+import { fmtScaleTime, fmtDuration, durationAxisFormat, isUtcMode } from '../ui/format';
 import { contentWidth, axisLeftMargin } from './ticks';
 import { drawTimeGrid } from './timegrid';
 import { placeTooltip } from './tooltip';
@@ -37,11 +37,11 @@ export function renderStackbars(container: HTMLElement, data: BreakdownResult): 
   );
   const y = scaleLinear().domain([0, maxTotal]).nice().range([innerH, 0]);
 
-  // left margin sized to the widest y-axis label so it never clips (floor: MARGIN.left)
-  const left = Math.max(
-    MARGIN.left,
-    axisLeftMargin(y.ticks(4).map((d) => fmtDuration(d as number)), axisFont),
-  );
+  // y-axis labels from the whole tick set (consistent unit, minimal precision,
+  // zero omitted) + a left margin sized to the widest of them (floor: MARGIN.left)
+  const yTicks = y.ticks(4);
+  const yLabel = durationAxisFormat(yTicks);
+  const left = Math.max(MARGIN.left, axisLeftMargin(yTicks.map(yLabel), axisFont));
   const innerW = width - left - MARGIN.right;
 
   const t0 = data.buckets[0].t0;
@@ -59,8 +59,8 @@ export function renderStackbars(container: HTMLElement, data: BreakdownResult): 
   g.append('g')
     .call(
       axisLeft(y)
-        .ticks(4)
-        .tickFormat((d) => fmtDuration(d as number))
+        .tickValues(yTicks)
+        .tickFormat((d) => yLabel(d as number))
         .tickSizeOuter(0),
     )
     .call((sel) => {

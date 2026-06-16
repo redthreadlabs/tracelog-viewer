@@ -7,7 +7,7 @@ import { scaleUtc, scaleTime, scaleLinear } from 'd3-scale';
 import { axisLeft } from 'd3-axis';
 import { el, clear } from '../ui/dom';
 import type { SeriesPoint, DeploymentMarker } from '../data/metrics';
-import { fmtDateTime, isUtcMode } from '../ui/format';
+import { fmtDateTime, isUtcMode, omitZero } from '../ui/format';
 import { contentWidth, axisLeftMargin } from './ticks';
 import { drawTimeGrid } from './timegrid';
 import { placeTooltip } from './tooltip';
@@ -16,8 +16,11 @@ const HEIGHT = 110;
 const MARGIN = { top: 20, right: 8, bottom: 18, left: 52 };
 
 export interface LineOptions {
-  /** value formatter for ticks + tooltip */
+  /** value formatter for the tooltip */
   fmt: (v: number) => string;
+  /** y-axis label formatter built from the whole tick set (consistent unit,
+   *  minimal precision, zero omitted). Defaults to fmt with the zero dropped. */
+  axisFmt?: (ticks: number[]) => (v: number) => string;
   /** shared x domain so every chart in the row aligns */
   domain: [number, number];
   markers?: DeploymentMarker[];
@@ -45,11 +48,11 @@ export function renderLine(
   for (const p of points) if (p.v > vMax) vMax = p.v;
   const y = scaleLinear().domain([0, vMax * 1.1 || 1]).nice().range([innerH, 0]);
 
-  // left margin sized to the widest y-axis label so it never clips (floor: MARGIN.left)
-  const left = Math.max(
-    MARGIN.left,
-    axisLeftMargin(y.ticks(3).map((d) => options.fmt(d as number)), axisFont),
-  );
+  // y-axis labels from the whole tick set (consistent unit, minimal precision,
+  // zero omitted) + a left margin sized to the widest of them (floor: MARGIN.left)
+  const yTicks = y.ticks(3);
+  const yLabel = options.axisFmt ? options.axisFmt(yTicks) : omitZero(options.fmt);
+  const left = Math.max(MARGIN.left, axisLeftMargin(yTicks.map(yLabel), axisFont));
   const innerW = width - left - MARGIN.right;
 
   const x = (isUtcMode() ? scaleUtc() : scaleTime())
@@ -65,8 +68,8 @@ export function renderLine(
   g.append('g')
     .call(
       axisLeft(y)
-        .ticks(3)
-        .tickFormat((d) => options.fmt(d as number))
+        .tickValues(yTicks)
+        .tickFormat((d) => yLabel(d as number))
         .tickSizeOuter(0),
     )
     .call((sel) => {

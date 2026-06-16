@@ -13,7 +13,7 @@ import { axisLeft } from 'd3-axis';
 import { brushX, type D3BrushEvent } from 'd3-brush';
 import { el, clear } from '../ui/dom';
 import type { SeriesResult } from '../data/aggregate';
-import { fmtScaleTime, isUtcMode } from '../ui/format';
+import { fmtScaleTime, isUtcMode, omitZero } from '../ui/format';
 import { contentWidth, axisLeftMargin } from './ticks';
 import { drawTimeGrid, drawGhostBand, inGhost, GHOST_FOOTNOTE } from './timegrid';
 import { placeTooltip } from './tooltip';
@@ -24,8 +24,12 @@ const MARGIN = { top: 18, right: 12, bottom: 22, left: 56 };
 export interface SeriesbarsOpts {
   /** color for a series key at its stack/legend index (styles = panel scope) */
   colorOf: (key: string, index: number, styles: CSSStyleDeclaration) => string;
-  /** format a value for the y-axis and tooltip (e.g. fmtDuration) */
+  /** format a single value for the tooltip (e.g. fmtDuration) */
   formatValue: (n: number) => string;
+  /** y-axis label formatter built from the whole tick set (consistent unit,
+   *  minimal precision, zero omitted). Defaults to formatValue with the zero
+   *  origin dropped. */
+  axisFormat?: (ticks: number[]) => (n: number) => string;
   /** drag-to-set-range; null when the brush is cleared */
   onRange: (range: [number, number] | null) => void;
 }
@@ -52,12 +56,12 @@ export function renderSeriesbars(
   const maxTotal = Math.max(1, ...data.buckets.map((b) => b.total));
   const y = scaleLinear().domain([0, maxTotal]).nice().range([innerH, 0]);
 
-  // size the left margin to the widest y-axis label so it never clips off the
-  // chart's left edge, whatever the rendered width (MARGIN.left is the floor)
-  const left = Math.max(
-    MARGIN.left,
-    axisLeftMargin(y.ticks(4).map((d) => opts.formatValue(d as number)), axisFont),
-  );
+  // y-axis labels from the whole tick set (consistent unit, minimal precision,
+  // zero omitted), and a left margin sized to the widest of them so they never
+  // clip off the chart's left edge at any width (MARGIN.left is the floor)
+  const yTicks = y.ticks(4);
+  const yLabel = opts.axisFormat ? opts.axisFormat(yTicks) : omitZero(opts.formatValue);
+  const left = Math.max(MARGIN.left, axisLeftMargin(yTicks.map(yLabel), axisFont));
   const innerW = width - left - MARGIN.right;
 
   const svg = select(container)
@@ -77,7 +81,7 @@ export function renderSeriesbars(
   drawTimeGrid(g, x as (d: Date) => number, data.domain, innerW, innerH, styles, data.bucketMs);
 
   g.append('g')
-    .call(axisLeft(y).ticks(4).tickFormat((d) => opts.formatValue(d as number)).tickSizeOuter(0))
+    .call(axisLeft(y).tickValues(yTicks).tickFormat((d) => yLabel(d as number)).tickSizeOuter(0))
     .call((sel) => {
       sel.selectAll('text').attr('fill', inkFaint).style('font', '10.5px var(--font-data)');
       sel.selectAll('line').attr('stroke', lineColor);

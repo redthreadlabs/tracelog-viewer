@@ -105,6 +105,63 @@ export function fmtCount(n: number): string {
   return n.toLocaleString('en-US');
 }
 
+// ── value-axis tick formatting ──────────────────────────────────────────────
+// A chart's y-axis labels read best when they agree: one unit for the whole
+// axis (not "min" on one line and "µs" on the zero line), only as many decimals
+// as it takes to tell the ticks apart ("83 min", not the noise of "83.3 min"),
+// and no label at all on a zero origin. These build a tick formatter from the
+// FULL tick set so it can pick that shared unit/precision. LINEAR axes only —
+// a log axis spans units by decade on purpose and has no zero, so it keeps
+// per-tick formatting.
+
+/**
+ * Decimal places for a set of evenly-spaced axis values. We start from a cap
+ * that gives the tick STEP ~two significant figures — so a step of 16.67
+ * collapses to whole numbers (the ".67" is noise) while a step of 0.25 keeps two
+ * places — then trim to the fewest decimals that still reproduce every tick at
+ * that cap (so integer steps like 5, 10, 15 don't print a pointless ".0").
+ */
+function axisDecimals(values: number[], step: number): number {
+  if (!(step > 0)) return 0;
+  const cap = Math.min(3, Math.max(0, Math.ceil(1 - Math.log10(step))));
+  for (let d = 0; d < cap; d++) {
+    if (values.every((v) => Number(v.toFixed(d)) === Number(v.toFixed(cap)))) return d;
+  }
+  return cap;
+}
+
+type Unit = [div: number, label: string];
+const DURATION_UNITS: Unit[] = [[60_000, 'min'], [1000, 's'], [1, 'ms'], [0.001, 'µs']];
+const BYTE_UNITS: Unit[] = [[1024 ** 3, 'GB'], [1024 ** 2, 'MB'], [1024, 'KB'], [1, 'B']];
+
+function unitAxisFormat(ticks: number[], units: Unit[]): (v: number) => string {
+  const max = ticks.reduce((m, t) => Math.max(m, Math.abs(t)), 0);
+  const [div, label] = units.find(([d]) => max >= d) ?? units[units.length - 1];
+  const vals = ticks.map((t) => t / div);
+  const sorted = [...vals].sort((a, b) => a - b);
+  const step =
+    sorted.length > 1 ? (sorted[sorted.length - 1] - sorted[0]) / (sorted.length - 1) : sorted[0];
+  const dec = axisDecimals(vals, step);
+  return (v) => (v === 0 ? '' : `${(v / div).toFixed(dec)} ${label}`);
+}
+
+/** Consistent-unit, minimal-precision, zero-omitting formatter for a LINEAR
+ *  duration axis (millisecond domain). Pass the axis's full tick set. */
+export function durationAxisFormat(ticks: number[]): (ms: number) => string {
+  return unitAxisFormat(ticks, DURATION_UNITS);
+}
+
+/** As durationAxisFormat, for a linear bytes axis. */
+export function bytesAxisFormat(ticks: number[]): (bytes: number) => string {
+  return unitAxisFormat(ticks, BYTE_UNITS);
+}
+
+/** Wrap a scalar formatter to leave a zero origin unlabelled — for single-unit
+ *  axes (counts, percentages) that need no unit unification. */
+export function omitZero(fmt: (v: number) => string): (v: number) => string {
+  return (v) => (v === 0 ? '' : fmt(v));
+}
+
 export const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',

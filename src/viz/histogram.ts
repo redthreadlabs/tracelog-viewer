@@ -7,7 +7,7 @@ import { scaleLinear, scaleLog } from 'd3-scale';
 import { axisBottom, axisLeft } from 'd3-axis';
 import { el, clear } from '../ui/dom';
 import type { HistBucket } from '../data/aggregate';
-import { fmtCount, fmtDuration } from '../ui/format';
+import { fmtCount, fmtDuration, omitZero } from '../ui/format';
 import { logTicks, contentWidth, axisLeftMargin } from './ticks';
 import { drawGhostFill, GHOST_FOOTNOTE } from './timegrid';
 import { placeTooltip } from './tooltip';
@@ -38,11 +38,11 @@ export function renderHistogram(
   const maxCount = Math.max(...buckets.map((b) => b.count));
   const y = scaleLinear().domain([0, maxCount]).nice().range([innerH, 0]);
 
-  // left margin sized to the widest y-axis label so it never clips (floor: MARGIN.left)
-  const left = Math.max(
-    MARGIN.left,
-    axisLeftMargin(y.ticks(4).map((d) => fmtCount(d as number)), axisFont),
-  );
+  // y-axis count labels (zero origin omitted) + a left margin sized to the
+  // widest of them so they never clip (floor: MARGIN.left)
+  const yTicks = y.ticks(4);
+  const yLabel = omitZero(fmtCount);
+  const left = Math.max(MARGIN.left, axisLeftMargin(yTicks.map(yLabel), axisFont));
   const innerW = width - left - MARGIN.right;
 
   // domain trimmed to occupied bins (log scale)
@@ -75,7 +75,7 @@ export function renderHistogram(
     });
 
   g.append('g')
-    .call(axisLeft(y).ticks(4).tickFormat((d) => fmtCount(d as number)).tickSizeOuter(0))
+    .call(axisLeft(y).tickValues(yTicks).tickFormat((d) => yLabel(d as number)).tickSizeOuter(0))
     .call((sel) => {
       sel.selectAll('text').attr('fill', inkFaint).style('font', '10.5px var(--font-data)');
       sel.selectAll('line').attr('stroke', lineColor);

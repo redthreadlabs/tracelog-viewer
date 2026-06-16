@@ -1,5 +1,59 @@
 import { describe, it, expect } from 'vitest';
-import { fmtCount, fmtHumane, setUtcMode, fmtBytesRough, fmtScaleTime } from './format';
+import {
+  fmtCount,
+  fmtHumane,
+  setUtcMode,
+  fmtBytesRough,
+  fmtScaleTime,
+  durationAxisFormat,
+  bytesAxisFormat,
+  omitZero,
+} from './format';
+
+describe('durationAxisFormat — one unit, minimal precision, no zero label', () => {
+  it('drops noise decimals and shares the unit (the overview case)', () => {
+    // d3 picks nice MILLISECOND ticks (1e6 steps); shown in minutes they were
+    // 16.7 / 33.3 / … and the zero line was "0 µs"
+    const ticks = [0, 1e6, 2e6, 3e6, 4e6, 5e6]; // 0 .. 83.3 min
+    const f = durationAxisFormat(ticks);
+    expect(f(0)).toBe(''); // zero origin omitted
+    expect(f(1e6)).toBe('17 min'); // 16.67 → 17, no decimal noise
+    expect(f(3e6)).toBe('50 min');
+    expect(f(5e6)).toBe('83 min');
+    expect(ticks.slice(1).every((t) => f(t).endsWith(' min'))).toBe(true);
+  });
+
+  it('keeps decimals that actually carry precision', () => {
+    const ticks = [0, 250, 500, 750, 1000]; // ms, max 1s → unit "s", step 0.25
+    const f = durationAxisFormat(ticks);
+    expect(f(0)).toBe('');
+    expect(f(250)).toBe('0.25 s'); // not rounded to 0.3
+    expect(f(1000)).toBe('1.00 s');
+  });
+
+  it('does not print a pointless .0 for integer steps', () => {
+    const ticks = [0, 5 * 60_000, 10 * 60_000, 15 * 60_000]; // 0,5,10,15 min
+    const f = durationAxisFormat(ticks);
+    expect(f(5 * 60_000)).toBe('5 min');
+    expect(f(15 * 60_000)).toBe('15 min');
+  });
+});
+
+describe('bytesAxisFormat / omitZero', () => {
+  it('shares one byte unit and omits zero', () => {
+    const MB = 1024 * 1024;
+    const f = bytesAxisFormat([0, 50 * MB, 100 * MB, 150 * MB]);
+    expect(f(0)).toBe('');
+    expect(f(50 * MB)).toBe('50 MB');
+    expect(f(150 * MB)).toBe('150 MB');
+  });
+
+  it('omitZero blanks the origin and passes other values through', () => {
+    const f = omitZero(fmtCount);
+    expect(f(0)).toBe('');
+    expect(f(1200)).toBe('1,200');
+  });
+});
 
 describe('fmtScaleTime', () => {
   it('renders no finer than the bar width', () => {
