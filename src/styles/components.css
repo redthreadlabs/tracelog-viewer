@@ -891,7 +891,7 @@ pre.json .b {
   width: 15px;
   height: 15px;
   padding: 0;
-  border: 1.5px solid var(--ink-faint); /* off: a hollow ✕-in-a-ring */
+  border: 1.5px solid var(--ink-faint); /* off: a ring with a prohibition slash */
   border-radius: 50%;
   background: transparent;
   color: var(--ink-faint);
@@ -903,11 +903,15 @@ pre.json .b {
   transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 
+/* off: a single diagonal bar across the ring → the universal "no" / no-smoking
+ * symbol (a centered glyph would be too small to read as a prohibition) */
 .txn-toggle::before {
-  content: '✕'; /* off */
-  font-size: 8px;
-  font-weight: 700;
-  line-height: 1;
+  content: '';
+  width: 11px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: currentColor;
+  transform: rotate(45deg);
 }
 
 /* on: a solid disc in the series colour (background + border set inline) + a check */
@@ -917,7 +921,12 @@ pre.json .b {
 
 .txn-toggle.on::before {
   content: '✓';
+  width: auto;
+  height: auto;
+  background: none;
+  transform: none;
   font-size: 9px;
+  line-height: 1;
 }
 
 th.sortable {
