@@ -432,17 +432,16 @@ export function renderScanbar(container: HTMLElement): void {
     applyRange();
     if (isOverview) storeClient.dispatchEvent(new Event('plan'));
 
-    // a load already in flight: don't start another — just match its priority to
-    // this view (a record view un-throttles the prefetch; the overview re-throttles)
-    if (storeClient.snapshot.progress.running) {
-      updateLoadPriority();
-      return;
-    }
     if (planSignature(state.plan) === loadedSignature) {
-      // same data, a different slice — re-render the narrowed view, no refetch
+      // same files already loaded, a different slice — re-render, no refetch
       if (!isOverview) window.dispatchEvent(new HashChangeEvent('hashchange'));
       return;
     }
+    // A new plan — even if a load is already running. We must re-scope the loader
+    // to it (setPlan is additive: keeps loaded records, drops the now-out-of-plan
+    // PENDING fetches), or a brush-narrow mid-prefetch would let the loader keep
+    // pursuing the old, wider plan to completion. runScan also (re)sets the load
+    // priority, so the prefetch stays throttled.
     void runScan({ background: isOverview && indexed });
   }
 
