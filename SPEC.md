@@ -966,22 +966,32 @@ the schema-on-read work below.)
    immediate even though the scatter still needs the ~80s on-demand load (which
    #2 will hide).
 
-7. **The batch planner** *(in progress, 2026-06-15)* — the solver now takes a
-   SET of metrics over one window and produces them all, reading each source
-   ONCE, instead of answering one metric at a time. `data/planner.ts` groups the
-   requested metrics by source (the cube for count/Σ; the duration sketch for
-   P95), iterates each source a single time, and fans every cell out to all the
-   metrics that read it — series-shaped metrics emit pre-aggregated points (handed
-   to `aggregateBySeries`), total-shaped ones fold into a per-group tally.
-   `overviewData` now solves the chart's Σ-duration series and the table's
+7. **The batch planner** *(done, 2026-06-15)* — the solver takes a SET of metrics
+   over one window and produces them all, reading each source ONCE, instead of
+   answering one metric at a time. `data/planner.ts` groups the requested metrics
+   by source (the cube for count/Σ; the duration sketch for P95), iterates each
+   source a single time, and fans every cell out to all the metrics that read it
+   — series-shaped metrics emit pre-aggregated points (handed to
+   `aggregateBySeries`), total-shaped ones fold into a per-group tally.
+   `overviewData` solves the chart's Σ-duration series and the table's
    count/Σ/errors/P95 totals as **one batch** — a single cube pass for both —
    when the window is fully index-coverable; it falls back to the per-metric
    solves (chart scan + index table) for a cold range, sub-hour grid, or a
-   missing index. `sourceOf` already classifies a metric whose cheapest plan is a
-   `scan` — the next step is the deferred path (#2): a batch returns its
-   index-served metrics immediately plus tokens for the scan-served ones, which
-   the worker resolves over the SharedWorker boundary once the load it kicks off
-   completes (the drill-down's records sections are the first consumer).
+   missing index. `sourceOf` classifies a metric whose cheapest plan is a `scan`.
+
+   **The deferred path** carries a plan's scan-served parts across the
+   SharedWorker boundary. A `Promise` can't survive structured-clone, so it
+   becomes a **token + a later message**: the worker returns the index-served
+   parts immediately plus a token; a per-session producer recomputes the bounded
+   result on each record change and posts `{ deferred: token, result, done }` to
+   the tab, `done` on the last push when the load settles (raw records never
+   cross — only the sampled/bounded projection). `storeclient.subscribeDeferred`
+   turns a token into a stream-of-updates and returns an unsubscribe (a
+   `{ cancelDeferred }` to the worker) so a torn-down view stops the producer.
+   The **drill-down** is the first consumer: `solveTransaction` returns the index
+   summary + the current (partial) records sections + a token; the records — result
+   mix, scatter, slowest — stream back under it as the working-set load fills in,
+   replacing the view's old event-driven re-fetch with planner-driven push.
 
 ### 11.5 Philosophy
 

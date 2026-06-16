@@ -89,7 +89,11 @@ export type Outbound =
   | { id: number; ok: true; result: unknown }
   | { id: number; ok: false; error: string }
   | { ev: 'data' | 'progress'; snapshot: Snapshot }
-  | { ev: 'perf'; entry: PerfEntry };
+  | { ev: 'perf'; entry: PerfEntry }
+  // a deferred result (SPEC §11): a plan returns its index-served parts at once
+  // and a `token`; the scan-served part streams back here as the load fills in,
+  // `done` on the last push. Bounded results only — raw records never cross.
+  | { deferred: string; result: unknown; done: boolean };
 
 interface PortLike {
   postMessage(message: unknown): void;
@@ -141,8 +145,44 @@ class Session {
       () => this.currentRange,
     );
     this.live = new LiveUpdater(this.store, this.bucket, () => this.liveChannels);
-    this.store.addEventListener('data', () => this.broadcast('data'));
-    this.store.addEventListener('progress', () => this.broadcast('progress'));
+    this.store.addEventListener('data', () => {
+      this.broadcast('data');
+      void this.fireDeferred();
+    });
+    this.store.addEventListener('progress', () => {
+      this.broadcast('progress');
+      void this.fireDeferred();
+    });
+  }
+
+  // ---- deferred results (SPEC §11): a producer recomputes a bounded result as
+  // the working-set load streams in, pushed to the tab under a token until the
+  // load settles. Empty when no view is awaiting one, so it costs nothing then.
+  private deferredSeq = 0;
+  private deferred = new Map<string, { produce: () => Promise<unknown> | unknown; lastGen: number }>();
+
+  /** Register a deferred producer; returns its token. Recomputed + pushed on
+   *  each record change (and once when the load settles). */
+  addDeferred(produce: () => Promise<unknown> | unknown): string {
+    const token = `d${++this.deferredSeq}`;
+    this.deferred.set(token, { produce, lastGen: this.store.generation });
+    return token;
+  }
+  cancelDeferred(token: string): void {
+    this.deferred.delete(token);
+  }
+  private async fireDeferred(): Promise<void> {
+    if (this.deferred.size === 0) return;
+    const done = !this.store.progress.running;
+    const gen = this.store.generation;
+    for (const [token, d] of this.deferred) {
+      if (d.lastGen === gen && !done) continue; // no new records, not the final tick
+      d.lastGen = gen;
+      const result = await d.produce();
+      const message: Outbound = { deferred: token, result, done };
+      for (const port of this.ports) port.postMessage(message);
+      if (done) this.deferred.delete(token); // last push — retire it
+    }
   }
 
   /** A registered index's loaded payloads, by file id — cached for the current
@@ -563,6 +603,77 @@ async function solveTransactionTotals(
   return { groups, p95Estimated: true, n };
 }
 
+/**
+ * The drill-down's INDEX-served headline (SPEC §11): count/avg/errors exact from
+ * the cube; p50/p95/p99/max and the duration distribution from the sketch
+ * (estimated). No records needed, so the detail page shows it instantly.
+ */
+async function txnSummaryData(s: Session, name: string, range: TimeRange) {
+  const [from, to] = range ?? operatingRange(s);
+  const prefix = s.bucket.bucket + SEP;
+  const inRange = s.currentPlan.filter((f) => overlapsRange(f, from, to));
+
+  const cube = await s.loadIndex(txnIndex);
+  const totals = new Map<string, TxnTotals>();
+  for (const f of inRange) {
+    const rec = cube.get(prefix + f.key);
+    if (rec && f.etag && rec.etag === f.etag) mergeRangeTotals(rec.payload, from, to, totals);
+  }
+  const t = totals.get(name);
+
+  const hist = await s.loadIndex(durHistIndex);
+  const merged = new Map<string, Bins>();
+  for (const f of inRange) {
+    const rec = hist.get(prefix + f.key);
+    if (rec && f.etag && rec.etag === f.etag) mergeRangeBins(rec.payload, from, to, merged);
+  }
+  const bins = merged.get(name) ?? {};
+  const binIdxs = Object.keys(bins).map(Number).sort((x, y) => x - y);
+  // a HistBucket[] straight off the fixed sketch bins (same shape logHistogram
+  // produces, so the same renderer draws either)
+  const histogram = binIdxs.map((i) => ({ x0: binValue(i), x1: binValue(i + 1), count: bins[i] }));
+  const count = t?.c ?? 0;
+  const spanMin = (to - from) / 60_000;
+  return {
+    name,
+    count,
+    errors: t?.e ?? 0,
+    avg: count > 0 ? (t?.d ?? 0) / count : undefined,
+    p50: quantileFromBins(bins, 0.5),
+    p95: quantileFromBins(bins, 0.95),
+    p99: quantileFromBins(bins, 0.99),
+    max: binIdxs.length ? binValue(binIdxs[binIdxs.length - 1] + 1) : undefined,
+    rpm: count > 0 && spanMin > 0 ? count / spanMin : undefined,
+    histogram,
+    estimated: true,
+  };
+}
+
+/**
+ * The drill-down's RECORDS-served sections (SPEC §11): result mix + instance
+ * samples (scatter / slowest). Built from whatever's loaded — partial while the
+ * working set streams in, complete once it settles. The deferred producer for
+ * the drill-down; the scatter spans `domain` whole and ghosts `incompleteSpans`.
+ */
+function txnRecords(s: Session, name: string, range: TimeRange) {
+  const stats = transactionStats(s.store.transactionsNamed(name), name, range);
+  const [lo, hi] = range ?? operatingRange(s);
+  const ghostSpans = mergeSpans(incompleteSpans(s), lo, hi);
+  const slowest = [...stats.instances]
+    .filter((r) => r.duration !== undefined)
+    .sort((a, b) => b.duration! - a.duration!)
+    .slice(0, 20);
+  const { rows, sample } = sampleInstances(stats.instances);
+  return {
+    resultCounts: stats.resultCounts,
+    instances: rows,
+    sample,
+    slowest,
+    ghostSpans,
+    domain: [lo, hi] as [number, number],
+  };
+}
+
 type OpHandler = (session: Session, args: Record<string, unknown>) => Promise<unknown> | unknown;
 
 const ops: Record<string, OpHandler> = {
@@ -827,87 +938,27 @@ const ops: Record<string, OpHandler> = {
     return { series: result, ghostSpans, complete, groups, p95Estimated };
   },
 
-  /** The drill-down's headline, served entirely from the indexes (SPEC §11) —
-   *  so the detail page shows its summary + duration distribution INSTANTLY,
-   *  before the working set loads. count/avg/errors are exact from the cube;
-   *  p50/p95/p99/max and the histogram come from the duration sketch (estimated).
-   *  The records-based sections (scatter, slowest, result mix) fill in once the
-   *  load that this view triggers completes — they need raw instances. */
-  txnSummary: async (s, a) => {
+  /** The drill-down as one plan (SPEC §11): the index-served summary (count,
+   *  percentiles, distribution) returns immediately, alongside the current
+   *  records sections (result mix, scatter, slowest — partial while loading) and,
+   *  when more records are still to come, a `token`. The records sections then
+   *  stream back under that token as the working-set load fills in (the deferred
+   *  path), so the page shows its headline instantly and fills the rest in. */
+  solveTransaction: async (s, a) => {
     const name = a.name as string;
     const range = a.range as TimeRange;
-    const [from, to] = range ?? operatingRange(s);
-    const prefix = s.bucket.bucket + SEP;
-    const inRange = s.currentPlan.filter((f) => overlapsRange(f, from, to));
-
-    const cube = await s.loadIndex(txnIndex);
-    const totals = new Map<string, TxnTotals>();
-    for (const f of inRange) {
-      const rec = cube.get(prefix + f.key);
-      if (rec && f.etag && rec.etag === f.etag) mergeRangeTotals(rec.payload, from, to, totals);
-    }
-    const t = totals.get(name);
-
-    const hist = await s.loadIndex(durHistIndex);
-    const merged = new Map<string, Bins>();
-    for (const f of inRange) {
-      const rec = hist.get(prefix + f.key);
-      if (rec && f.etag && rec.etag === f.etag) mergeRangeBins(rec.payload, from, to, merged);
-    }
-    const bins = merged.get(name) ?? {};
-    const binIdxs = Object.keys(bins).map(Number).sort((x, y) => x - y);
-    // a HistBucket[] straight off the fixed sketch bins (same shape the records
-    // path's logHistogram produces, so the same renderer draws either)
-    const histogram = binIdxs.map((i) => ({ x0: binValue(i), x1: binValue(i + 1), count: bins[i] }));
-    const count = t?.c ?? 0;
-    const spanMin = (to - from) / 60_000;
-    return {
-      name,
-      count,
-      errors: t?.e ?? 0,
-      avg: count > 0 ? (t?.d ?? 0) / count : undefined,
-      p50: quantileFromBins(bins, 0.5),
-      p95: quantileFromBins(bins, 0.95),
-      p99: quantileFromBins(bins, 0.99),
-      // top populated bin's upper edge — the sketch's coarse ceiling
-      max: binIdxs.length ? binValue(binIdxs[binIdxs.length - 1] + 1) : undefined,
-      rpm: count > 0 && spanMin > 0 ? count / spanMin : undefined,
-      histogram,
-      estimated: true,
-    };
-  },
-
-  txnDetail: (s, a) => {
-    const range = a.range as TimeRange;
-    const stats = transactionStats(
-      s.store.transactionsNamed(a.name as string),
-      a.name as string,
-      range,
-    );
-    // the drill-down is records-based, so any interval not fully loaded — still
-    // streaming in, or refused by the budget — is partial. Surface those as the
-    // ghost band (and report the full window as `domain`) so the scatter spans
-    // the whole range and the not-yet-loaded regions read as ghost (SPEC §7).
     const [lo, hi] = range ?? operatingRange(s);
-    const ghostSpans = mergeSpans(incompleteSpans(s), lo, hi);
-    const slowest = [...stats.instances]
-      .filter((r) => r.duration !== undefined)
-      .sort((a2, b) => b.duration! - a2.duration!)
-      .slice(0, 20);
-    const { rows, sample } = sampleInstances(stats.instances);
-    // the records-only sections — result mix + the instance samples (scatter /
-    // slowest). The headline (count, percentiles, distribution) is index-served
-    // via txnSummary; count especially is exact from the cube, not this partial
-    // loaded subset, so it's deliberately not echoed here.
-    return {
-      name: stats.name,
-      resultCounts: stats.resultCounts,
-      instances: rows,
-      sample,
-      slowest,
-      ghostSpans,
-      domain: [lo, hi] as [number, number],
-    };
+    const summary = await txnSummaryData(s, name, range);
+    const records = txnRecords(s, name, range);
+    // more records to come? — any in-range file not yet loaded. If everything's
+    // loaded (or there's nothing here — a cold range the view shows as loading,
+    // not via a token it won't subscribe to) the records are final; otherwise
+    // stream updates under a token.
+    const complete =
+      summary.count === 0 ||
+      s.currentPlan.filter((f) => overlapsRange(f, lo, hi)).every((f) => s.store.files.has(f.key));
+    const token = complete ? null : s.addDeferred(() => txnRecords(s, name, range));
+    return { summary, records, token };
   },
 
   traceData: (s, a) => assembleTrace(s.store.traceRecords(a.traceId as string), a.traceId as string),
@@ -1034,9 +1085,13 @@ export function handlePort(port: PortLike & { onmessage?: unknown }): void {
   allPorts.add(port);
   let session: Session | null = null;
   (port as { onmessage: (ev: MessageEvent) => void }).onmessage = (ev: MessageEvent) => {
-    const msg = ev.data as Request & { profile?: Profile };
+    const msg = ev.data as Request & { profile?: Profile; cancelDeferred?: string };
     void (async () => {
       try {
+        if (msg.cancelDeferred) {
+          session?.cancelDeferred(msg.cancelDeferred); // view gone → stop producing
+          return;
+        }
         if (msg.op === 'attach') {
           session?.ports.delete(port);
           session = getSession(msg.profile!);

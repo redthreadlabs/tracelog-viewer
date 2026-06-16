@@ -33,6 +33,8 @@ export class StoreClient extends EventTarget {
   private port: MessagePort | Worker | null = null;
   private nextId = 1;
   private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  /** deferred-token subscribers (SPEC §11): token → onUpdate(result, done) */
+  private deferred = new Map<string, (result: unknown, done: boolean) => void>();
 
   private ensurePort(): MessagePort | Worker {
     if (this.port) return this.port;
@@ -71,11 +73,30 @@ export class StoreClient extends EventTarget {
       this.dispatchEvent(new Event(msg.ev));
       return;
     }
+    if ('deferred' in msg) {
+      // a deferred result streaming back under its token (SPEC §11)
+      this.deferred.get(msg.deferred)?.(msg.result, msg.done);
+      return;
+    }
     const waiter = this.pending.get(msg.id);
     if (!waiter) return;
     this.pending.delete(msg.id);
     if (msg.ok) waiter.resolve(msg.result);
     else waiter.reject(new Error(msg.error));
+  }
+
+  /**
+   * Subscribe to a deferred token returned by a plan (SPEC §11): `onUpdate` fires
+   * with each bounded result the worker pushes as the load fills in, `done` true
+   * on the last. Returns an unsubscribe — call it on teardown so the worker stops
+   * producing for a gone view.
+   */
+  subscribeDeferred<T>(token: string, onUpdate: (result: T, done: boolean) => void): () => void {
+    this.deferred.set(token, (r, done) => onUpdate(r as T, done));
+    return () => {
+      if (!this.deferred.delete(token)) return;
+      this.ensurePort().postMessage({ cancelDeferred: token });
+    };
   }
 
   request<T>(op: string, args: Record<string, unknown> = {}): Promise<T> {

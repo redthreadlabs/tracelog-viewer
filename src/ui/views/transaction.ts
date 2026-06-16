@@ -36,9 +36,8 @@ interface TxnSummary {
   estimated: true;
 }
 
-/** records-based detail for one transaction name (boundary-sampled) */
-interface TxnDetail {
-  name: string;
+/** the records-based sections (boundary-sampled) — the deferred half of the plan */
+interface TxnRecords {
   resultCounts: Map<string, number>;
   instances: Rec[];
   sample?: SampleNote;
@@ -48,14 +47,22 @@ interface TxnDetail {
   domain: [number, number];
 }
 
+/** what `solveTransaction` returns: the index summary now + the records (partial
+ *  while loading) + a token the records stream back under as the load fills in */
+interface TxnPlan {
+  summary: TxnSummary;
+  records: TxnRecords;
+  token: string | null;
+}
+
 export function renderTransactionView(container: HTMLElement, name: string): () => void {
   const head = el('div', { className: 'trace-head' });
   const body = el('div', { className: 'txn-detail-body' });
   container.append(head, body);
 
-  let token = 0; // structure builds (a range change rebuilds, fills abort)
-  let fillToken = 0; // records fills (only the latest applies)
+  let token = 0; // plan solves (a range change re-solves; stale results abort)
   let built = false; // is the page structure up (summary count > 0)?
+  let unsubscribe: (() => void) | null = null; // the current records subscription
   // records-section hosts, (re)set by buildStructure, populated by fillRecords
   let mixHost: HTMLElement | null = null;
   let scatterHost: HTMLElement | null = null;
@@ -63,13 +70,15 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
   let slowestBody: HTMLElement | null = null;
   let slowestHead: HTMLElement | null = null;
 
-  // ---- the index summary: instant page skeleton ----
+  // ---- solve the plan: index summary now, records streaming under a token ----
   async function rebuild(): Promise<void> {
     const t = ++token;
+    unsubscribe?.(); // drop any prior records subscription
+    unsubscribe = null;
     const range = viewState.timeRange;
-    const summary = await storeClient.request<TxnSummary>('txnSummary', { name, range });
+    const plan = await storeClient.request<TxnPlan>('solveTransaction', { name, range });
     if (t !== token || !container.isConnected) return;
-    if (summary.count === 0) {
+    if (plan.summary.count === 0) {
       built = false;
       // a cold range (no index yet) loads in the background — say so rather than
       // claim "none" while the load that will populate it is still running
@@ -77,9 +86,20 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
       else renderEmpty();
       return;
     }
-    buildStructure(summary);
+    buildStructure(plan.summary);
     built = true;
-    void fillRecords();
+    fillRecords(plan.records); // initial (partial while loading, complete if loaded)
+    // the records stream back under the token as the load fills in
+    if (plan.token) {
+      unsubscribe = storeClient.subscribeDeferred<TxnRecords>(plan.token, (records, done) => {
+        if (t !== token || !container.isConnected) return;
+        fillRecords(records);
+        if (done) {
+          unsubscribe?.();
+          unsubscribe = null;
+        }
+      });
+    }
   }
 
   function buildStructure(s: TxnSummary): void {
@@ -159,17 +179,10 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
     body.append(el('div', { className: 'txn-wrap', attrs: { style: 'flex:none' } }, [table]));
   }
 
-  // ---- the records sections: progressive fill as the load streams in ----
-  async function fillRecords(): Promise<void> {
-    const ft = ++fillToken;
-    const structureToken = token;
-    const doneRender = perf.begin('render', `/txn/${name}`);
-    const detail = await storeClient.request<TxnDetail>('txnDetail', {
-      name,
-      range: viewState.timeRange,
-    });
-    if (ft !== fillToken || structureToken !== token || !container.isConnected) return;
+  // ---- the records sections: (re)drawn from each streamed update ----
+  function fillRecords(detail: TxnRecords): void {
     if (!mixHost || !scatterHost || !slowestBody) return;
+    const doneRender = perf.begin('render', `/txn/${name}`);
 
     // result mix
     clear(mixHost);
@@ -311,9 +324,12 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
   renderHead();
   body.append(pendingBlock(220));
 
-  // records stream in → refill the records sections; a not-yet-built structure
-  // (cold range) rebuilds once its index exists; a range change rebuilds.
-  const onData = () => (built ? void fillRecords() : void rebuild());
+  // the records sections stream in under the plan's token, so we don't re-fetch
+  // on 'data' — except a cold range (no index yet, summary count 0) rebuilds once
+  // its index exists; a range/selection change or resize re-solves.
+  const onData = () => {
+    if (!built) void rebuild();
+  };
   const onPlan = () => void rebuild();
   const onResize = () => void rebuild();
   storeClient.addEventListener('data', onData);
@@ -323,6 +339,8 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
 
   return () => {
     token++;
+    unsubscribe?.(); // tell the worker to stop producing for this gone view
+    unsubscribe = null;
     storeClient.removeEventListener('data', onData);
     storeClient.removeEventListener('plan', onPlan);
     window.removeEventListener('resize', onResize);
