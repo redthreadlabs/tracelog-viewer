@@ -94,7 +94,10 @@ export function startApp(root: HTMLElement): void {
     const zoneBtn = el('button', { className: 'toggle', title: 'show times in UTC or your time zone' });
     const paintZone = (): void => {
       clear(zoneBtn);
-      zoneBtn.append(el('span', { text: zoneLabel() }));
+      zoneBtn.append(
+        el('span', { className: 'toggle-label', text: 'TIME:' }),
+        el('span', { text: zoneLabel() }),
+      );
     };
     paintZone();
     zoneBtn.addEventListener('click', () => {
@@ -113,8 +116,8 @@ export function startApp(root: HTMLElement): void {
       const dark = currentTheme() === 'dark';
       clear(themeBtn);
       themeBtn.append(
-        el('span', { text: dark ? 'DARK' : 'LIGHT' }),
         el('span', { className: `toggle-ico ${dark ? 'moon' : 'sun'}`, text: dark ? '☾' : '☀' }),
+        el('span', { text: dark ? 'DARK' : 'LIGHT' }),
       );
     };
     paintTheme();

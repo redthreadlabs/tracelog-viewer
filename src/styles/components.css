@@ -571,9 +571,14 @@ pre.json .b {
   color: var(--ink);
 }
 
+/* a faint prefix label inside a toggle, e.g. "TIME:" */
+.toggle-label {
+  color: var(--ink-faint);
+}
+
 /* sun = current light mode (amber), moon = current dark mode (light grey) */
 .toggle-ico {
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1;
 }
 .toggle-ico.sun {
