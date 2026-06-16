@@ -168,7 +168,7 @@ export class Store extends EventTarget {
     if (keys.size === 0) return;
     for (const key of keys) {
       this.files.delete(key);
-      this.fileIndexes.delete(key); // its kind buckets GC with it
+      this.fileIndexes.delete(key); // its per-kind indexes GC with it
     }
     this.records = this.records.filter((r) => !keys.has(r.sourceKey)); // order preserved → no re-sort
     this.rebuildIndexes();

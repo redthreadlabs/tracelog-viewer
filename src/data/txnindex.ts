@@ -7,7 +7,7 @@
  * merging these rollups, without re-fetching or re-scanning the records.
  *
  * Hourly UTC granularity matches the sidecar convention and the ≥1h queries it
- * can satisfy; finer buckets fall back to the record scan. An index is always an
+ * can satisfy; finer periods fall back to the record scan. An index is always an
  * optimization, never a correctness requirement (drop it → same answers, slower).
  */
 import type { Rec } from './types';
