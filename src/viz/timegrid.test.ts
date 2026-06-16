@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { levelOf, formatTick, chooseTiers } from './timegrid';
+import { levelOf, formatTick, chooseTiers, chooseBottomStep } from './timegrid';
 
 const HR = 3_600_000;
 const DAY = 24 * HR;
@@ -31,6 +31,31 @@ describe('chooseTiers — relative hierarchy from the viewport', () => {
 // All assertions use UTC (utc=true) so they don't depend on the test runner's
 // local zone.
 const ms = (iso: string) => Date.parse(iso);
+
+describe('chooseBottomStep — bottom cadence never repeats the top date anchor', () => {
+  it('steps below the major on a months-wide view (no duplicate month labels)', () => {
+    // ~2.5 months of daily bars: minor=week, major=month. The spacing rule
+    // alone would also pick monthly (weekly is < BOTTOM_LABEL_PX), which put
+    // "April / May / June" on BOTH rows — it must drop to a strictly finer step.
+    const domain: [number, number] = [Date.UTC(2026, 3, 1), Date.UTC(2026, 5, 16)];
+    const innerW = 1030;
+    const { minor, medium, major } = chooseTiers(domain, innerW, DAY, utc);
+    expect(major?.level).toBe('month');
+    const bottom = chooseBottomStep(domain, innerW, minor, major, medium);
+    expect(bottom.level).not.toBe('month');
+    expect(bottom.ms).toBeLessThan(major!.ms);
+  });
+
+  it('leaves a naturally-finer bottom cadence alone (day of 15-min bars)', () => {
+    const domain: [number, number] = [Date.UTC(2026, 5, 10), Date.UTC(2026, 5, 11)];
+    const innerW = 1200;
+    const { minor, medium, major } = chooseTiers(domain, innerW, 15 * 60_000, utc);
+    expect(major?.level).toBe('day');
+    const bottom = chooseBottomStep(domain, innerW, minor, major, medium);
+    // already finer than the day anchor — untouched, still sub-day
+    expect(bottom.ms).toBeLessThan(major!.ms);
+  });
+});
 
 describe('levelOf — significance of a boundary', () => {
   it('grades the calendar hierarchy', () => {

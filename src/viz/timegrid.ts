@@ -120,6 +120,34 @@ export function chooseTiers(
   };
 }
 
+/**
+ * The bottom row's label cadence: the finest nice step (≥ the minor grid) that's
+ * comfortably spaced (≥ BOTTOM_LABEL_PX), but forced **strictly finer** than any
+ * date tier already labelled up top (major, and a date-level medium). Without
+ * that floor, a months-wide view — where weekly is too tight, so the spacing
+ * rule reaches for monthly — lands the bottom cadence on the very same month
+ * starts and repeats the top's "April / May / June" verbatim on both rows.
+ * Pure and unit-testable.
+ */
+export function chooseBottomStep(
+  domain: [number, number],
+  innerW: number,
+  minor: Step,
+  major: Step | null,
+  medium: Step | null,
+): Step {
+  const span = domain[1] - domain[0];
+  const minorI = STEPS.indexOf(minor);
+  let bottomI = STEPS.findIndex((s, i) => i >= minorI && (innerW * s.ms) / span >= BOTTOM_LABEL_PX);
+  if (bottomI < 0) bottomI = minorI;
+  // never as coarse as a tier already labelled up top
+  let topFinestI = STEPS.length;
+  if (major && !isTime(major.level)) topFinestI = Math.min(topFinestI, STEPS.indexOf(major));
+  if (medium && !isTime(medium.level)) topFinestI = Math.min(topFinestI, STEPS.indexOf(medium));
+  if (bottomI >= topFinestI) bottomI = Math.max(minorI, topFinestI - 1);
+  return STEPS[bottomI];
+}
+
 let ghostPatternSeq = 0;
 
 /** Ghost-band hatch appearance — tweak here (one place). */
@@ -480,15 +508,10 @@ export function drawTimeGrid(
   if (major && !isTime(major.level)) drawTop(major, inkSoft);
   if (medium && !isTime(medium.level)) drawTop(medium, inkFaint);
 
-  // ── bottom labels: the running fine times. Cadence = the finest nice step
-  //    (≥ the minor grid) that's comfortably spaced — so labels are frequent
-  //    without crowding or collapsing to a single repeated value (e.g. 6h here,
-  //    not the 12h medium that would leave only noons). A mark whose date is
-  //    already up top is skipped so no x carries two labels. ──
-  const minorI = STEPS.indexOf(minor);
-  let bottomI = STEPS.findIndex((s, i) => i >= minorI && (innerW * s.ms) / span >= BOTTOM_LABEL_PX);
-  if (bottomI < 0) bottomI = minorI;
-  const bottomStep = STEPS[bottomI];
+  // ── bottom labels: the running fine times — the finest comfortably-spaced
+  //    step, but always strictly finer than the top date tier(s) so it never
+  //    just repeats them (see chooseBottomStep). ──
+  const bottomStep = chooseBottomStep(domain, innerW, minor, major, medium);
   const bottomG = g.append('g').attr('transform', `translate(0,${innerH})`);
   let prevB = '';
   for (const t of ticksFor(domain[0], domain[1], bottomStep, utc)) {
