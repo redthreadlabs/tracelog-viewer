@@ -57,7 +57,7 @@ import {
   clientEventTypes,
 } from '../data/clients';
 import { scannerStats } from '../data/scanner-traffic';
-import { recordListing, estimatePlan, ledgerRecords } from '../data/ledger';
+import { recordListing, ledgerRecords } from '../data/ledger';
 import type { Metric } from './query';
 
 type TimeRange = [number, number] | null;
@@ -718,34 +718,13 @@ const ops: Record<string, OpHandler> = {
     );
     return plan;
   },
-  estimateView: async (s, a) => {
-    const files = (a.files as ParsedKey[]) ?? [];
-    // pull sidecars into the ledger first, so the estimate is factual (exact
-    // decompressed bytes) rather than ratio-based wherever a sidecar exists
-    await hydrateSidecars(s.bucket, files);
-    return estimatePlan(
-      s.bucket.bucket,
-      files.map((f) => ({ key: f.key, channel: f.channel, compressed: f.size })),
-    );
-  },
-  executeScan: async (s, a) => {
-    // a channel/range change is a *new plan*: reset the working-set loader to
-    // the executed plan (possibly a memory-clamped subset of the selection)
+  executeScan: (s, a) => {
     if ('range' in a) s.currentRange = (a.range as TimeRange) ?? null;
-    // exact decompressed size per file from the sidecars (hydrated by the
-    // preceding estimateView), so progress reports in-memory bytes, not download
-    const prefix = s.bucket.bucket + SEP;
-    const decompressedByKey = new Map<string, number>();
-    for (const r of await ledgerRecords(s.bucket.bucket)) {
-      if (r.decompressed != null && r.id.startsWith(prefix)) {
-        decompressedByKey.set(r.id.slice(prefix.length), r.decompressed);
-      }
-    }
     s.loader.setBackground(a.background === true); // a prefetch loads throttled
     const plan = a.plan as ScanPlan;
     // additive on a range change (keep parsed records, fetch only the delta);
     // wipe only when the channel selection changes (SPEC §8)
-    s.loader.setPlan(plan.files, plan.channels, decompressedByKey);
+    s.loader.setPlan(plan.files, plan.channels);
   },
   /** Re-prioritise an in-flight load: foreground (a view now waits on the
    *  records) un-throttles it, background (back to an index-served view) throttles
@@ -755,7 +734,7 @@ const ops: Record<string, OpHandler> = {
   },
   clearStore: (s) => {
     s.currentPlan = [];
-    s.loader.reset([]); // clears store + mem, empties the working set
+    s.loader.reset([]); // clears the store, empties the working set
   },
   setLive: (s, a) => {
     s.liveChannels = a.channels as string[];

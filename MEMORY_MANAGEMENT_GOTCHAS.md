@@ -84,37 +84,28 @@ Honest ceiling: V8's heap is opaque (hidden classes, GC slack); this is always a
 
 ## Today's accounting (the thing to fix later)
 
-`memoryLimitMb` currently bounds **only `MemBytes`** (decompressed bytes). Parsed
-records are **uncounted overflow** on top, so the real footprint already exceeds
-the nominal limit (~bytes + ~0.4× in records + index cache). "Keep records across
-narrows" (the prefetch model) makes that overflow grow.
+## Current state (what we shipped)
 
-## Interim decision (what we're building now)
+`MemBytes` is **deleted** (streaming inflate — no decompressed RAM tier). Records
+are the only significant in-memory tier, and the budget proxy is now
+**COMPRESSED (gz / listing) size**, charged per file in `evictRecords` + the load
+clamp + the load indicator (all in the same currency). Rationale: `Rec` interns
+low-cardinality string fields (host, channel, name, result, …), so a file's record
+heap is dominated by ~unique values + fixed per-record overhead — the low-entropy
+repetition gzip already collapses. So compressed size tracks heap better than
+decompressed *or* raw count, and it's exact + free from the S3 listing (no sidecar,
+no `estimateView`). `memoryLimitMb` is denominated in compressed bytes; the default
+dropped 256 → 32 to hold a comparable amount of data in the new currency.
 
-Keep using **`MemBytes` / decompressed-byte size as the memory proxy** — do NOT
-build the count-based accounting or the calibration rig yet. Design the LRU
-eviction + working-set preload against the decompressed-byte budget we already
-have. Revisit this doc when the proxy's inaccuracy actually bites (limit doesn't
-map to reality, or records OOM despite being "under budget").
+This is **factor-1** (charge raw compressed size). It *under*-estimates actual heap
+(heap is several × compressed), so the limit under-protects vs. a calibrated value
+— a deliberate, technical-user choice (set the limit lower). Calibration is still
+parked.
 
-### Strong candidate proxy: compressed size
-
-Once decompressed bytes are no longer held (streaming inflate), a likely-better
-proxy than decompressed-size *or* raw count is **compressed (gz) size**. `Rec`
-interns low-cardinality string fields (host, channel, name, result, …) into a
-string pool, so a file's record heap is dominated by ~unique values + fixed
-per-record overhead — which is exactly the low-entropy repetition gzip already
-collapses. So compressed size and retained record heap should track each other
-well, and compressed size is known per file with zero extra work (it's the byte
-we cache). Worth calibrating compressed-size vs. count×const vs. a real
-`measureUserAgentSpecificMemory` reading when we do the accounting pass.
-
-### TODO when we revisit
-- [ ] Evaluate **compressed size** as the record-heap proxy (string interning
-      makes heap track compressed, not decompressed, size).
-- [ ] Switch the budget currency to **count-driven estimated heap**.
-- [ ] Calibrate `PER_RECORD_BYTES` via `measureUserAgentSpecificMemory` (add
-      COOP/COEP to the deploy headers).
-- [ ] Make records their own eviction tier; demote `MemBytes` to a small raw-line
-      scratch (drop a file's bytes post-parse, re-inflate on demand).
+### TODO when we revisit (the legibility pass)
+- [ ] Calibrate a **factor** (heap ≈ factor × compressed) so `memoryLimitMb` maps
+      to actual heap — via `measureUserAgentSpecificMemory` (add COOP/COEP to the
+      deploy headers), occasionally re-anchored.
+- [ ] Consider **count-driven** estimated heap if compressed correlation proves
+      weak in practice.
 - [ ] Surface the memory breakdown on `/internals` (legible, per-tier, vs limit).

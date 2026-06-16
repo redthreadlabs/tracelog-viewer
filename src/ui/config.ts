@@ -61,7 +61,10 @@ export function renderConfig(container: HTMLElement, onDone: () => void, flash =
   // null-coalescing only applies its default when there's no profile yet.)
   const limitValue = (mb: number | undefined, dflt: number): string =>
     existing ? (mb != null ? String(mb) : '') : String(dflt);
-  const memLimit = field('text', 'blank = no limit', limitValue(existing?.memoryLimitMb, 256));
+  // memory limit is now denominated in COMPRESSED bytes (the heap proxy, SPEC §8),
+  // so the default is ~8× smaller than the old decompressed-based 256 — it holds a
+  // comparable amount of data, just measured in the budget's new currency.
+  const memLimit = field('text', 'blank = no limit', limitValue(existing?.memoryLimitMb, 32));
   const cacheLimit = field('text', 'blank = no limit', limitValue(existing?.cacheLimitMb, 1024));
   const memErr = el('div', { className: 'field-error' });
   const cacheErr = el('div', { className: 'field-error' });

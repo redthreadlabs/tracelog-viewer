@@ -537,7 +537,7 @@ export function renderScanbar(container: HTMLElement): void {
    * dimension (channels/hosts/range — the lever that matches their cause),
    * going Back, or raising the limit. No limit set → load it all.
    */
-  async function runScan(opts: { background: boolean }): Promise<void> {
+  function runScan(opts: { background: boolean }): void {
     const plan = state.plan;
     if (!plan || plan.files.length === 0) return;
 
@@ -549,15 +549,11 @@ export function renderScanbar(container: HTMLElement): void {
     }
     const limitBytes = limitMb * MB;
 
-    let est: { total: number; perFile: number[] };
-    try {
-      est = await storeClient.request('estimateView', { files: plan.files });
-    } catch {
-      viewState.overBudget = null;
-      executePlan(plan, opts.background); // estimate unavailable — don't hold the data back
-      return;
-    }
-    if (est.total <= limitBytes) {
+    // budget in COMPRESSED bytes — the listing's per-file size, exact and free
+    // (no sidecar). It proxies record heap (SPEC §8 / MEMORY_MANAGEMENT_GOTCHAS).
+    const perFile = plan.files.map((f) => f.size);
+    const total = perFile.reduce((sum, b) => sum + b, 0);
+    if (total <= limitBytes) {
       viewState.overBudget = null;
       executePlan(plan, opts.background);
       return;
@@ -566,9 +562,9 @@ export function renderScanbar(container: HTMLElement): void {
     // over budget: load the newest files that fit (a prefetch warms only what
     // fits, silently — the amber pill surfaces only on a record view, where the
     // clamp bites; the chart already blanks un-loaded intervals).
-    const keep = clampByMemory(plan.files, est.perFile, limitBytes);
+    const keep = clampByMemory(plan.files, perFile, limitBytes);
     const files = keep.map((i) => plan.files[i]);
-    viewState.overBudget = { estBytes: est.total };
+    viewState.overBudget = { estBytes: total };
     executePlan(
       {
         files,
@@ -865,21 +861,18 @@ export function renderScanbar(container: HTMLElement): void {
 
   function updateLoadedText(): void {
     if (state.planning || state.error) return; // those states own the text
-    const { running, filesTotal, bytesUncompressedDone, bytesUncompressedTotal } =
-      storeClient.snapshot.progress;
+    const { running, filesTotal, bytesDone, bytesTotal } = storeClient.snapshot.progress;
     const budget = container.querySelector<HTMLElement>('.budget');
     if (!budget || filesTotal === 0) return;
     if (running) {
-      // report DECOMPRESSED (in-memory) bytes both ways — the indicator is about
-      // data held in memory, not download size. The denominator is the working
-      // set's exact decompressed size (sidecar-derived) and shrinks when you
+      // report COMPRESSED bytes — the memory-budget currency (the heap proxy).
+      // The denominator is the working set's compressed size and shrinks when you
       // narrow the range.
-      const total = bytesUncompressedTotal;
       clearEl(budget);
       budget.append(
         storePill(
-          total > 0
-            ? `LOADING: ${fmtBytesRough(bytesUncompressedDone)} of ${fmtBytesRough(total)}`
+          bytesTotal > 0
+            ? `LOADING: ${fmtBytesRough(bytesDone)} of ${fmtBytesRough(bytesTotal)}`
             : 'LOADING…',
           'loading — inspect progress in the store inspector',
         ),
@@ -889,9 +882,8 @@ export function renderScanbar(container: HTMLElement): void {
     const snap = storeClient.snapshot;
     if (snap.recordCount === 0 && snap.files.length === 0) return;
     clearEl(budget);
-    // the worker can't self-measure its heap (no performance.memory there),
-    // so report the decompressed bytes it's holding — a real proxy for it
-    const inMemory = snap.files.reduce((s, f) => s + f.sizeUncompressed, 0);
+    // compressed bytes held — the heap proxy the memory limit is denominated in
+    const inMemory = snap.files.reduce((s, f) => s + f.sizeCompressed, 0);
     // the over-budget warning surfaces only where the clamp actually bites — a
     // record-reading view. The index-served overview is complete from the cube
     // even when the prefetch loaded only the newest slice, so it shows plain

@@ -148,10 +148,6 @@ export class LoadController {
    *  set, so eviction can pick the least-recently-in-set out-of-set file first */
   private recency = new Map<string, number>();
   private tick = 0;
-  /** exact decompressed size per file key (sidecar `bytes`), for the in-memory
-   *  load denominator; unloaded files fall back to this, loaded ones to the
-   *  store's measured size */
-  private decompressedByKey = new Map<string, number>();
   private inFlight = new Set<string>();
   private active = 0;
   private cached = 0; // cumulative cache hits, for the scan detail
@@ -184,14 +180,11 @@ export class LoadController {
         })));
   }
 
-  /** Unconditional wipe + reload (a clear/deselect). `decompressedByKey` carries
-   *  the exact sidecar-derived in-memory size per file so progress can report
-   *  decompressed bytes (the figure the UI shows). */
-  reset(plan: ParsedKey[], decompressedByKey?: Map<string, number>): void {
+  /** Unconditional wipe + reload (a clear/deselect). */
+  reset(plan: ParsedKey[]): void {
     this.epoch++; // in-flight loads from the old plan will be discarded on land
     this.plan = plan;
     this.planChannels = [...new Set(plan.map((f) => f.channel))];
-    this.decompressedByKey = decompressedByKey ?? new Map();
     this.cached = 0;
     this.failed = undefined;
     this.dirty = false;
@@ -212,7 +205,7 @@ export class LoadController {
    * in views that don't filter by channel). Bounding the retained set under
    * memory pressure is the eviction pass's job, not this.
    */
-  setPlan(files: ParsedKey[], channels: string[], decompressedByKey?: Map<string, number>): void {
+  setPlan(files: ParsedKey[], channels: string[]): void {
     const sameChannels =
       channels.length === this.planChannels.length &&
       channels.every((c) => this.planChannels.includes(c));
@@ -224,7 +217,6 @@ export class LoadController {
     }
     this.plan = files;
     this.planChannels = channels;
-    if (decompressedByKey) this.decompressedByKey = decompressedByKey;
     this.failed = undefined;
     this.doneScan ??= perf.begin('scan', `scan s3://${this.bucket.bucket}`);
     this.resync();
@@ -244,17 +236,19 @@ export class LoadController {
   }
 
   /**
-   * Bound the record store under the memory limit (SPEC §8). The decompressed
-   * size of each loaded file proxies its record footprint (we can't measure the
-   * JS heap; see MEMORY_MANAGEMENT_GOTCHAS.md). When the resident total exceeds
-   * the limit, evict OUT-OF-working-set files only — least-recently-in-set first,
-   * then biggest — never one the views are showing. (If the working set itself
-   * exceeds the limit, that's the load clamp's job, not eviction's.)
+   * Bound the record store under the memory limit (SPEC §8). A file's COMPRESSED
+   * (gzip) size proxies its record footprint: `Rec` interns low-cardinality
+   * fields, so heap tracks the entropy gzip already collapses better than
+   * decompressed size does — and compressed size is exact + free from the listing
+   * (we can't measure the JS heap; see MEMORY_MANAGEMENT_GOTCHAS.md). When the
+   * resident total exceeds the limit, evict OUT-OF-working-set files only — least-
+   * recently-in-set first, then biggest — never one the views are showing. (If
+   * the working set itself exceeds the limit, that's the load clamp's job.)
    */
   private evictRecords(): void {
     if (this.memoryLimitBytes == null) return;
     let total = 0;
-    for (const f of this.store.files.values()) total += f.sizeUncompressed;
+    for (const f of this.store.files.values()) total += f.sizeCompressed;
     if (total <= this.memoryLimitBytes) return;
     const wsKeys = new Set(this.ws.map((f) => f.key));
     const victims = [...this.store.files.values()]
@@ -262,14 +256,14 @@ export class LoadController {
       .sort(
         (a, b) =>
           (this.recency.get(a.key) ?? 0) - (this.recency.get(b.key) ?? 0) ||
-          b.sizeUncompressed - a.sizeUncompressed,
+          b.sizeCompressed - a.sizeCompressed,
       );
     const drop = new Set<string>();
     for (const f of victims) {
       if (total <= this.memoryLimitBytes) break;
       drop.add(f.key);
       this.recency.delete(f.key);
-      total -= f.sizeUncompressed;
+      total -= f.sizeCompressed;
     }
     this.store.dropFiles(drop);
   }
@@ -333,7 +327,7 @@ export class LoadController {
           /* eviction is best-effort */
         }
       }
-      this.evictRecords(); // bound the record store (decompressed-size proxy)
+      this.evictRecords(); // bound the record store (compressed-size proxy)
       this.updateProgress();
       this.pump();
     }
@@ -355,27 +349,17 @@ export class LoadController {
     }
   }
 
-  /** Recompute the working-set progress (filesDone/bytes are absolute, not cumulative). */
+  /** Recompute the working-set progress in COMPRESSED bytes (the listing size —
+   *  the memory-budget currency); filesDone/bytes are absolute, not cumulative. */
   private updateProgress(): void {
     let bytesTotal = 0;
     let bytesDone = 0;
-    let ucTotal = 0;
-    let ucDone = 0;
     let filesDone = 0;
     for (const f of this.ws) {
       bytesTotal += f.size;
-      const loaded = this.store.files.has(f.key);
-      // decompressed size: a loaded file's is measured (exact); else the
-      // sidecar's; else fall back to the compressed size
-      const uc =
-        (loaded ? this.store.files.get(f.key)?.sizeUncompressed : undefined) ??
-        this.decompressedByKey.get(f.key) ??
-        f.size;
-      ucTotal += uc;
-      if (loaded) {
+      if (this.store.files.has(f.key)) {
         filesDone++;
         bytesDone += f.size;
-        ucDone += uc;
       }
     }
     this.store.setProgress({
@@ -383,8 +367,6 @@ export class LoadController {
       filesDone,
       bytesDone,
       bytesTotal,
-      bytesUncompressedDone: ucDone,
-      bytesUncompressedTotal: ucTotal,
       filesFromCache: this.cached,
       // a failure stops the loader — don't report "running" for files it will
       // never pick up (they're unloaded, but the scan has halted)

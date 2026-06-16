@@ -158,8 +158,8 @@ export function renderOverview(container: HTMLElement): () => void {
     tableSpin.style.visibility = loading ? 'visible' : 'hidden';
     if (loading) {
       const frac =
-        p.bytesUncompressedTotal > 0
-          ? p.bytesUncompressedDone / p.bytesUncompressedTotal
+        p.bytesTotal > 0
+          ? p.bytesDone / p.bytesTotal
           : p.filesTotal > 0
             ? p.filesDone / p.filesTotal
             : 0;
@@ -451,12 +451,12 @@ export function renderOverview(container: HTMLElement): () => void {
     clear(chartHead);
     clear(chartHost);
     clear(tableSection);
-    const { running, bytesUncompressedDone, error } = storeClient.snapshot.progress;
+    const { running, bytesDone, error } = storeClient.snapshot.progress;
     chartHost.append(
       el('div', { className: 'empty' }, [
         el('div', { className: 'fleuron', text: '❧' }),
         running
-          ? el('h3', { text: `Loading… ${fmtBytes(bytesUncompressedDone)}` })
+          ? el('h3', { text: `Loading… ${fmtBytes(bytesDone)}` })
           : error
             ? el('h3', { text: 'The scan hit a snag' })
             : el('h3', { text: 'Nothing scanned yet' }),

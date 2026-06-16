@@ -21,8 +21,6 @@ const EMPTY_SNAPSHOT: Snapshot = {
     filesDone: 0,
     bytesDone: 0,
     bytesTotal: 0,
-    bytesUncompressedDone: 0,
-    bytesUncompressedTotal: 0,
     filesFromCache: 0,
     running: false,
   },
