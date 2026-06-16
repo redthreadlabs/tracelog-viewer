@@ -5,7 +5,7 @@
  */
 import { el } from '../dom';
 import { setView, getParam, setParams } from '../hashstate';
-import { isApexHome } from '../../data/workspaces';
+import { isApexHome, workspaceContext } from '../../data/workspaces';
 import { openNewWorkspace } from '../workspaceui';
 import heroUrl from '../../assets/overview.jpg';
 
@@ -15,11 +15,14 @@ const REPOS = [
   ['tracelog-viewer', 'this app — an entirely in-browser APM and log explorer'],
 ];
 
-const CORS_SNIPPET = `{
+// the examples below adapt to wherever this page is served (the deployment
+// apex), so a self-host at tracelog.example.com shows *.tracelog.example.com,
+// not the canonical *.tracelog.org
+const corsSnippet = (apex: string): string => `{
   "CORSRules": [{
     "AllowedHeaders": ["*"],
     "AllowedMethods": ["GET", "HEAD"],
-    "AllowedOrigins": ["https://*.tracelog.org", "http://localhost:5173"],
+    "AllowedOrigins": ["https://*.${apex}", "http://localhost:5173"],
     "ExposeHeaders": ["ETag", "Content-Length", "Last-Modified", "Content-Range", "Accept-Ranges"],
     "MaxAgeSeconds": 3600
   }]
@@ -58,6 +61,12 @@ function heroImage(): { figure: HTMLElement; teardown: () => void } {
 export function renderAbout(container: HTMLElement): () => void {
   const wrap = el('div', { className: 'about' });
   const hero = heroImage();
+
+  // the deployment apex this page is served from — drives the CORS + workspace
+  // examples below so they're copy-pasteable on a self-host. null on localhost
+  // (single-origin dev): fall back to the canonical public apex.
+  const apex = workspaceContext().apexHost ?? 'tracelog.org';
+  const exampleWorkspace = `yourservice.${apex}`;
 
   // On the apex you can't configure a profile (it isn't a workspace) — the
   // CTA opens the new-workspace launcher; on a subdomain it opens config.
@@ -130,9 +139,9 @@ export function renderAbout(container: HTMLElement): () => void {
     el('p', {}, [
       el('span', { text: 'One more trick: any subdomain here \u2014 ' }),
       el('a', {
-        text: 'yourservice.tracelog.org',
+        text: exampleWorkspace,
         attrs: {
-          href: 'https://yourservice.tracelog.org',
+          href: `https://${exampleWorkspace}`,
           target: '_blank',
           rel: 'noopener',
           style: 'font-style:italic;font-weight:700',
@@ -195,7 +204,7 @@ export function renderAbout(container: HTMLElement): () => void {
             'read-only IAM user (s3:GetObject + s3:ListBucket on that bucket only — ' +
             'never paste an admin key into a web page, even this one):',
         }),
-        el('pre', { text: CORS_SNIPPET }),
+        el('pre', { text: corsSnippet(apex) }),
       ]),
       el('li', {}, [
         el('span', { text: 'Pick a workspace subdomain, ' }),
