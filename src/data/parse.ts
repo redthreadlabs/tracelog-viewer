@@ -39,7 +39,14 @@ let nextId = 1;
  * values, so a million events with level "info" would otherwise hold a
  * million separate heap strings. High-multiplicity fields (names, levels,
  * results, outcomes, user ids, device strings, paths, agents) pass through
- * a pool at normalize time; unique ids (trace_id etc.) deliberately do not.
+ * a pool at normalize time.
+ *
+ * The id fields (traceId, transactionId, selfId, parentId) go through it too:
+ * they LOOK unique, but a trace's records cross-reference each other's ids —
+ * traceId repeats per trace, a child's parentId IS its parent's selfId, the
+ * transactionId is shared — so most of those 4×N strings are duplicate VALUES
+ * that the pool collapses to one instance each. The pool is transient, so this
+ * costs nothing resident; it only frees the heap.
  *
  * One pool **per parseFile call**, retained nowhere afterwards: strings are
  * shared within a file (where the multiplicity lives), and evicting a
@@ -239,8 +246,8 @@ function normalize(
       outcome = istr(pool, body.outcome);
       result = istr(pool, body.result);
       duration = num(body.duration);
-      traceId = str(body.trace_id);
-      selfId = str(body.id);
+      traceId = istr(pool, body.trace_id);
+      selfId = istr(pool, body.id);
       userId = istr(pool, ctxUser.id);
       const request = context.request as Record<string, unknown> | undefined;
       if (request) {
@@ -263,10 +270,10 @@ function normalize(
       result = intern(pool, subtype ? `${type}/${subtype}` : type);
       outcome = istr(pool, body.outcome);
       duration = num(body.duration);
-      traceId = str(body.trace_id);
-      transactionId = str(body.transaction_id);
-      selfId = str(body.id);
-      parentId = str(body.parent_id);
+      traceId = istr(pool, body.trace_id);
+      transactionId = istr(pool, body.transaction_id);
+      selfId = istr(pool, body.id);
+      parentId = istr(pool, body.parent_id);
       userId = istr(pool, ctxUser.id);
       break;
     }
@@ -275,8 +282,8 @@ function normalize(
       level = istr(pool, body.level) ?? 'info';
       message = str(body.message);
       duration = num(body.duration);
-      traceId = str(body.trace_id);
-      transactionId = str(body.transaction_id);
+      traceId = istr(pool, body.trace_id);
+      transactionId = istr(pool, body.transaction_id);
       const user = (body.user ?? {}) as Record<string, unknown>;
       userId = istr(pool, user.id);
       const error = body.error as Record<string, unknown> | undefined;
@@ -299,8 +306,8 @@ function normalize(
       name = istr(pool, exception.type) ?? 'error';
       message = str(exception.message) ?? str(log.message);
       level = 'error';
-      traceId = str(body.trace_id);
-      transactionId = str(body.transaction_id);
+      traceId = istr(pool, body.trace_id);
+      transactionId = istr(pool, body.transaction_id);
       userId = istr(pool, ctxUser.id);
       break;
     }
