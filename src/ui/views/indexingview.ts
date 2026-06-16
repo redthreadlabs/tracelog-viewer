@@ -1,22 +1,42 @@
 /**
- * Indexing (#/internals/indexing): what aggregate indexes (SPEC §11) exist and
- * how much they're storing — capability, file/cell counts, serialized bytes, and
- * index-specific stats like the duration histogram's bin occupancy. A
- * copy-as-JSON export makes the numbers easy to paste while tuning (e.g. how
- * many of the histogram's bins are actually used on a real dataset).
+ * Indexing (#/internals/indexing): the durable aggregate indexes (SPEC §11) —
+ * for each, what it answers (its capability) and how much it stores (files,
+ * cells, serialized bytes, and the duration histogram's bin occupancy).
  */
 import { el, clear } from '../dom';
 import { storeClient } from '../../data/storeclient';
 import { internalsTabs } from './internals';
-import { fmtBytes, fmtCount, fmtDuration } from '../format';
-import { viewState } from '../../state';
+import { fmtBytes, fmtCount } from '../format';
+import type { IndexCapability } from '../../data/indexes';
 
-interface AccuracyRow {
-  name: string;
-  n: number;
-  exact: number;
-  estimated: number | null;
-  errorPct: number | null;
+const OP_LABEL: Record<string, string> = {
+  count: 'count',
+  sum: 'Σ',
+  avg: 'avg',
+  min: 'min',
+  max: 'max',
+  p95: 'p95',
+};
+
+function grainLabel(ms: number): string {
+  if (ms === 3_600_000) return 'hourly';
+  if (ms === 86_400_000) return 'daily';
+  if (ms === 60_000) return 'per minute';
+  return `${Math.round(ms / 60_000)}-min grain`;
+}
+
+/** A readable one-liner of an index's capability, e.g.
+ *  "count · Σ duration  —  by transaction (also host, channel) · hourly · distributive". */
+function capabilityLine(cap: IndexCapability): string {
+  const provides = cap.provides
+    .map((s) => {
+      const op = OP_LABEL[s.op] ?? s.op;
+      return s.op === 'count' || !s.field ? op : `${op} ${s.field}`;
+    })
+    .join(' · ');
+  let by = `by ${cap.groupBy}`;
+  if (cap.fileGroupBy?.length) by += ` (also ${cap.fileGroupBy.join(', ')})`;
+  return `${provides}  —  ${by} · ${grainLabel(cap.granularityMs)} · ${cap.merge}`;
 }
 
 export function renderIndexingView(container: HTMLElement): () => void {
@@ -31,13 +51,6 @@ export function renderIndexingView(container: HTMLElement): () => void {
     if (t !== token || !container.isConnected) return;
     clear(section);
 
-    const json = JSON.stringify(stats, null, 2);
-    const copyBtn = el('button', { className: 'btn btn-quiet', text: 'Copy JSON' });
-    copyBtn.addEventListener('click', () => {
-      void navigator.clipboard?.writeText(json);
-      copyBtn.textContent = 'Copied ✓';
-      setTimeout(() => (copyBtn.textContent = 'Copy JSON'), 1200);
-    });
     const refreshBtn = el('button', { className: 'btn btn-quiet', text: 'Refresh' });
     refreshBtn.addEventListener('click', () => void render());
 
@@ -47,14 +60,12 @@ export function renderIndexingView(container: HTMLElement): () => void {
         el('span', { className: 'budget faint', text: `${fmtCount(stats.length)} registered` }),
         el('span', { className: 'masthead-spacer' }),
         refreshBtn,
-        copyBtn,
       ]),
     );
 
-    // a readable per-index summary above the raw JSON
     for (const ix of stats) {
       const cells = ix.cells as number | undefined;
-      const summary = [
+      const storage = [
         `${ix.files as number} files`,
         cells !== undefined ? `${fmtCount(cells)} cells` : null,
         fmtBytes(ix.bytes as number),
@@ -62,39 +73,12 @@ export function renderIndexingView(container: HTMLElement): () => void {
       ]
         .filter(Boolean)
         .join(' · ');
+
       section.append(
         el('div', { className: 'index-row' }, [
           el('span', { className: 'index-name', text: String(ix.name) }),
-          el('span', { className: 'budget faint', text: summary }),
-        ]),
-      );
-    }
-
-    section.append(el('pre', { className: 'indexing-json', text: json }));
-
-    // P95 accuracy: the histogram's estimate beside the exact (loaded-records)
-    // value, per transaction — the bin-resolution error on real data. Surface
-    // any worker error here rather than letting a rejection silently drop the
-    // table (e.g. a stale pre-deploy worker that lacks this op).
-    try {
-      const acc = await storeClient.request<AccuracyRow[]>('p95Accuracy', {
-        range: viewState.timeRange,
-      });
-      if (t !== token || !container.isConnected) return;
-      renderAccuracy(section, acc);
-    } catch (err) {
-      if (t !== token || !container.isConnected) return;
-      const msg = err instanceof Error ? err.message : String(err);
-      section.append(
-        el('div', { className: 'section-head', attrs: { style: 'margin-top:24px' } }, [
-          el('span', { className: 'label', text: 'P95 accuracy' }),
-        ]),
-        el('div', { className: 'budget faint', attrs: { style: 'margin:-4px 0 8px' } }, [
-          el('span', {
-            text: /unknown op/.test(msg)
-              ? 'unavailable — close every tracelog tab and reopen to pick up the latest build, then retry'
-              : `unavailable — ${msg}`,
-          }),
+          el('span', { className: 'index-capability', text: capabilityLine(ix.capability as IndexCapability) }),
+          el('span', { className: 'index-storage', text: storage }),
         ]),
       );
     }
@@ -104,53 +88,4 @@ export function renderIndexingView(container: HTMLElement): () => void {
   return () => {
     token++;
   };
-}
-
-/** The estimated-vs-exact P95 table — the histogram's accuracy on loaded data. */
-function renderAccuracy(section: HTMLElement, rows: AccuracyRow[]): void {
-  const errs = rows.map((r) => r.errorPct).filter((e): e is number => e !== null).sort((a, b) => a - b);
-  const median = errs.length ? errs[Math.floor(errs.length / 2)] : undefined;
-  const worst = errs.length ? errs[errs.length - 1] : undefined;
-  const summary =
-    median !== undefined
-      ? `${median.toFixed(1)}% median · ${worst!.toFixed(1)}% worst error (${fmtCount(rows.length)} txns)`
-      : 'no overlap with loaded records';
-
-  section.append(
-    el('div', { className: 'section-head', attrs: { style: 'margin-top:24px' } }, [
-      el('span', { className: 'label', text: 'P95 accuracy' }),
-      el('span', { className: 'budget faint', text: summary }),
-    ]),
-    el('div', { className: 'budget faint', attrs: { style: 'margin:-4px 0 8px' } }, [
-      el('span', {
-        text:
-          'the overview always serves P95 from the histogram sketch; this is its ' +
-          'measured error vs exact on the loaded records (the bin resolution)',
-      }),
-    ]),
-  );
-
-  const head = el('div', { className: 'index-row idx-acc-head' }, [
-    el('span', { text: 'transaction' }),
-    el('span', { className: 'idx-num', text: 'count' }),
-    el('span', { className: 'idx-num', text: 'exact P95' }),
-    el('span', { className: 'idx-num', text: 'estimated' }),
-    el('span', { className: 'idx-num', text: 'error' }),
-  ]);
-  const table = el('div', { className: 'idx-acc' }, [head]);
-  for (const r of rows) {
-    table.append(
-      el('div', { className: 'index-row idx-acc-row' }, [
-        el('span', { className: 'index-name', text: r.name }),
-        el('span', { className: 'idx-num faint', text: fmtCount(r.n) }),
-        el('span', { className: 'idx-num', text: fmtDuration(r.exact) }),
-        el('span', { className: 'idx-num', text: r.estimated !== null ? fmtDuration(r.estimated) : '—' }),
-        el('span', {
-          className: 'idx-num' + (r.errorPct !== null && r.errorPct > 25 ? ' idx-err-hi' : ''),
-          text: r.errorPct !== null ? `${r.errorPct.toFixed(1)}%` : '—',
-        }),
-      ]),
-    );
-  }
-  section.append(table);
 }

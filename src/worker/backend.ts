@@ -30,7 +30,6 @@ import {
   aggregateBySeries,
   blankPartialSeries,
   periodGrid,
-  groupTransactions,
   transactionStats,
   resultFamily,
   type SeriesResult,
@@ -810,35 +809,6 @@ const ops: Record<string, OpHandler> = {
       const h = hist.get(prefix + f.key);
       return !!c && !!h && !!f.etag && c.etag === f.etag && h.etag === f.etag;
     });
-  },
-  /** Tuning aid for the /internals/indexing page: per transaction, the EXACT
-   *  P95 (from loaded records) beside the ESTIMATED P95 the holistic histogram
-   *  merge produces — so we can see the bin-resolution error on real data and
-   *  decide whether 5 bins/decade is enough. The merge is restricted to LOADED
-   *  files so both sides cover the same records (isolating bin error, not a
-   *  loaded-vs-all-files population gap). */
-  p95Accuracy: async (s, a) => {
-    const range = a.range as TimeRange;
-    const [from, to] = range ?? operatingRange(s);
-    const prefix = s.bucket.bucket + SEP;
-    const merged = new Map<string, Bins>();
-    for (const [id, rec] of await s.loadIndex(durHistIndex)) {
-      if (s.store.files.has(id.slice(prefix.length))) mergeRangeBins(rec.payload, from, to, merged);
-    }
-    return groupTransactions(s.store.kindRecords('transaction'), range)
-      .filter((g) => g.p95 !== undefined)
-      .map((g) => {
-        const exact = g.p95!;
-        const estimated = quantileFromBins(merged.get(g.name) ?? {}, 0.95);
-        return {
-          name: g.name,
-          n: g.count,
-          exact,
-          estimated,
-          errorPct: estimated !== undefined ? (Math.abs(estimated - exact) / exact) * 100 : null,
-        };
-      })
-      .sort((a2, b) => b.n - a2.n);
   },
   wipeCache: (s) => {
     s.clearIndexCache(); // the wipe deletes the stored indexes too
