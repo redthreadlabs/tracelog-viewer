@@ -722,6 +722,24 @@ or date rather than abandon tracelog entirely.
   cloud service, no account; the wildcard subdomain already resolves for
   everyone, and a workspace is just a separate corner of this one browser
   (the new-workspace modal says so).
+- **Configurable deployment apex for self-hosts** (2026-06-16): the apex the
+  workspace model keys on is normally the **registrable domain** (eTLD+1) of the
+  current host — `*.tracelog.org` → `tracelog.org`, zero config. But a self-host
+  whose apex is *itself* a sub-level — e.g. `{workspace}.tracelog.example.com` —
+  can't be derived from the hostname (eTLD+1 would wrongly yield `example.com`,
+  misreading `tracelog` as a workspace and aiming the relay at the wrong origin).
+  So the apex may be declared explicitly via `<meta name="tracelog:apex"
+  content="…">` in `index.html`, stamped there by `deploy-site.mjs` from
+  `--domain` at upload time. `data/domain.ts` `siteApex(host)` is the single
+  source of truth — it returns the configured apex when that apex covers the
+  host, else the registrable domain — and both `workspaceContext` and `sameSite`
+  key on it (so a sibling *outside* the apex, e.g. `evil.example.com`, is
+  correctly **not** same-site). An absent/placeholder meta (no dot) falls back to
+  eTLD+1, keeping `tracelog.org` and any apex-equals-registrable-domain deploy
+  zero-config. The About page's CORS + workspace examples read the live apex too,
+  so they're copy-pasteable on a self-host. Wildcard cert/alias provisioning in
+  the deployer already uses `--domain`/`*.${domain}` directly, so it was correct;
+  only the cert *auto-discovery* match was widened from eTLD+1 to `DOMAIN`/`*.DOMAIN`.
 - **Public buckets** (2026-06-13): a connection can be marked public —
   the form hides all auth fields, LogBucket issues *unsigned* requests
   (no-op SigV4 signer + placeholder creds to skip the credential chain),
