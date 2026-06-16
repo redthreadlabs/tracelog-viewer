@@ -142,6 +142,7 @@ export type FileLoader = (file: ParsedKey) => Promise<LoadedFile>;
  */
 export class LoadController {
   private plan: ParsedKey[] = [];
+  private planChannels: string[] = []; // the plan's channel selection (a change wipes; a range-only change is additive)
   private ws: ParsedKey[] = []; // cached working set (plan ∩ range)
   /** exact decompressed size per file key (sidecar `bytes`), for the in-memory
    *  load denominator; unloaded files fall back to this, loaded ones to the
@@ -178,22 +179,49 @@ export class LoadController {
         })));
   }
 
-  /** New plan (channel/range change): drop the old working set and reload.
-   *  `decompressedByKey` carries the exact sidecar-derived in-memory size per
-   *  file so progress can report decompressed bytes (the figure the UI shows). */
+  /** Unconditional wipe + reload (a clear/deselect). `decompressedByKey` carries
+   *  the exact sidecar-derived in-memory size per file so progress can report
+   *  decompressed bytes (the figure the UI shows). */
   reset(plan: ParsedKey[], decompressedByKey?: Map<string, number>): void {
     this.epoch++; // in-flight loads from the old plan will be discarded on land
     this.plan = plan;
+    this.planChannels = [...new Set(plan.map((f) => f.channel))];
     this.decompressedByKey = decompressedByKey ?? new Map();
     this.cached = 0;
     this.failed = undefined;
     this.dirty = false;
-    // a new plan replaces the *displayed* working set, so clear the record store
-    // — but NOT the byte cache: any completed download stays cached (hot LRU +
-    // IndexedDB), bounded only by the LRU/limit, so it is never wasted and a
-    // flip back to a prior selection re-parses straight from memory
+    // the displayed working set is replaced, so clear the record store — but NOT
+    // the byte cache: a completed download stays cached (IndexedDB), so a flip
+    // back to a prior selection re-parses from there rather than re-downloading
     this.store.clear();
     this.doneScan = perf.begin('scan', `scan s3://${this.bucket.bucket}`);
+    this.resync();
+  }
+
+  /**
+   * Set the plan for the active selection, keeping records we already parsed
+   * (SPEC §8). A **range** change (same channels) is ADDITIVE: narrowing keeps
+   * everything (the views `rangeSlice` the out-of-range records away — no effect,
+   * no re-parse), widening only fetches the new delta. A **channel** change is a
+   * different displayed set, so it wipes (else deselected channels would linger
+   * in views that don't filter by channel). Bounding the retained set under
+   * memory pressure is the eviction pass's job, not this.
+   */
+  setPlan(files: ParsedKey[], channels: string[], decompressedByKey?: Map<string, number>): void {
+    const sameChannels =
+      channels.length === this.planChannels.length &&
+      channels.every((c) => this.planChannels.includes(c));
+    if (!sameChannels) {
+      this.epoch++; // discard in-flight from the old selection
+      this.store.clear();
+      this.cached = 0;
+      this.dirty = false;
+    }
+    this.plan = files;
+    this.planChannels = channels;
+    if (decompressedByKey) this.decompressedByKey = decompressedByKey;
+    this.failed = undefined;
+    this.doneScan ??= perf.begin('scan', `scan s3://${this.bucket.bucket}`);
     this.resync();
   }
 

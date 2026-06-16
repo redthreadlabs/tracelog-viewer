@@ -20,11 +20,11 @@ const HOUR = 3_600_000;
 const BASE = Date.UTC(2026, 5, 10, 0); // 2026-06-10T00:00Z
 
 /** A finalized hourly file whose interval span is exactly [BASE+h·H, +1h). */
-function hourKey(h: number): ParsedKey {
+function hourKey(h: number, channel = 'server'): ParsedKey {
   const hh = String(h).padStart(2, '0');
   return {
-    key: `server/2026-06-10/h0.${hh}.jsonl.gz`,
-    channel: 'server',
+    key: `${channel}/2026-06-10/h0.${hh}.jsonl.gz`,
+    channel,
     interval: `2026-06-10T${hh}`,
     host: 'h0',
     seq: 0,
@@ -33,7 +33,7 @@ function hourKey(h: number): ParsedKey {
   };
 }
 const k = (h: number) => hourKey(h).key;
-const plan = (hours: number[]) => hours.map(hourKey);
+const plan = (hours: number[], channel = 'server') => hours.map((h) => hourKey(h, channel));
 /** A window strictly inside hour h, so it overlaps that hour and no neighbour. */
 const hourWindow = (h: number): [number, number] => [BASE + h * HOUR + HOUR * 0.2, BASE + h * HOUR + HOUR * 0.8];
 
@@ -70,6 +70,10 @@ function makeHarness(initialWindow: [number, number] | null = null) {
     reset: (hours: number[], window: [number, number] | null = win) => {
       win = window;
       controller.reset(plan(hours));
+    },
+    setPlan: (hours: number[], channel = 'server', window: [number, number] | null = win) => {
+      win = window;
+      controller.setPlan(plan(hours, channel), [channel]);
     },
     setWindow: (window: [number, number] | null) => {
       win = window;
@@ -238,5 +242,40 @@ describe('LoadController completion', () => {
     await h.fail(k(0), 'boom');
     expect(h.store.progress.error).toBe('boom');
     expect(h.store.progress.running).toBe(false);
+  });
+});
+
+describe('LoadController setPlan (incremental, keep-on-narrow)', () => {
+  it('keeps parsed records on a range change (same channels) and re-loads nothing', async () => {
+    const h = makeHarness(null);
+    h.setPlan([0, 1], 'server');
+    await h.complete(k(0));
+    await h.complete(k(1));
+    expect(h.sourceKeys()).toEqual(new Set([k(0), k(1)]));
+    h.started.length = 0;
+    // narrow the plan to just hour 0 — same channels → additive: nothing is
+    // fetched, and hour 1's records are KEPT (not unloaded)
+    h.setPlan([0], 'server');
+    expect(h.started).toEqual([]);
+    expect(h.sourceKeys()).toEqual(new Set([k(0), k(1)]));
+  });
+
+  it('only fetches the delta when the range widens', async () => {
+    const h = makeHarness(null);
+    h.setPlan([0], 'server');
+    await h.complete(k(0));
+    h.started.length = 0;
+    h.setPlan([0, 1, 2], 'server'); // same channels, wider range
+    expect(h.started).toEqual([k(1), k(2)]); // hour 0 already loaded → only 1,2
+  });
+
+  it('wipes the store when the channel selection changes', async () => {
+    const h = makeHarness(null);
+    h.setPlan([0, 1], 'server');
+    await h.complete(k(0));
+    await h.complete(k(1));
+    expect(h.sourceKeys()).toEqual(new Set([k(0), k(1)]));
+    h.setPlan([0], 'other'); // different channel → wipe (store reflects the new selection)
+    expect(h.sourceKeys()).toEqual(new Set());
   });
 });

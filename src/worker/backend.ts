@@ -741,7 +741,10 @@ const ops: Record<string, OpHandler> = {
       }
     }
     s.loader.setBackground(a.background === true); // a prefetch loads throttled
-    s.loader.reset((a.plan as ScanPlan).files, decompressedByKey);
+    const plan = a.plan as ScanPlan;
+    // additive on a range change (keep parsed records, fetch only the delta);
+    // wipe only when the channel selection changes (SPEC §8)
+    s.loader.setPlan(plan.files, plan.channels, decompressedByKey);
   },
   /** Re-prioritise an in-flight load: foreground (a view now waits on the
    *  records) un-throttles it, background (back to an index-served view) throttles
