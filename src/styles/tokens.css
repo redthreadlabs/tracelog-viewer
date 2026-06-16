@@ -42,15 +42,17 @@
 
   /* series — a categorical ramp for grouped charts (top-N transactions by
      Σ duration, SPEC §11), assigned by rank; bright variants for the grey
-     canvas. Reds are avoided so a series never reads as the error/thread red;
-     --series-other is a recessive grey for the folded "Other" tail. */
+     canvas. Slots 4 and 7 are the brand colors — red (--thread #c2081d) and
+     hot-pink (#fd0366) — used deliberately as vibrant categorical hues (same
+     hex in every theme); --series-other is a recessive grey for the folded
+     "Other" tail. */
   --series-1: #60a5fa;
   --series-2: #2dd4bf;
   --series-3: #fbbf24;
-  --series-4: #fb923c;
+  --series-4: #c2081d;
   --series-5: #a78bfa;
   --series-6: #38bdf8;
-  --series-7: #f472b6;
+  --series-7: #fd0366;
   --series-8: #a3e635;
   --series-other: #908c86;
 
@@ -114,10 +116,10 @@
   --series-1: #2563eb;
   --series-2: #0d9488;
   --series-3: #d97706;
-  --series-4: #c2410c;
+  --series-4: #c2081d;
   --series-5: #7c3aed;
   --series-6: #0e7490;
-  --series-7: #be185d;
+  --series-7: #fd0366;
   --series-8: #4d7c0f;
   --series-other: #a8a39c;
 
@@ -168,10 +170,10 @@
   --series-1: #60a5fa;
   --series-2: #2dd4bf;
   --series-3: #fbbf24;
-  --series-4: #fb923c;
+  --series-4: #c2081d;
   --series-5: #a78bfa;
   --series-6: #38bdf8;
-  --series-7: #f472b6;
+  --series-7: #fd0366;
   --series-8: #a3e635;
   --series-other: #807c76;
 
