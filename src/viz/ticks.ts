@@ -38,3 +38,36 @@ export function contentWidth(container: HTMLElement, min: number): number {
   const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
   return Math.max(container.clientWidth - pad, min);
 }
+
+/**
+ * Measure rendered text width via a shared canvas 2D context — used to size an
+ * axis gutter to its actual labels. `font` is a CSS font shorthand, e.g.
+ * `10.5px ui-monospace, monospace`. Falls back to a rough monospace estimate
+ * when canvas is unavailable (a non-DOM test).
+ */
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+export function measureTextWidth(text: string, font: string): number {
+  if (measureCtx === undefined) {
+    measureCtx = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null;
+  }
+  if (!measureCtx) return text.length * 7;
+  measureCtx.font = font;
+  return measureCtx.measureText(text).width;
+}
+
+/**
+ * The left margin a vertical (value) axis needs so its tick labels never clip:
+ * the widest already-formatted label plus d3's tick mark + label padding and a
+ * small gutter. Pass the formatted tick strings and the axis font; callers
+ * combine it with a baseline minimum (Math.max) so short labels keep a stable
+ * axis width while wide ones (e.g. "16.7 min") always fit, at any chart width.
+ */
+export function axisLeftMargin(
+  labels: string[],
+  font: string,
+  { tickSize = 6, pad = 3, gutter = 4 }: { tickSize?: number; pad?: number; gutter?: number } = {},
+): number {
+  let widest = 0;
+  for (const s of labels) widest = Math.max(widest, measureTextWidth(s, font));
+  return Math.ceil(widest) + tickSize + pad + gutter;
+}

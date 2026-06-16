@@ -14,7 +14,7 @@ import { brushX, type D3BrushEvent } from 'd3-brush';
 import { el, clear } from '../ui/dom';
 import type { SeriesResult } from '../data/aggregate';
 import { fmtScaleTime, isUtcMode } from '../ui/format';
-import { contentWidth } from './ticks';
+import { contentWidth, axisLeftMargin } from './ticks';
 import { drawTimeGrid, drawGhostBand, inGhost, GHOST_FOOTNOTE } from './timegrid';
 import { placeTooltip } from './tooltip';
 
@@ -41,13 +41,24 @@ export function renderSeriesbars(
   if (data.buckets.length === 0) return;
 
   const width = contentWidth(container, 320);
-  const innerW = width - MARGIN.left - MARGIN.right;
   const innerH = HEIGHT - MARGIN.top - MARGIN.bottom;
 
   const styles = getComputedStyle(container); // resolve tokens in the panel scope
   const colorOf = (key: string, i: number) => opts.colorOf(key, i, styles);
   const lineColor = styles.getPropertyValue('--line-strong').trim();
   const inkFaint = styles.getPropertyValue('--ink-faint').trim();
+  const axisFont = `10.5px ${styles.getPropertyValue('--font-data').trim()}`;
+
+  const maxTotal = Math.max(1, ...data.buckets.map((b) => b.total));
+  const y = scaleLinear().domain([0, maxTotal]).nice().range([innerH, 0]);
+
+  // size the left margin to the widest y-axis label so it never clips off the
+  // chart's left edge, whatever the rendered width (MARGIN.left is the floor)
+  const left = Math.max(
+    MARGIN.left,
+    axisLeftMargin(y.ticks(4).map((d) => opts.formatValue(d as number)), axisFont),
+  );
+  const innerW = width - left - MARGIN.right;
 
   const svg = select(container)
     .append('svg')
@@ -55,14 +66,11 @@ export function renderSeriesbars(
     .attr('height', HEIGHT)
     .attr('viewBox', `0 0 ${width} ${HEIGHT}`);
 
-  const g = svg.append('g').attr('transform', `translate(${MARGIN.left},${MARGIN.top})`);
+  const g = svg.append('g').attr('transform', `translate(${left},${MARGIN.top})`);
 
   const x = (isUtcMode() ? scaleUtc() : scaleTime())
     .domain([new Date(data.domain[0]), new Date(data.domain[1])])
     .range([0, innerW]);
-
-  const maxTotal = Math.max(1, ...data.buckets.map((b) => b.total));
-  const y = scaleLinear().domain([0, maxTotal]).nice().range([innerH, 0]);
 
   // ghost band first (chart background), then gridlines, then bars
   drawGhostBand(g, x as (d: Date) => number, ghostSpans, innerW, innerH, styles);
@@ -161,7 +169,7 @@ export function renderSeriesbars(
     const padLeft = parseFloat(styles.paddingLeft) || 0;
     const padTop = parseFloat(styles.paddingTop) || 0;
     return [
-      event.clientX - rect.left - padLeft - MARGIN.left,
+      event.clientX - rect.left - padLeft - left,
       event.clientY - rect.top - padTop - MARGIN.top,
     ];
   }

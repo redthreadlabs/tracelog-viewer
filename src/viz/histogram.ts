@@ -8,7 +8,7 @@ import { axisBottom, axisLeft } from 'd3-axis';
 import { el, clear } from '../ui/dom';
 import type { HistBucket } from '../data/aggregate';
 import { fmtCount, fmtDuration } from '../ui/format';
-import { logTicks, contentWidth } from './ticks';
+import { logTicks, contentWidth, axisLeftMargin } from './ticks';
 import { drawGhostFill, GHOST_FOOTNOTE } from './timegrid';
 import { placeTooltip } from './tooltip';
 
@@ -27,26 +27,34 @@ export function renderHistogram(
   if (nonEmpty.length === 0) return;
 
   const width = contentWidth(container, 280);
-  const innerW = width - MARGIN.left - MARGIN.right;
   const innerH = HEIGHT - MARGIN.top - MARGIN.bottom;
 
   const styles = getComputedStyle(container); // resolve tokens in the panel scope
   const barColor = styles.getPropertyValue('--kind-transaction').trim();
   const lineColor = styles.getPropertyValue('--line-strong').trim();
   const inkFaint = styles.getPropertyValue('--ink-faint').trim();
+  const axisFont = `10.5px ${styles.getPropertyValue('--font-data').trim()}`;
+
+  const maxCount = Math.max(...buckets.map((b) => b.count));
+  const y = scaleLinear().domain([0, maxCount]).nice().range([innerH, 0]);
+
+  // left margin sized to the widest y-axis label so it never clips (floor: MARGIN.left)
+  const left = Math.max(
+    MARGIN.left,
+    axisLeftMargin(y.ticks(4).map((d) => fmtCount(d as number)), axisFont),
+  );
+  const innerW = width - left - MARGIN.right;
 
   // domain trimmed to occupied bins (log scale)
   const x0 = nonEmpty[0].x0;
   const x1 = nonEmpty[nonEmpty.length - 1].x1;
   const x = scaleLog().domain([x0, x1]).range([0, innerW]);
-  const maxCount = Math.max(...buckets.map((b) => b.count));
-  const y = scaleLinear().domain([0, maxCount]).nice().range([innerH, 0]);
 
   const svg = select(container)
     .append('svg')
     .attr('width', width)
     .attr('height', HEIGHT);
-  const g = svg.append('g').attr('transform', `translate(${MARGIN.left},${MARGIN.top})`);
+  const g = svg.append('g').attr('transform', `translate(${left},${MARGIN.top})`);
 
   // partial (over-budget) instance set → wash the whole panel with the ghost
   // hatch: this distribution is built on data the budget refused (SPEC §7)

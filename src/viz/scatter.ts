@@ -19,7 +19,7 @@ import { axisLeft } from 'd3-axis';
 import { el, clear } from '../ui/dom';
 import type { Rec } from '../data/types';
 import { fmtScaleTime, fmtDuration, isUtcMode } from '../ui/format';
-import { logTicks, contentWidth } from './ticks';
+import { logTicks, contentWidth, axisLeftMargin } from './ticks';
 import { drawTimeGrid, drawGhostBand, inGhost, GHOST_FOOTNOTE } from './timegrid';
 import { placeTooltip } from './tooltip';
 import type { SampleNote } from '../worker/backend';
@@ -93,7 +93,6 @@ export function renderScatter(
   if (points.length === 0) return;
 
   const width = contentWidth(container, 280);
-  const innerW = width - MARGIN.left - MARGIN.right;
   const innerH = HEIGHT - MARGIN.top - MARGIN.bottom;
 
   const styles = getComputedStyle(container); // resolve tokens in the panel scope
@@ -101,6 +100,25 @@ export function renderScatter(
     styles.getPropertyValue(FAMILY_TOKEN[family]).trim();
   const lineColor = styles.getPropertyValue('--line-strong').trim();
   const inkFaint = styles.getPropertyValue('--ink-faint').trim();
+  const axisFont = `10.5px ${styles.getPropertyValue('--font-data').trim()}`;
+
+  let durMin = Infinity;
+  let durMax = -Infinity;
+  for (const r of points) {
+    if (r.duration! < durMin) durMin = r.duration!;
+    if (r.duration! > durMax) durMax = r.duration!;
+  }
+  const yMin = Math.max(durMin, 0.05);
+  const yMax = durMax * 1.15;
+  const y = scaleLog().domain([yMin, yMax]).range([innerH, 0]);
+
+  // left margin sized to the widest y-axis (duration) label so it never clips,
+  // whatever the rendered width (MARGIN.left is the floor)
+  const left = Math.max(
+    MARGIN.left,
+    axisLeftMargin(logTicks(yMin, yMax).map((v) => fmtDuration(v)), axisFont),
+  );
+  const innerW = width - left - MARGIN.right;
 
   // extend the domain to cover any refused (ghost) spans so they're visible —
   // over budget, the loaded points are a recent sliver and the older, refused
@@ -122,19 +140,9 @@ export function renderScatter(
     .domain([new Date(t0), new Date(t1)])
     .range([0, innerW]);
 
-  let durMin = Infinity;
-  let durMax = -Infinity;
-  for (const r of points) {
-    if (r.duration! < durMin) durMin = r.duration!;
-    if (r.duration! > durMax) durMax = r.duration!;
-  }
-  const yMin = Math.max(durMin, 0.05);
-  const yMax = durMax * 1.15;
-  const y = scaleLog().domain([yMin, yMax]).range([innerH, 0]);
-
   container.style.position = 'relative';
   const svg = select(container).append('svg').attr('width', width).attr('height', HEIGHT);
-  const g = svg.append('g').attr('transform', `translate(${MARGIN.left},${MARGIN.top})`);
+  const g = svg.append('g').attr('transform', `translate(${left},${MARGIN.top})`);
 
   // ghost band first (chart background) — refused (over-budget) time spans
   drawGhostBand(g, x as (d: Date) => number, ghostSpans, innerW, innerH, styles);
@@ -164,7 +172,7 @@ export function renderScatter(
   const padLeft = parseFloat(styles.paddingLeft) || 0;
   const padTop = parseFloat(styles.paddingTop) || 0;
   canvas.style.cssText =
-    `position:absolute;left:${padLeft + MARGIN.left}px;top:${padTop + MARGIN.top}px;` +
+    `position:absolute;left:${padLeft + left}px;top:${padTop + MARGIN.top}px;` +
     `width:${innerW}px;height:${innerH}px`;
   container.append(canvas);
 

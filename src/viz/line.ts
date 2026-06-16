@@ -8,7 +8,7 @@ import { axisLeft } from 'd3-axis';
 import { el, clear } from '../ui/dom';
 import type { SeriesPoint, DeploymentMarker } from '../data/metrics';
 import { fmtDateTime, isUtcMode } from '../ui/format';
-import { contentWidth } from './ticks';
+import { contentWidth, axisLeftMargin } from './ticks';
 import { drawTimeGrid } from './timegrid';
 import { placeTooltip } from './tooltip';
 
@@ -32,7 +32,6 @@ export function renderLine(
   if (points.length === 0) return;
 
   const width = contentWidth(container, 200);
-  const innerW = width - MARGIN.left - MARGIN.right;
   const innerH = HEIGHT - MARGIN.top - MARGIN.bottom;
 
   const styles = getComputedStyle(container); // resolve tokens in the panel scope
@@ -40,16 +39,25 @@ export function renderLine(
   const gridColor = styles.getPropertyValue('--line-strong').trim();
   const inkFaint = styles.getPropertyValue('--ink-faint').trim();
   const threadColor = styles.getPropertyValue('--thread').trim();
+  const axisFont = `10px ${styles.getPropertyValue('--font-data').trim()}`;
 
-  const x = (isUtcMode() ? scaleUtc() : scaleTime())
-    .domain([new Date(options.domain[0]), new Date(options.domain[1])])
-    .range([0, innerW]);
   let vMax = -Infinity; // no spread: long ranges produce >100k points
   for (const p of points) if (p.v > vMax) vMax = p.v;
   const y = scaleLinear().domain([0, vMax * 1.1 || 1]).nice().range([innerH, 0]);
 
+  // left margin sized to the widest y-axis label so it never clips (floor: MARGIN.left)
+  const left = Math.max(
+    MARGIN.left,
+    axisLeftMargin(y.ticks(3).map((d) => options.fmt(d as number)), axisFont),
+  );
+  const innerW = width - left - MARGIN.right;
+
+  const x = (isUtcMode() ? scaleUtc() : scaleTime())
+    .domain([new Date(options.domain[0]), new Date(options.domain[1])])
+    .range([0, innerW]);
+
   const svg = select(container).append('svg').attr('width', width).attr('height', HEIGHT);
-  const g = svg.append('g').attr('transform', `translate(${MARGIN.left},${MARGIN.top})`);
+  const g = svg.append('g').attr('transform', `translate(${left},${MARGIN.top})`);
 
   // time axis: background gridlines + humane labels (drawn first, behind the line)
   drawTimeGrid(g, x as (d: Date) => number, options.domain, innerW, innerH, styles);
@@ -109,7 +117,7 @@ export function renderLine(
       const rect = container.getBoundingClientRect();
       // the SVG sits inside the host's left padding — account for it
       const padLeft = parseFloat(styles.paddingLeft) || 0;
-      const mx = event.clientX - rect.left - padLeft - MARGIN.left;
+      const mx = event.clientX - rect.left - padLeft - left;
       const t = x.invert(mx).getTime();
       let best = points[0];
       for (const p of points) {

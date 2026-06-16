@@ -10,7 +10,7 @@ import { el, clear } from '../ui/dom';
 import type { BreakdownResult } from '../data/metrics';
 import { spanTypeColorToken } from '../data/trace';
 import { fmtScaleTime, fmtDuration, isUtcMode } from '../ui/format';
-import { contentWidth } from './ticks';
+import { contentWidth, axisLeftMargin } from './ticks';
 import { drawTimeGrid } from './timegrid';
 import { placeTooltip } from './tooltip';
 
@@ -22,7 +22,6 @@ export function renderStackbars(container: HTMLElement, data: BreakdownResult): 
   if (data.buckets.length === 0) return;
 
   const width = contentWidth(container, 320);
-  const innerW = width - MARGIN.left - MARGIN.right;
   const innerH = HEIGHT - MARGIN.top - MARGIN.bottom;
 
   const styles = getComputedStyle(container); // resolve tokens in the panel scope
@@ -30,12 +29,7 @@ export function renderStackbars(container: HTMLElement, data: BreakdownResult): 
     styles.getPropertyValue(spanTypeColorToken(key)).trim();
   const gridColor = styles.getPropertyValue('--line-strong').trim();
   const inkFaint = styles.getPropertyValue('--ink-faint').trim();
-
-  const t0 = data.buckets[0].t0;
-  const t1 = data.buckets[data.buckets.length - 1].t0 + data.bucketMs;
-  const x = (isUtcMode() ? scaleUtc() : scaleTime())
-    .domain([new Date(t0), new Date(t1)])
-    .range([0, innerW]);
+  const axisFont = `10.5px ${styles.getPropertyValue('--font-data').trim()}`;
 
   const maxTotal = Math.max(
     1,
@@ -43,8 +37,21 @@ export function renderStackbars(container: HTMLElement, data: BreakdownResult): 
   );
   const y = scaleLinear().domain([0, maxTotal]).nice().range([innerH, 0]);
 
+  // left margin sized to the widest y-axis label so it never clips (floor: MARGIN.left)
+  const left = Math.max(
+    MARGIN.left,
+    axisLeftMargin(y.ticks(4).map((d) => fmtDuration(d as number)), axisFont),
+  );
+  const innerW = width - left - MARGIN.right;
+
+  const t0 = data.buckets[0].t0;
+  const t1 = data.buckets[data.buckets.length - 1].t0 + data.bucketMs;
+  const x = (isUtcMode() ? scaleUtc() : scaleTime())
+    .domain([new Date(t0), new Date(t1)])
+    .range([0, innerW]);
+
   const svg = select(container).append('svg').attr('width', width).attr('height', HEIGHT);
-  const g = svg.append('g').attr('transform', `translate(${MARGIN.left},${MARGIN.top})`);
+  const g = svg.append('g').attr('transform', `translate(${left},${MARGIN.top})`);
 
   // time axis: background gridlines + humane labels (drawn first, behind bars)
   drawTimeGrid(g, x as (d: Date) => number, [t0, t1], innerW, innerH, styles, data.bucketMs);
@@ -89,7 +96,7 @@ export function renderStackbars(container: HTMLElement, data: BreakdownResult): 
       const rect = container.getBoundingClientRect();
       // the SVG sits inside the host's left padding — account for it
       const padLeft = parseFloat(styles.paddingLeft) || 0;
-      const mx = event.clientX - rect.left - padLeft - MARGIN.left;
+      const mx = event.clientX - rect.left - padLeft - left;
       const t = x.invert(mx).getTime();
       const idx = Math.floor((t - data.buckets[0].t0) / data.bucketMs);
       const bucket = data.buckets[idx];

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { logTicks } from './ticks';
+import { logTicks, axisLeftMargin } from './ticks';
 
 describe('logTicks', () => {
   it('emits clean powers of 10 across many decades', () => {
@@ -23,5 +23,21 @@ describe('logTicks', () => {
   it('handles degenerate domains', () => {
     expect(logTicks(0, 10)).toEqual([]);
     expect(logTicks(5, 5)).toEqual([]);
+  });
+});
+
+describe('axisLeftMargin', () => {
+  const font = '10.5px monospace';
+
+  it('sizes to the widest label (a wider tick needs a wider margin)', () => {
+    const narrow = axisLeftMargin(['1', '20'], font);
+    const wide = axisLeftMargin(['16.7 min', '20'], font);
+    expect(wide).toBeGreaterThan(narrow);
+  });
+
+  it('adds the tick + padding + gutter on top of the label width', () => {
+    // empty/zero-width labels still reserve the fixed tick + pad + gutter
+    expect(axisLeftMargin([], font)).toBe(6 + 3 + 4);
+    expect(axisLeftMargin([''], font)).toBe(6 + 3 + 4);
   });
 });
