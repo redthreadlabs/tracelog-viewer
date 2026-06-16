@@ -196,7 +196,7 @@ export function matchIndex(
   op: AggOp,
   field: string | undefined,
   groupBy: string | undefined,
-  bucketMs: number,
+  periodMs: number,
   gridStart: number,
 ): AggregateIndex | undefined {
   return INDEXES.find((ix) => {
@@ -204,8 +204,8 @@ export function matchIndex(
     const opOk = c.provides.some((p) => p.op === op && (op === 'count' || p.field === field));
     const groupOk = c.groupBy === groupBy || (c.fileGroupBy?.includes(groupBy ?? '') ?? false);
     const granularityOk =
-      bucketMs >= c.granularityMs &&
-      bucketMs % c.granularityMs === 0 &&
+      periodMs >= c.granularityMs &&
+      periodMs % c.granularityMs === 0 &&
       gridStart % c.granularityMs === 0;
     return opOk && groupOk && c.merge === 'distributive' && granularityOk;
   });

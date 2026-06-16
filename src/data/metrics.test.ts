@@ -65,7 +65,7 @@ describe('deploymentMarkers', () => {
 });
 
 describe('breakdownSelfTime', () => {
-  it('buckets self-time by span type/subtype, µs→ms, types by total desc', () => {
+  it('periods self-time by span type/subtype, µs→ms, types by total desc', () => {
     const mk = (ts: number, type: string, subtype: string | undefined, us: number) =>
       rec({
         ts,
@@ -78,14 +78,14 @@ describe('breakdownSelfTime', () => {
       mk(60_500, 'app', undefined, 50_000),
     ]);
     expect(result.types).toEqual(['app', 'db/mongodb']);
-    expect(result.buckets[0].byType.get('db/mongodb')).toBe(8);
-    expect(result.buckets[0].byType.get('app')).toBe(50);
+    expect(result.periods[0].byType.get('db/mongodb')).toBe(8);
+    expect(result.periods[0].byType.get('app')).toBe(50);
   });
 
   it('ignores runtime metricsets without span attribution', () => {
     const result = breakdownSelfTime([
       rec({ ts: 1000, samples: { 'span.self_time.sum.us': 100 } }), // no result attribution
     ]);
-    expect(result.buckets).toHaveLength(0);
+    expect(result.periods).toHaveLength(0);
   });
 });

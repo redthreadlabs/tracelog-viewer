@@ -1,6 +1,6 @@
 /**
  * Stacked time-series bars over a generalized SeriesResult (SPEC §11): each
- * bucket is split into an ordered set of series, bar height is the bucket total.
+ * period is split into an ordered set of series, bar height is the period total.
  * The consolidated successor to timebars/stackbars — color is supplied by a
  * strategy callback (the overview maps rank → --series-N; a breakdown could map
  * span types), and the y-axis value formatter is caller-supplied (durations,
@@ -42,7 +42,7 @@ export function renderSeriesbars(
   ghostSpans: [number, number][] = [],
 ): void {
   clear(container);
-  if (data.buckets.length === 0) return;
+  if (data.periods.length === 0) return;
 
   const width = contentWidth(container, 320);
   const innerH = HEIGHT - MARGIN.top - MARGIN.bottom;
@@ -53,7 +53,7 @@ export function renderSeriesbars(
   const inkFaint = styles.getPropertyValue('--ink-faint').trim();
   const axisFont = `10.5px ${styles.getPropertyValue('--font-data').trim()}`;
 
-  const maxTotal = Math.max(1, ...data.buckets.map((b) => b.total));
+  const maxTotal = Math.max(1, ...data.periods.map((b) => b.total));
   const y = scaleLinear().domain([0, maxTotal]).nice().range([innerH, 0]);
 
   // y-axis labels from the whole tick set (consistent unit, minimal precision,
@@ -78,7 +78,7 @@ export function renderSeriesbars(
 
   // ghost band first (chart background), then gridlines, then bars
   drawGhostBand(g, x as (d: Date) => number, ghostSpans, innerW, innerH, styles);
-  drawTimeGrid(g, x as (d: Date) => number, data.domain, innerW, innerH, styles, data.bucketMs);
+  drawTimeGrid(g, x as (d: Date) => number, data.domain, innerW, innerH, styles, data.periodMs);
 
   g.append('g')
     .call(axisLeft(y).tickValues(yTicks).tickFormat((d) => yLabel(d as number)).tickSizeOuter(0))
@@ -89,15 +89,15 @@ export function renderSeriesbars(
     });
 
   // bars, stacked in series order
-  const barW = Math.max(1, (innerW / data.buckets.length) * 0.82);
+  const barW = Math.max(1, (innerW / data.periods.length) * 0.82);
   const barsG = g.append('g');
   const color = data.series.map((key, i) => colorOf(key, i));
-  for (const bucket of data.buckets) {
-    if (bucket.total === 0) continue;
-    const cx = x(new Date(bucket.t0 + data.bucketMs / 2));
+  for (const period of data.periods) {
+    if (period.total === 0) continue;
+    const cx = x(new Date(period.t0 + data.periodMs / 2));
     let yCursor = innerH;
     for (let i = 0; i < data.series.length; i++) {
-      const v = bucket.values[data.series[i]] ?? 0;
+      const v = period.values[data.series[i]] ?? 0;
       if (v === 0) continue;
       const h = innerH - y(v);
       yCursor -= h;
@@ -120,23 +120,23 @@ export function renderSeriesbars(
     .on('mousemove', (event: MouseEvent) => {
       const [mx] = pointerInG(event, container);
       const t = x.invert(mx).getTime();
-      const idx = Math.floor((t - data.domain[0]) / data.bucketMs);
-      const bucket = data.buckets[idx];
+      const idx = Math.floor((t - data.domain[0]) / data.periodMs);
+      const period = data.periods[idx];
       const ghosted = inGhost(ghostSpans, t);
-      if ((!bucket || bucket.total === 0) && !ghosted) {
+      if ((!period || period.total === 0) && !ghosted) {
         tooltip.style.display = 'none';
         return;
       }
-      const rows = bucket
+      const rows = period
         ? data.series
-            .filter((key) => (bucket.values[key] ?? 0) > 0)
+            .filter((key) => (period.values[key] ?? 0) > 0)
             .map(
               (key, i) =>
-                `<span class="row"><span class="dot" style="background:${colorOf(key, i)}"></span>${key}<span class="v">${opts.formatValue(bucket.values[key]!)}</span></span>`,
+                `<span class="row"><span class="dot" style="background:${colorOf(key, i)}"></span>${key}<span class="v">${opts.formatValue(period.values[key]!)}</span></span>`,
             )
         : [];
-      const when = bucket ? bucket.t0 : t;
-      tooltip.innerHTML = `<div class="t">${fmtScaleTime(when, data.bucketMs)}</div>${rows.join('')}${ghosted ? GHOST_FOOTNOTE : ''}`;
+      const when = period ? period.t0 : t;
+      tooltip.innerHTML = `<div class="t">${fmtScaleTime(when, data.periodMs)}</div>${rows.join('')}${ghosted ? GHOST_FOOTNOTE : ''}`;
       tooltip.style.display = 'block';
       placeTooltip(tooltip, container, event);
     })

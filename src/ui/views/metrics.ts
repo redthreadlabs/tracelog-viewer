@@ -14,7 +14,7 @@ import {
 import { renderLine } from '../../viz/line';
 import { renderStackbars } from '../../viz/stackbars';
 import { spanTypeColorToken } from '../../data/trace';
-import { chosenBucketMs, bucketLabel } from '../bucketpicker';
+import { chosenPeriodMs, periodLabel } from '../periodpicker';
 import { viewState } from '../../state';
 import { THEME_CHANGE_EVENT } from '../theme';
 import { fmtBytes, fmtDuration, durationAxisFormat, bytesAxisFormat, omitZero, isUtcMode } from '../format';
@@ -56,7 +56,7 @@ export function renderMetricsView(container: HTMLElement): () => void {
       markers: DeploymentMarker[];
     }>('metricsData', {
       range: viewState.timeRange,
-      bucketMs: chosenBucketMs(),
+      periodMs: chosenPeriodMs(),
       sampleNames: SERIES.map((spec) => spec.key),
       utc: isUtcMode(),
     });
@@ -132,7 +132,7 @@ export function renderMetricsView(container: HTMLElement): () => void {
 
     // breakdown self-time
     const breakdown = data.breakdown;
-    if (breakdown.buckets.length > 0) {
+    if (breakdown.periods.length > 0) {
       const legendItems = breakdown.types.slice(0, 8).map((key: string) =>
         el('span', { className: 'chip', attrs: { style: 'cursor:default' } }, [
           el('span', {
@@ -150,9 +150,9 @@ export function renderMetricsView(container: HTMLElement): () => void {
           el('span', {
             className: 'budget faint',
             text:
-              chosenBucketMs() === null
-                ? `bars: auto = ${bucketLabel(breakdown.bucketMs)}`
-                : `bars: ${bucketLabel(breakdown.bucketMs)}`,
+              chosenPeriodMs() === null
+                ? `period: auto = ${periodLabel(breakdown.periodMs)}`
+                : `period: ${periodLabel(breakdown.periodMs)}`,
           }),
         ]),
       );

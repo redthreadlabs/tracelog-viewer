@@ -8,7 +8,7 @@
  * It groups the requested metrics by the source that serves them (the cube for
  * count/Σ; the duration sketch for P95), iterates each source once, and fans
  * every cell out to all the metrics that read it. Series-shaped metrics emit
- * pre-aggregated points (handed to `aggregateBySeries` for ranking/bucketing);
+ * pre-aggregated points (handed to `aggregateBySeries` for ranking/aggregation);
  * total-shaped metrics fold straight into a per-group tally.
  *
  * This is the index-served batch. A metric whose cheapest plan is a raw scan
@@ -48,7 +48,7 @@ export function sourceOf(m: MetricSpec): MetricSource {
 export interface BatchInput {
   metrics: MetricSpec[];
   range: [number, number];
-  bucketMs: number | null;
+  periodMs: number | null;
   utc: boolean;
   /** series group selection (chart legend); undefined → rank to top-N */
   show?: Set<string>;
@@ -73,7 +73,7 @@ export function planIndexBatch(
   cubePayloads: TxnFileIndex[],
   histPayloads: DurHistFileIndex[],
 ): BatchResult {
-  const { metrics, range, bucketMs, utc, show, topN } = input;
+  const { metrics, range, periodMs, utc, show, topN } = input;
   const [from, to] = range;
   const inRange = (t: number | null): t is number => t !== null && t >= from && t + HOUR_MS <= to;
 
@@ -130,7 +130,7 @@ export function planIndexBatch(
     }
     for (const m of histMetrics) {
       // only p95(duration) for now; total-shaped (a series quantile would merge
-      // per-bucket bins, a future extension)
+      // per-period bins, a future extension)
       const tally = totals.get(m.key)!;
       for (const [name, bins] of binsByName) {
         const q = quantileFromBins(bins, 0.95);
@@ -139,7 +139,7 @@ export function planIndexBatch(
     }
   }
 
-  // ---- assemble series via the shared ranker/bucketer (records empty: the
+  // ---- assemble series via the shared ranker/aggregator (records empty: the
   // points carry everything; value/group/include are unused) ----
   const series = new Map<string, SeriesResult>();
   for (const m of metrics) {
@@ -149,7 +149,7 @@ export function planIndexBatch(
       aggregateBySeries(
         [],
         range,
-        bucketMs,
+        periodMs,
         utc,
         { value: () => 0, group: () => '', topN, noOther: true },
         seriesPoints.get(m.key)!,

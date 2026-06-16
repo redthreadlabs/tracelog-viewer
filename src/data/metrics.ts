@@ -5,7 +5,7 @@
  */
 import type { Rec } from './types';
 import { rangeSlice } from './store';
-import { resolveBucketMs, zoneMidnight } from './aggregate';
+import { resolvePeriodMs, zoneMidnight } from './aggregate';
 
 export interface SeriesPoint {
   t: number;
@@ -57,23 +57,23 @@ export function deploymentMarkers(records: Rec[]): DeploymentMarker[] {
   return ordered.slice(1); // drop the baseline version
 }
 
-export interface BreakdownBucket {
+export interface BreakdownPeriod {
   t0: number;
   /** span `type/subtype` → summed self time (ms) */
   byType: Map<string, number>;
 }
 
 export interface BreakdownResult {
-  buckets: BreakdownBucket[];
-  bucketMs: number;
+  periods: BreakdownPeriod[];
+  periodMs: number;
   types: string[];
 }
 
-/** Aggregate `span.self_time.sum.us` breakdown metricsets into time buckets. */
+/** Aggregate `span.self_time.sum.us` breakdown metricsets into time periods. */
 export function breakdownSelfTime(
   records: Rec[],
   range?: [number, number] | null,
-  chosenBucketMs: number | null = null,
+  chosenPeriodMs: number | null = null,
   utc = true,
 ): BreakdownResult {
   interface Sample {
@@ -90,7 +90,7 @@ export function breakdownSelfTime(
     if (us === undefined) continue;
     samples.push({ t: r.ts, key: r.result, ms: us / 1000 });
   }
-  if (samples.length === 0) return { buckets: [], bucketMs: 60_000, types: [] };
+  if (samples.length === 0) return { periods: [], periodMs: 60_000, types: [] };
 
   let min = Infinity;
   let max = -Infinity;
@@ -98,22 +98,22 @@ export function breakdownSelfTime(
     if (s.t < min) min = s.t;
     if (s.t > max) max = s.t;
   }
-  const bucketMs = resolveBucketMs(Math.max(max - min, 1), chosenBucketMs);
+  const periodMs = resolvePeriodMs(Math.max(max - min, 1), chosenPeriodMs);
   const anchor = zoneMidnight(min, utc);
-  const start = anchor + Math.floor((min - anchor) / bucketMs) * bucketMs;
-  const n = Math.floor((max - start) / bucketMs) + 1;
-  const buckets: BreakdownBucket[] = Array.from({ length: n }, (_, i) => ({
-    t0: start + i * bucketMs,
+  const start = anchor + Math.floor((min - anchor) / periodMs) * periodMs;
+  const n = Math.floor((max - start) / periodMs) + 1;
+  const periods: BreakdownPeriod[] = Array.from({ length: n }, (_, i) => ({
+    t0: start + i * periodMs,
     byType: new Map(),
   }));
 
   const totals = new Map<string, number>();
   for (const s of samples) {
-    const bucket = buckets[Math.floor((s.t - start) / bucketMs)];
-    bucket.byType.set(s.key, (bucket.byType.get(s.key) ?? 0) + s.ms);
+    const period = periods[Math.floor((s.t - start) / periodMs)];
+    period.byType.set(s.key, (period.byType.get(s.key) ?? 0) + s.ms);
     totals.set(s.key, (totals.get(s.key) ?? 0) + s.ms);
   }
   const types = [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k);
 
-  return { buckets, bucketMs, types };
+  return { periods, periodMs, types };
 }

@@ -84,14 +84,14 @@ export interface Tiers {
 export function chooseTiers(
   domain: [number, number],
   innerW: number,
-  bucketMs: number | undefined,
+  periodMs: number | undefined,
   utc: boolean,
 ): Tiers {
   const span = domain[1] - domain[0];
   const px = (ms: number): number => (innerW * ms) / span;
 
   // minor: ≥ ~4 bars, and not denser than MIN_MINOR_PX on screen
-  const minMinorMs = Math.max(bucketMs ? MIN_BARS * bucketMs : 0, (span * MIN_MINOR_PX) / innerW);
+  const minMinorMs = Math.max(periodMs ? MIN_BARS * periodMs : 0, (span * MIN_MINOR_PX) / innerW);
   const minorRaw = STEPS.findIndex((s) => s.ms >= minMinorMs);
   const minorI = minorRaw < 0 ? STEPS.length - 1 : minorRaw;
 
@@ -432,7 +432,7 @@ export function drawTimeGrid(
   innerH: number,
   styles: CSSStyleDeclaration,
   /** bar width, when this is a bar chart: minor lines never subdivide a bar */
-  bucketMs?: number,
+  periodMs?: number,
 ): void {
   const span = domain[1] - domain[0];
   if (!(span > 0)) return;
@@ -442,7 +442,7 @@ export function drawTimeGrid(
   const inkFaint = styles.getPropertyValue('--ink-faint').trim();
   const inkSoft = styles.getPropertyValue('--ink-soft').trim();
 
-  const { minor, medium, major } = chooseTiers(domain, innerW, bucketMs, utc);
+  const { minor, medium, major } = chooseTiers(domain, innerW, periodMs, utc);
   const onScreen = (gx: number): boolean => gx >= -0.5 && gx <= innerW + 0.5;
 
   // marks that get a top (date) label — their gridlines rise into the margin to

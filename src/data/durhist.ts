@@ -11,7 +11,7 @@
  * separate fixed-edge scheme.)
  */
 import type { Rec } from './types';
-import { hourBucket } from '@redthreadlabs/tracelog-schema';
+import { hourInterval } from '@redthreadlabs/tracelog-schema';
 import { openDb, DURHIST_STORE, SEP, bucketRange } from './cache';
 
 const MIN_MS = 0.01; // 10 µs floor; anything smaller lands in bin 0
@@ -42,7 +42,7 @@ export function buildDurHist(records: Rec[]): DurHistFileIndex {
   const index: DurHistFileIndex = {};
   for (const r of records) {
     if (r.kind !== 'transaction' || r.ts <= 0 || r.duration === undefined) continue;
-    const byName = (index[hourBucket(r.ts)] ??= {});
+    const byName = (index[hourInterval(r.ts)] ??= {});
     const bins = (byName[r.name] ??= {});
     const b = durationBin(r.duration);
     bins[b] = (bins[b] ?? 0) + 1;

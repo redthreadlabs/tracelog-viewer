@@ -1,12 +1,12 @@
 /**
- * Pure aggregation helpers for the overview: time-bucketed volume and
+ * Pure aggregation helpers for the overview: time-period volume and
  * per-transaction-name rollups. No DOM, no D3 — unit-testable.
  */
 import type { Rec } from './types';
 import { rangeSlice } from './store';
 
-/** Candidate bucket widths, smallest first. */
-export const BUCKET_STEPS_MS = [
+/** Candidate period widths, smallest first. */
+export const PERIOD_STEPS_MS = [
   60_000, // 1m
   300_000, // 5m
   900_000, // 15m
@@ -16,44 +16,44 @@ export const BUCKET_STEPS_MS = [
   24 * 3_600_000, // 1d
 ];
 
-const TARGET_MAX_BUCKETS = 120;
+const TARGET_MAX_PERIODS = 120;
 
-/** A user-chosen width may not produce more bars than this. */
-const HARD_MAX_BUCKETS = 1500;
+/** A user-chosen width may not produce more periods than this. */
+const HARD_MAX_PERIODS = 1500;
 
-export function chooseBucketMs(spanMs: number): number {
-  for (const step of BUCKET_STEPS_MS) {
-    if (spanMs / step <= TARGET_MAX_BUCKETS) return step;
+export function choosePeriodMs(spanMs: number): number {
+  for (const step of PERIOD_STEPS_MS) {
+    if (spanMs / step <= TARGET_MAX_PERIODS) return step;
   }
-  return BUCKET_STEPS_MS[BUCKET_STEPS_MS.length - 1];
+  return PERIOD_STEPS_MS[PERIOD_STEPS_MS.length - 1];
 }
 
 /**
- * Resolve the effective bucket width: an explicit choice is honored unless
- * it would produce an absurd number of bars for the span (1m bars over a
+ * Resolve the effective period width: an explicit choice is honored unless
+ * it would produce an absurd number of periods for the span (1m periods over a
  * month), in which case it escalates to the smallest sane step.
  */
-export function resolveBucketMs(spanMs: number, chosenMs: number | null): number {
-  if (chosenMs === null) return chooseBucketMs(spanMs);
+export function resolvePeriodMs(spanMs: number, chosenMs: number | null): number {
+  if (chosenMs === null) return choosePeriodMs(spanMs);
   let ms = chosenMs;
-  for (const step of BUCKET_STEPS_MS) {
+  for (const step of PERIOD_STEPS_MS) {
     if (step < ms) continue;
     ms = step;
-    if (spanMs / ms <= HARD_MAX_BUCKETS) return ms;
+    if (spanMs / ms <= HARD_MAX_PERIODS) return ms;
   }
-  return BUCKET_STEPS_MS[BUCKET_STEPS_MS.length - 1];
+  return PERIOD_STEPS_MS[PERIOD_STEPS_MS.length - 1];
 }
 
 /**
- * Midnight of `ms` in the active display zone — the anchor every bucket grid
+ * Midnight of `ms` in the active display zone — the anchor every period grid
  * hangs off. Aligning to the zone's midnight (not the raw epoch) makes calendar
  * boundaries — local midnight, the 1st of a month — fall on bar edges, so the
- * time grid lines up with the bars instead of drifting by the sub-bucket
- * timezone remainder. Every BUCKET_STEPS_MS width divides a day, so each day's
- * midnight is itself a bucket boundary. Uniform-ms stepping from the anchor
- * keeps bucket assignment O(1); the only cost is a ≤1h drift across a DST
+ * time grid lines up with the bars instead of drifting by the sub-period
+ * timezone remainder. Every PERIOD_STEPS_MS width divides a day, so each day's
+ * midnight is itself a period boundary. Uniform-ms stepping from the anchor
+ * keeps period assignment O(1); the only cost is a ≤1h drift across a DST
  * transition on multi-day ranges (bounded and rare). With `utc=true` the anchor
- * is a whole number of days from the epoch — a multiple of every bucket width —
+ * is a whole number of days from the epoch — a multiple of every period width —
  * so the grid reduces exactly to the old epoch alignment.
  */
 export function zoneMidnight(ms: number, utc: boolean): number {
@@ -64,35 +64,35 @@ export function zoneMidnight(ms: number, utc: boolean): number {
 }
 
 /**
- * The bucket grid for a [min, max] span: resolves the width, anchors to the
- * zone midnight, and returns the aligned domain + bucket count. Shared by every
- * bucketer so the alignment + exclusive-windowed-end rules live in one place.
- * A windowed end is exclusive (round UP, so a range ending on a bucket edge adds
- * no empty trailing bucket); without a range the end includes the last point's
- * own bucket.
+ * The period grid for a [min, max] span: resolves the width, anchors to the
+ * zone midnight, and returns the aligned domain + period count. Shared by every
+ * aggregator so the alignment + exclusive-windowed-end rules live in one place.
+ * A windowed end is exclusive (round UP, so a range ending on a period edge adds
+ * no empty trailing period); without a range the end includes the last point's
+ * own period.
  */
-export function bucketGrid(
+export function periodGrid(
   min: number,
   max: number,
   range: [number, number] | null,
-  chosenBucketMs: number | null,
+  chosenPeriodMs: number | null,
   utc: boolean,
-): { start: number; end: number; bucketMs: number; n: number } {
-  const bucketMs = resolveBucketMs(Math.max(max - min, 1), chosenBucketMs);
+): { start: number; end: number; periodMs: number; n: number } {
+  const periodMs = resolvePeriodMs(Math.max(max - min, 1), chosenPeriodMs);
   const anchor = zoneMidnight(min, utc);
-  const start = anchor + Math.floor((min - anchor) / bucketMs) * bucketMs;
+  const start = anchor + Math.floor((min - anchor) / periodMs) * periodMs;
   let end = range
-    ? anchor + Math.ceil((max - anchor) / bucketMs) * bucketMs
-    : anchor + Math.floor((max - anchor) / bucketMs) * bucketMs + bucketMs;
-  if (end <= start) end = start + bucketMs; // at least one bucket
-  const n = Math.round((end - start) / bucketMs);
-  return { start, end, bucketMs, n };
+    ? anchor + Math.ceil((max - anchor) / periodMs) * periodMs
+    : anchor + Math.floor((max - anchor) / periodMs) * periodMs + periodMs;
+  if (end <= start) end = start + periodMs; // at least one period
+  const n = Math.round((end - start) / periodMs);
+  return { start, end, periodMs, n };
 }
 
 // ---------- generalized series aggregation (SPEC §11) ----------
 
-export interface SeriesBucket {
-  /** bucket start, epoch-ms */
+export interface SeriesPeriod {
+  /** period start, epoch-ms */
   t0: number;
   /** series key → aggregated value (e.g. transaction name → Σ duration) */
   values: Record<string, number>;
@@ -101,12 +101,12 @@ export interface SeriesBucket {
 }
 
 export interface SeriesResult {
-  buckets: SeriesBucket[];
+  periods: SeriesPeriod[];
   /** the series, in stack/legend order: top groups by total descending, then
    *  `otherLabel` last when the tail was folded */
   series: string[];
-  bucketMs: number;
-  /** [domainStart, domainEnd] epoch-ms, bucket-aligned */
+  periodMs: number;
+  /** [domainStart, domainEnd] epoch-ms, period-aligned */
   domain: [number, number];
 }
 
@@ -129,7 +129,7 @@ export interface SeriesSpec {
 /**
  * A pre-aggregated contribution to the series: a group (`name`) gets `weight`
  * added at time `t`. Lets an index supply already-rolled-up points (e.g. an
- * hour's Σ duration for a transaction) into the same buckets as raw records —
+ * hour's Σ duration for a transaction) into the same periods as raw records —
  * the solver merges index + scan through this (SPEC §11).
  */
 export interface WeightedPoint {
@@ -139,17 +139,17 @@ export interface WeightedPoint {
 }
 
 /**
- * Time-bucket a metric, broken out by an arbitrary grouping dimension and
- * reduced to the top-N groups (by total over the window) plus an "Other" roll-up
- * — the generalized cousin of `bucketByTime`. The two-pass shape (rank, then
- * bucket) keeps the stack readable regardless of group cardinality. `extra`
- * folds in pre-aggregated points (from an index) alongside the raw records, into
- * the same ranking and buckets. Pure.
+ * Aggregate a metric over time periods, broken out by an arbitrary grouping
+ * dimension and reduced to the top-N groups (by total over the window) plus an
+ * "Other" roll-up. The two-pass shape (rank, then aggregate) keeps the stack
+ * readable regardless of group cardinality. `extra` folds in pre-aggregated
+ * points (from an index) alongside the raw records, into the same ranking and
+ * periods. Pure.
  */
 export function aggregateBySeries(
   records: Rec[],
   range: [number, number] | null,
-  chosenBucketMs: number | null,
+  chosenPeriodMs: number | null,
   utc: boolean,
   spec: SeriesSpec,
   extra: WeightedPoint[] = [],
@@ -175,10 +175,10 @@ export function aggregateBySeries(
     max = range[1];
   }
   if (!isFinite(min) || !isFinite(max) || max < min) {
-    return { buckets: [], series: [], bucketMs: 60_000, domain: [0, 0] };
+    return { periods: [], series: [], periodMs: 60_000, domain: [0, 0] };
   }
 
-  const { start, end, bucketMs, n } = bucketGrid(min, max, range ?? null, chosenBucketMs, utc);
+  const { start, end, periodMs, n } = periodGrid(min, max, range ?? null, chosenPeriodMs, utc);
   const inWindow = (r: Rec) => include(r) && r.ts >= start && r.ts < end;
   const pInWindow = (p: WeightedPoint) => p.t >= start && p.t < end;
 
@@ -198,15 +198,15 @@ export function aggregateBySeries(
   const topSet = new Set(top);
   const series = ranked.length > spec.topN && !spec.noOther ? [...top, otherLabel] : top;
 
-  // pass 2: bucket. The tail (non-top-N) folds into Other, or is dropped
+  // pass 2: period. The tail (non-top-N) folds into Other, or is dropped
   // entirely when noOther.
-  const buckets: SeriesBucket[] = Array.from({ length: n }, (_, i) => ({
-    t0: start + i * bucketMs,
+  const periods: SeriesPeriod[] = Array.from({ length: n }, (_, i) => ({
+    t0: start + i * periodMs,
     values: {},
     total: 0,
   }));
   const add = (key: string, t: number, v: number): void => {
-    const b = buckets[Math.floor((t - start) / bucketMs)];
+    const b = periods[Math.floor((t - start) / periodMs)];
     b.values[key] = (b.values[key] ?? 0) + v;
     b.total += v;
   };
@@ -227,10 +227,10 @@ export function aggregateBySeries(
     add(inTop ? p.name : otherLabel, p.t, p.weight);
   }
 
-  return { buckets, series, bucketMs, domain: [start, end] };
+  return { periods, series, periodMs, domain: [start, end] };
 }
 
-/** `blankPartialBuckets` for the series shape: zero any bucket overlapping a
+/** `blankPartialPeriods` for the series shape: zero any period overlapping a
  *  partially-loaded span, so a records-path series chart never shows a
  *  misleadingly short bar for an interval still missing files. */
 export function blankPartialSeries(
@@ -238,12 +238,12 @@ export function blankPartialSeries(
   incompleteSpans: [number, number][],
 ): SeriesResult {
   if (incompleteSpans.length === 0) return result;
-  const buckets = result.buckets.map((b) => {
-    const t1 = b.t0 + result.bucketMs;
+  const periods = result.periods.map((b) => {
+    const t1 = b.t0 + result.periodMs;
     const partial = incompleteSpans.some(([s0, s1]) => s0 < t1 && s1 > b.t0);
     return partial ? { t0: b.t0, values: {}, total: 0 } : b;
   });
-  return { ...result, buckets };
+  return { ...result, periods };
 }
 
 export type ResultFamily = 'ok' | 'warn' | 'bad' | 'other';
@@ -379,7 +379,7 @@ export function percentile(sortedAsc: number[], p: number): number | undefined {
 }
 
 export interface HistBucket {
-  /** bucket bounds, ms */
+  /** bin bounds, ms */
   x0: number;
   x1: number;
   count: number;

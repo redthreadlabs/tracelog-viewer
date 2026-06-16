@@ -29,7 +29,7 @@ import type { Rec, RecordKind } from '../data/types';
 import {
   aggregateBySeries,
   blankPartialSeries,
-  bucketGrid,
+  periodGrid,
   groupTransactions,
   transactionStats,
   resultFamily,
@@ -277,7 +277,7 @@ function sampleInstances(instances: Rec[]): { rows: Rec[]; sample?: SampleNote }
 
 /**
  * The time spans of intervals in the selection (currentPlan) whose files aren't
- * ALL accounted for yet — used to blank partially-covered buckets, so an
+ * ALL accounted for yet — used to blank partially-covered periods, so an
  * interval is either fully populated or left blank, never partial. A file is
  * "accounted" if its records are loaded OR an index covers it (`covered`).
  */
@@ -375,12 +375,12 @@ async function indexContributions(
   range: [number, number],
   metric: Metric,
   showSet: Set<string> | undefined,
-  bucketMs: number | null,
+  periodMs: number | null,
   utc: boolean,
 ): Promise<{ extra: WeightedPoint[]; covered: Set<string>; indexOnly: boolean }> {
   const empty = { extra: [] as WeightedPoint[], covered: new Set<string>(), indexOnly: false };
-  const grid = bucketGrid(range[0], range[1], range, bucketMs, utc);
-  const ix = matchIndex(metric.op, metric.field, metric.groupBy, grid.bucketMs, grid.start);
+  const grid = periodGrid(range[0], range[1], range, periodMs, utc);
+  const ix = matchIndex(metric.op, metric.field, metric.groupBy, grid.periodMs, grid.start);
   if (!ix?.points) return empty; // no distributive index satisfies this metric/grid → scan
   const points = ix.points;
 
@@ -439,7 +439,7 @@ async function solveSeriesAggregate(
   s: Session,
   metric: Metric,
   range: TimeRange,
-  bucketMs: number | null,
+  periodMs: number | null,
   utc: boolean,
   /** the transactions to display, each as its own band (the chart's legend
    *  selection). Undefined = default to the top-N by total. Either way there is
@@ -464,7 +464,7 @@ async function solveSeriesAggregate(
   // regardless of what's loaded. Otherwise loaded files are scanned and the
   // not-loaded indexed ones merged in (disjoint, no double count).
   const { extra, covered, indexOnly } = range
-    ? await indexContributions(s, range, metric, showSet, bucketMs, utc)
+    ? await indexContributions(s, range, metric, showSet, periodMs, utc)
     : { extra: [] as WeightedPoint[], covered: new Set<string>(), indexOnly: false };
 
   // explicit selection → show exactly those (include-filtered, all broken out);
@@ -473,7 +473,7 @@ async function solveSeriesAggregate(
     aggregateBySeries(
       indexOnly ? [] : s.store.records,
       range,
-      bucketMs,
+      periodMs,
       utc,
       {
         value,
@@ -503,13 +503,13 @@ async function solveSeriesAggregate(
 async function solveOverviewBatch(
   s: Session,
   range: TimeRange,
-  bucketMs: number | null,
+  periodMs: number | null,
   utc: boolean,
   show: string[] | undefined,
 ): Promise<{ series: SeriesResult; groups: TxnGroup[] } | null> {
   if (!range) return null;
-  const grid = bucketGrid(range[0], range[1], range, bucketMs, utc);
-  if (!matchIndex('sum', 'duration', 'transaction', grid.bucketMs, grid.start)) return null;
+  const grid = periodGrid(range[0], range[1], range, periodMs, utc);
+  if (!matchIndex('sum', 'duration', 'transaction', grid.periodMs, grid.start)) return null;
   const prefix = s.bucket.bucket + SEP;
   const overlapping = s.currentPlan.filter((f) => overlapsRange(f, range[0], range[1]));
   if (overlapping.length === 0) return null;
@@ -536,7 +536,7 @@ async function solveOverviewBatch(
     { key: 'p95', op: 'p95', field: 'duration', shape: 'total' },
   ];
   const { series, totals } = planIndexBatch(
-    { metrics, range, bucketMs, utc, show: showSet, topN: showSet ? showSet.size : SERIES_TOP_N },
+    { metrics, range, periodMs, utc, show: showSet, topN: showSet ? showSet.size : SERIES_TOP_N },
     cubePayloads,
     histPayloads,
   );
@@ -798,8 +798,8 @@ const ops: Record<string, OpHandler> = {
   overviewIndexed: async (s, a) => {
     const range = a.range as TimeRange;
     if (!range) return false;
-    const grid = bucketGrid(range[0], range[1], range, (a.bucketMs as number | null) ?? null, a.utc !== false);
-    if (!matchIndex('sum', 'duration', 'transaction', grid.bucketMs, grid.start)) return false;
+    const grid = periodGrid(range[0], range[1], range, (a.periodMs as number | null) ?? null, a.utc !== false);
+    if (!matchIndex('sum', 'duration', 'transaction', grid.periodMs, grid.start)) return false;
     const overlapping = s.currentPlan.filter((f) => overlapsRange(f, range[0], range[1]));
     if (overlapping.length === 0) return false;
     const prefix = s.bucket.bucket + SEP;
@@ -883,8 +883,8 @@ const ops: Record<string, OpHandler> = {
   // exact transactions to display (its legend selection); absent → top-N.
   overviewData: async (s, a) => {
     const range = a.range as TimeRange;
-    const bucketMs = a.bucketMs as number | null;
-    const utc = a.utc !== false; // align the bucket grid to the active display zone
+    const periodMs = a.periodMs as number | null;
+    const utc = a.utc !== false; // align the period grid to the active display zone
     const metric = (a.metric as Metric | undefined) ?? {
       op: 'sum',
       field: 'duration',
@@ -895,7 +895,7 @@ const ops: Record<string, OpHandler> = {
     // fastest plan: when the whole overview is index-coverable, solve the chart
     // series and the table totals as ONE batch — a single cube pass + histogram
     // pass for both, instead of two solves each re-reading the cube (SPEC §11).
-    const batch = await solveOverviewBatch(s, range, bucketMs, utc, show);
+    const batch = await solveOverviewBatch(s, range, periodMs, utc, show);
     if (batch) {
       return {
         series: batch.series,
@@ -913,7 +913,7 @@ const ops: Record<string, OpHandler> = {
       s,
       metric,
       range,
-      bucketMs,
+      periodMs,
       utc,
       show,
     );
@@ -1014,7 +1014,7 @@ const ops: Record<string, OpHandler> = {
 
   metricsData: (s, a) => {
     const range = a.range as TimeRange;
-    const utc = a.utc !== false; // align the breakdown bucket grid to the active zone
+    const utc = a.utc !== false; // align the breakdown period grid to the active zone
     const sets = s.store.kindRecords('metricset');
     const series = new Map<string, Map<string, { t: number; v: number }[]>>();
     for (const name of a.sampleNames as string[]) {
@@ -1022,7 +1022,7 @@ const ops: Record<string, OpHandler> = {
     }
     return {
       series,
-      breakdown: breakdownSelfTime(sets, range, a.bucketMs as number | null, utc),
+      breakdown: breakdownSelfTime(sets, range, a.periodMs as number | null, utc),
       markers: deploymentMarkers(s.store.records),
     };
   },

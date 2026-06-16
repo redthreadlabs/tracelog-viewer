@@ -21,7 +21,7 @@ import { storeClient } from '../data/storeclient';
 import { viewState, resetViewState } from '../state';
 import { fmtBytesRough, isUtcMode } from './format';
 import { getParam, setParams, pushParams, setView, rangeFromParams, readHash, RANGE_NAV_EVENT } from './hashstate';
-import { BUCKET_CHOICES, chosenBucketMs } from './bucketpicker';
+import { PERIOD_CHOICES, chosenPeriodMs } from './periodpicker';
 import { renderChooser } from './chooser';
 import { profiles } from './profiles';
 import { clampByMemory } from '../data/ledger';
@@ -107,8 +107,8 @@ function toLocalInput(ms: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** views whose charts bucket records by time — the bars picker applies */
-const BUCKETED_VIEWS = new Set(['/overview', '/metrics']);
+/** views whose charts aggregate records by time — the period picker applies */
+const PERIOD_VIEWS = new Set(['/overview', '/metrics']);
 
 /**
  * Does this view read the in-memory record store? — the gate for loading raw
@@ -207,7 +207,7 @@ export function renderScanbar(container: HTMLElement): void {
   }
 
   /** Open dropdown (one at a time), persisted across re-renders like rangeOpen. */
-  let openPicker: 'channels' | 'hosts' | 'bars' | null = null;
+  let openPicker: 'channels' | 'hosts' | 'period' | null = null;
   /** the ch/host params when the open picker was opened — so closing it pushes a
    *  single history entry for the whole session (Back undoes it in one step) */
   let pickerSnapshot: { ch: string | null; host: string | null } | null = null;
@@ -422,7 +422,7 @@ export function renderScanbar(container: HTMLElement): void {
     const indexed = isOverview
       ? await storeClient.request<boolean>('overviewIndexed', {
           range: [state.startMs, state.endMs],
-          bucketMs: chosenBucketMs(),
+          periodMs: chosenPeriodMs(),
           utc: isUtcMode(),
         })
       : false;
@@ -709,28 +709,28 @@ export function renderScanbar(container: HTMLElement): void {
     });
   }
 
-  /** The bar-width chooser — single-select: picking a width applies and closes
-   *  immediately (no OK/Cancel). Lives in the `b` hash param like everything. */
-  function bucketChooser(): HTMLElement {
-    const tokens = BUCKET_CHOICES.map((c) => c.token);
-    const current = getParam('b');
+  /** The period chooser — single-select: picking a width applies and closes
+   *  immediately (no OK/Cancel). Lives in the `period` hash param like everything. */
+  function periodChooser(): HTMLElement {
+    const tokens = PERIOD_CHOICES.map((c) => c.token);
+    const current = getParam('period');
     const value = current && tokens.includes(current) ? current : 'auto';
     return renderChooser({
-      label: 'Bars',
+      label: 'Period',
       mode: 'single',
       values: tokens,
       selected: new Set([value]),
-      open: openPicker === 'bars',
-      labelOf: (t) => BUCKET_CHOICES.find((c) => c.token === t)?.label ?? t,
+      open: openPicker === 'period',
+      labelOf: (t) => PERIOD_CHOICES.find((c) => c.token === t)?.label ?? t,
       onOpen: () => {
         if (openPicker === 'channels' || openPicker === 'hosts') cancelPicker();
-        openPicker = 'bars';
+        openPicker = 'period';
         render();
       },
       onChange: (sel) => {
         const token = [...sel][0] ?? 'auto';
         openPicker = null;
-        setParams({ b: token === 'auto' ? null : token });
+        setParams({ period: token === 'auto' ? null : token });
         render(); // close the popover
         window.dispatchEvent(new HashChangeEvent('hashchange')); // re-render the chart
       },
@@ -771,9 +771,9 @@ export function renderScanbar(container: HTMLElement): void {
     }
     bar.append(dateGroup);
 
-    // bars chooser — only on views with a time-bucketed chart
-    if (BUCKETED_VIEWS.has(readHash().view)) {
-      bar.append(bucketChooser());
+    // period chooser — only on views with a time-aggregated chart
+    if (PERIOD_VIEWS.has(readHash().view)) {
+      bar.append(periodChooser());
     }
 
     // right group, left to right: refresh · LIVE · status/MEM

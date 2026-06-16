@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   aggregateBySeries,
-  chooseBucketMs,
-  resolveBucketMs,
+  choosePeriodMs,
+  resolvePeriodMs,
   groupTransactions,
   sortTxnGroups,
   percentile,
@@ -27,11 +27,11 @@ function rec(partial: Partial<Rec>): Rec {
   };
 }
 
-describe('chooseBucketMs', () => {
+describe('choosePeriodMs', () => {
   it('picks 1m for an hour, 1h for a week, 1d for a long span', () => {
-    expect(chooseBucketMs(3_600_000)).toBe(60_000);
-    expect(chooseBucketMs(7 * 24 * 3_600_000)).toBe(3 * 3_600_000);
-    expect(chooseBucketMs(365 * 24 * 3_600_000)).toBe(24 * 3_600_000);
+    expect(choosePeriodMs(3_600_000)).toBe(60_000);
+    expect(choosePeriodMs(7 * 24 * 3_600_000)).toBe(3 * 3_600_000);
+    expect(choosePeriodMs(365 * 24 * 3_600_000)).toBe(24 * 3_600_000);
   });
 });
 
@@ -101,30 +101,30 @@ describe('transactionStats', () => {
 describe('logHistogram', () => {
   it('spreads heavy-tailed durations across log bins', () => {
     const durations = [1, 2, 10, 100, 1000, 1000];
-    const buckets = logHistogram(durations, 10);
-    expect(buckets.reduce((s, b) => s + b.count, 0)).toBe(6);
-    const nonEmpty = buckets.filter((b) => b.count > 0);
+    const periods = logHistogram(durations, 10);
+    expect(periods.reduce((s, b) => s + b.count, 0)).toBe(6);
+    const nonEmpty = periods.filter((b) => b.count > 0);
     expect(nonEmpty.length).toBeGreaterThanOrEqual(4);
-    expect(buckets[buckets.length - 1].count).toBe(2); // the two 1s outliers
+    expect(periods[periods.length - 1].count).toBe(2); // the two 1s outliers
   });
 
   it('clamps zero durations into the lowest bin and handles empty input', () => {
     expect(logHistogram([])).toHaveLength(0);
-    const buckets = logHistogram([0, 0.001], 5);
-    expect(buckets[0].count).toBe(2);
+    const periods = logHistogram([0, 0.001], 5);
+    expect(periods[0].count).toBe(2);
   });
 });
 
-describe('resolveBucketMs', () => {
+describe('resolvePeriodMs', () => {
   it('honors an explicit choice', () => {
-    expect(resolveBucketMs(3_600_000, 3_600_000)).toBe(3_600_000);
+    expect(resolvePeriodMs(3_600_000, 3_600_000)).toBe(3_600_000);
   });
 
   it('escalates an absurd choice instead of drawing thousands of bars', () => {
-    // 1-minute bars over 30 days would be 43,200 buckets
-    const bucketMs = resolveBucketMs(30 * 86_400_000, 60_000);
-    expect(bucketMs).toBeGreaterThan(60_000);
-    expect((30 * 86_400_000) / bucketMs).toBeLessThanOrEqual(1500);
+    // 1-minute bars over 30 days would be 43,200 periods
+    const periodMs = resolvePeriodMs(30 * 86_400_000, 60_000);
+    expect(periodMs).toBeGreaterThan(60_000);
+    expect((30 * 86_400_000) / periodMs).toBeLessThanOrEqual(1500);
   });
 });
 
@@ -175,12 +175,12 @@ describe('aggregateBySeries', () => {
     const res = aggregateBySeries(records, null, 60_000, true, { ...sumDuration, topN: 2 });
     // series ranked by total desc, Other last
     expect(res.series).toEqual(['A', 'B', 'Other']);
-    expect(res.buckets).toHaveLength(1);
-    expect(res.buckets[0].values).toEqual({ A: 200, B: 50, Other: 10 });
-    expect(res.buckets[0].total).toBe(260); // the span is not counted
+    expect(res.periods).toHaveLength(1);
+    expect(res.periods[0].values).toEqual({ A: 200, B: 50, Other: 10 });
+    expect(res.periods[0].total).toBe(260); // the span is not counted
   });
 
-  it('buckets by time and the bar height is the sum across series', () => {
+  it('periods by time and the bar height is the sum across series', () => {
     const records = [
       rec({ kind: 'transaction', name: 'A', ts: 1000, duration: 10 }), // bucket 0
       rec({ kind: 'transaction', name: 'A', ts: 61_000, duration: 20 }), // bucket 1
@@ -188,8 +188,8 @@ describe('aggregateBySeries', () => {
     ];
     const res = aggregateBySeries(records, null, 60_000, true, { ...sumDuration, topN: 8 });
     expect(res.series).toEqual(['A', 'B']); // only two groups, no Other
-    expect(res.buckets.map((b) => b.values)).toEqual([{ A: 10 }, { A: 20, B: 5 }]);
-    expect(res.buckets.map((b) => b.total)).toEqual([10, 25]);
+    expect(res.periods.map((b) => b.values)).toEqual([{ A: 10 }, { A: 20, B: 5 }]);
+    expect(res.periods.map((b) => b.total)).toEqual([10, 25]);
   });
 
   it('counts (value = 1) rank by frequency', () => {
@@ -206,7 +206,7 @@ describe('aggregateBySeries', () => {
       topN: 8,
     });
     expect(res.series).toEqual(['A', 'B']);
-    expect(res.buckets[0].values).toEqual({ A: 3, B: 1 });
+    expect(res.periods[0].values).toEqual({ A: 3, B: 1 });
   });
 
   it('drops the tail instead of folding into Other when noOther', () => {
@@ -221,8 +221,8 @@ describe('aggregateBySeries', () => {
       noOther: true,
     });
     expect(res.series).toEqual(['A', 'B']); // no Other
-    expect(res.buckets[0].values).toEqual({ A: 100, B: 50 });
-    expect(res.buckets[0].total).toBe(150); // C is not counted at all
+    expect(res.periods[0].values).toEqual({ A: 100, B: 50 });
+    expect(res.periods[0].total).toBe(150); // C is not counted at all
   });
 
   it('shows exactly the included set, each its own series', () => {
@@ -238,7 +238,7 @@ describe('aggregateBySeries', () => {
       topN: show.size,
     });
     expect(res.series).toEqual(['A', 'C']); // B left out, no Other
-    expect(res.buckets[0].values).toEqual({ A: 100, C: 10 });
+    expect(res.periods[0].values).toEqual({ A: 100, C: 10 });
   });
 
   it('respects the range and ignores excluded records', () => {
@@ -248,7 +248,7 @@ describe('aggregateBySeries', () => {
     ];
     const res = aggregateBySeries(records, [0, 2000], 60_000, true, { ...sumDuration, topN: 8 });
     expect(res.series).toEqual(['A']);
-    expect(res.buckets[0].values).toEqual({ A: 100 });
+    expect(res.periods[0].values).toEqual({ A: 100 });
   });
 
   it('merges extra (pre-aggregated) points identically to raw records', () => {
@@ -277,7 +277,7 @@ describe('aggregateBySeries', () => {
       true,
       { ...sumDuration, topN: 8 },
     );
-    expect(res.buckets).toEqual([]);
+    expect(res.periods).toEqual([]);
     expect(res.series).toEqual([]);
   });
 });

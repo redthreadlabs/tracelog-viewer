@@ -12,7 +12,7 @@
  */
 import type { Rec } from './types';
 import { type WeightedPoint, resultFamily } from './aggregate';
-import { hourBucket } from '@redthreadlabs/tracelog-schema';
+import { hourInterval } from '@redthreadlabs/tracelog-schema';
 import { openDb, INDEX_STORE, SEP, bucketRange } from './cache';
 
 export const HOUR_MS = 3_600_000;
@@ -50,7 +50,7 @@ export function buildTxnIndex(records: Rec[]): TxnFileIndex {
   const index: TxnFileIndex = {};
   for (const r of records) {
     if (r.kind !== 'transaction' || r.ts <= 0) continue;
-    const byName = (index[hourBucket(r.ts)] ??= {});
+    const byName = (index[hourInterval(r.ts)] ??= {});
     const entry = (byName[r.name] ??= { c: 0, d: 0, e: 0 });
     entry.c += 1;
     entry.d += r.duration ?? 0;
@@ -111,7 +111,7 @@ export type TxnTotals = { c: number; d: number; e: number };
 /**
  * Merge one file's hourly cells — for hours fully inside [from, to) — into a
  * per-transaction totals accumulator. The whole-range counterpart of
- * `txnIndexPoints`: where that emits per-bucket points for a series chart, this
+ * `txnIndexPoints`: where that emits per-period points for a series chart, this
  * collapses to one totals row per name for the transaction table. Distributive,
  * so summing across files is exact. (`count` here also serves as the up-front
  * cost estimate for whether an exact P95 scan is affordable — SPEC §11.5.)

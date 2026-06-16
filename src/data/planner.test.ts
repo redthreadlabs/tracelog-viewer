@@ -36,7 +36,7 @@ describe('planIndexBatch', () => {
       { key: 'errors', op: 'sum', field: 'errors', shape: 'total' },
     ];
     const { series, totals } = planIndexBatch(
-      { metrics, range: [from, to], bucketMs: null, utc: true, topN: 8 },
+      { metrics, range: [from, to], periodMs: null, utc: true, topN: 8 },
       [cubeA, cubeB],
       [],
     );
@@ -48,9 +48,9 @@ describe('planIndexBatch', () => {
     expect(totals.get('errors')!.get('GET /a')).toBe(1 + 2); // 3
     expect(totals.get('errors')!.get('GET /b')).toBeUndefined(); // its e=0, skipped
 
-    // the series totals (sum across its buckets) match the cube totals — same pass
+    // the series totals (sum across its periods) match the cube totals — same pass
     const s = series.get('series')!;
-    const seriesTotalA = s.buckets.reduce((acc, b) => acc + (b.values['GET /a'] ?? 0), 0);
+    const seriesTotalA = s.periods.reduce((acc, b) => acc + (b.values['GET /a'] ?? 0), 0);
     expect(seriesTotalA).toBe(2100);
   });
 
@@ -59,7 +59,7 @@ describe('planIndexBatch', () => {
       { key: 'series', op: 'sum', field: 'duration', shape: 'series' },
     ];
     const { series } = planIndexBatch(
-      { metrics, range: [from, to], bucketMs: null, utc: true, show: new Set(['GET /a']), topN: 1 },
+      { metrics, range: [from, to], periodMs: null, utc: true, show: new Set(['GET /a']), topN: 1 },
       [cubeA, cubeB],
       [],
     );
@@ -76,7 +76,7 @@ describe('planIndexBatch', () => {
     const histB: DurHistFileIndex = { [H0]: { 'GET /a': { [bin100]: 30 } } };
     const metrics: MetricSpec[] = [{ key: 'p95', op: 'p95', field: 'duration', shape: 'total' }];
     const { totals } = planIndexBatch(
-      { metrics, range: [from, to], bucketMs: null, utc: true, topN: 8 },
+      { metrics, range: [from, to], periodMs: null, utc: true, topN: 8 },
       [],
       [histA, histB],
     );

@@ -19,7 +19,7 @@ const MARGIN = { top: 18, right: 12, bottom: 22, left: 56 };
 
 export function renderStackbars(container: HTMLElement, data: BreakdownResult): void {
   clear(container);
-  if (data.buckets.length === 0) return;
+  if (data.periods.length === 0) return;
 
   const width = contentWidth(container, 320);
   const innerH = HEIGHT - MARGIN.top - MARGIN.bottom;
@@ -33,7 +33,7 @@ export function renderStackbars(container: HTMLElement, data: BreakdownResult): 
 
   const maxTotal = Math.max(
     1,
-    ...data.buckets.map((b) => [...b.byType.values()].reduce((s, v) => s + v, 0)),
+    ...data.periods.map((b) => [...b.byType.values()].reduce((s, v) => s + v, 0)),
   );
   const y = scaleLinear().domain([0, maxTotal]).nice().range([innerH, 0]);
 
@@ -44,8 +44,8 @@ export function renderStackbars(container: HTMLElement, data: BreakdownResult): 
   const left = Math.max(MARGIN.left, axisLeftMargin(yTicks.map(yLabel), axisFont));
   const innerW = width - left - MARGIN.right;
 
-  const t0 = data.buckets[0].t0;
-  const t1 = data.buckets[data.buckets.length - 1].t0 + data.bucketMs;
+  const t0 = data.periods[0].t0;
+  const t1 = data.periods[data.periods.length - 1].t0 + data.periodMs;
   const x = (isUtcMode() ? scaleUtc() : scaleTime())
     .domain([new Date(t0), new Date(t1)])
     .range([0, innerW]);
@@ -54,7 +54,7 @@ export function renderStackbars(container: HTMLElement, data: BreakdownResult): 
   const g = svg.append('g').attr('transform', `translate(${left},${MARGIN.top})`);
 
   // time axis: background gridlines + humane labels (drawn first, behind bars)
-  drawTimeGrid(g, x as (d: Date) => number, [t0, t1], innerW, innerH, styles, data.bucketMs);
+  drawTimeGrid(g, x as (d: Date) => number, [t0, t1], innerW, innerH, styles, data.periodMs);
 
   g.append('g')
     .call(
@@ -69,12 +69,12 @@ export function renderStackbars(container: HTMLElement, data: BreakdownResult): 
       sel.select('.domain').attr('stroke', 'none');
     });
 
-  const barW = Math.max(1, (innerW / data.buckets.length) * 0.82);
-  for (const bucket of data.buckets) {
-    const cx = x(new Date(bucket.t0 + data.bucketMs / 2));
+  const barW = Math.max(1, (innerW / data.periods.length) * 0.82);
+  for (const period of data.periods) {
+    const cx = x(new Date(period.t0 + data.periodMs / 2));
     let yCursor = innerH;
     for (const key of data.types) {
-      const value = bucket.byType.get(key) ?? 0;
+      const value = period.byType.get(key) ?? 0;
       if (value <= 0) continue;
       const h = innerH - y(value);
       yCursor -= h;
@@ -98,19 +98,19 @@ export function renderStackbars(container: HTMLElement, data: BreakdownResult): 
       const padLeft = parseFloat(styles.paddingLeft) || 0;
       const mx = event.clientX - rect.left - padLeft - left;
       const t = x.invert(mx).getTime();
-      const idx = Math.floor((t - data.buckets[0].t0) / data.bucketMs);
-      const bucket = data.buckets[idx];
-      if (!bucket || bucket.byType.size === 0) {
+      const idx = Math.floor((t - data.periods[0].t0) / data.periodMs);
+      const period = data.periods[idx];
+      if (!period || period.byType.size === 0) {
         tooltip.style.display = 'none';
         return;
       }
       const rows = data.types
-        .filter((key) => (bucket.byType.get(key) ?? 0) > 0)
+        .filter((key) => (period.byType.get(key) ?? 0) > 0)
         .map(
           (key) =>
-            `<span class="row"><span class="dot" style="background:${colorOf(key)}"></span>${key}<span class="v">${fmtDuration(bucket.byType.get(key)!)}</span></span>`,
+            `<span class="row"><span class="dot" style="background:${colorOf(key)}"></span>${key}<span class="v">${fmtDuration(period.byType.get(key)!)}</span></span>`,
         );
-      tooltip.innerHTML = `<div class="t">${fmtScaleTime(bucket.t0, data.bucketMs)}</div>${rows.join('')}`;
+      tooltip.innerHTML = `<div class="t">${fmtScaleTime(period.t0, data.periodMs)}</div>${rows.join('')}`;
       tooltip.style.display = 'block';
       placeTooltip(tooltip, container, event);
     })

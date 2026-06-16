@@ -12,7 +12,7 @@ import { renderSeriesbars } from '../../viz/seriesbars';
 import { viewState } from '../../state';
 import { pushParams, setView, RANGE_NAV_EVENT } from '../hashstate';
 import { THEME_CHANGE_EVENT } from '../theme';
-import { chosenBucketMs, bucketLabel } from '../bucketpicker';
+import { chosenPeriodMs, periodLabel } from '../periodpicker';
 import type { Metric } from '../query';
 import { fmtBytes, fmtCount, fmtDuration, durationAxisFormat, isUtcMode } from '../format';
 
@@ -198,7 +198,7 @@ export function renderOverview(container: HTMLElement): () => void {
       p95Estimated: boolean;
     }>('overviewData', {
       range,
-      bucketMs: chosenBucketMs(),
+      periodMs: chosenPeriodMs(),
       utc: isUtcMode(),
       metric,
       // explicit legend selection, or undefined to let the worker pick the top-N
@@ -243,13 +243,13 @@ export function renderOverview(container: HTMLElement): () => void {
     chartHead.append(el('span', { className: 'masthead-spacer' }));
 
     const data = res.series;
-    // total from the buckets themselves, so the label always matches what's
+    // total from the periods themselves, so the label always matches what's
     // actually drawn (the tally need not equal the records currently in the store)
-    const total = data.buckets.reduce((s, b) => s + b.total, 0);
+    const total = data.periods.reduce((s, b) => s + b.total, 0);
     chartHead.append(
       el('span', {
         className: 'budget faint',
-        text: chosenBucketMs() === null ? `bars: auto = ${bucketLabel(data.bucketMs)}` : `bars: ${bucketLabel(data.bucketMs)}`,
+        text: chosenPeriodMs() === null ? `period: auto = ${periodLabel(data.periodMs)}` : `period: ${periodLabel(data.periodMs)}`,
       }),
       el('span', {
         className: 'budget',

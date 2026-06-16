@@ -26,7 +26,7 @@ export function readHash(): HashState {
  * Params that only mean something on certain views: dropped when
  * navigating anywhere else, so a filter set on Events doesn't lurk in
  * every URL copied afterwards (`user=` outliving its page). Global params
- * (ch, from, to, w, b) always travel.
+ * (ch, from, to, w, period) always travel.
  */
 const SCOPED_PARAMS: Record<string, (view: string) => boolean> = {
   q: (view) => view === '/records' || view === '/events',
