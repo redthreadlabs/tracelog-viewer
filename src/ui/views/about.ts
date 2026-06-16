@@ -11,7 +11,7 @@ import heroUrl from '../../assets/overview.jpg';
 
 const REPOS = [
   ['tracelog', 'the agent — a fork of the Elastic APM Node.js agent that writes gzipped JSONL to S3 instead of an APM server'],
-  ['tracelog-client', 'a tiny client for relaying mobile/browser events and perf timers through your server'],
+  ['tracelog-client', 'a tiny client for relaying mobile/browser events and performance measurements through your server'],
   ['tracelog-viewer', 'this app — an entirely in-browser APM and log explorer'],
 ];
 

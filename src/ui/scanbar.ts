@@ -126,7 +126,7 @@ function viewNeedsRecords(view: string): boolean {
 }
 
 // Re-rendering the scanbar (e.g. on profile change) must drop the previous
-// instance's listeners and timers.
+// instance's listeners and handles.
 let activeHashHandler: (() => void) | null = null;
 let activeClientListeners: (() => void) | null = null;
 

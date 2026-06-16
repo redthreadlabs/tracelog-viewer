@@ -3,7 +3,7 @@
  * child spans laid out on a time axis, colored by span type, gaps ("self
  * time") visually evident. Trace-correlated events and errors appear as
  * point markers. Clicking any row opens the raw-record drawer. Works for
- * server traces and client perf-timer traces alike.
+ * server traces and client perf traces alike.
  */
 import { el, clear, pendingBlock } from '../dom';
 import { storeClient } from '../../data/storeclient';

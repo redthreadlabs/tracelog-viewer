@@ -345,16 +345,16 @@ export function renderOverview(container: HTMLElement): () => void {
       // single click toggles; double click solos/restores. Debounce the single
       // so a double-click doesn't fire two toggles first (the ~200ms lag is
       // imperceptible — a toggle already awaits a worker round-trip).
-      let clickTimer: ReturnType<typeof setTimeout> | undefined;
+      let clickHandle: ReturnType<typeof setTimeout> | undefined;
       toggleBtn.addEventListener('click', (e) => {
         e.stopPropagation(); // don't open the drill-down
-        if (clickTimer !== undefined) {
-          clearTimeout(clickTimer);
-          clickTimer = undefined;
+        if (clickHandle !== undefined) {
+          clearTimeout(clickHandle);
+          clickHandle = undefined;
           soloOrRestore(group.name);
         } else {
-          clickTimer = setTimeout(() => {
-            clickTimer = undefined;
+          clickHandle = setTimeout(() => {
+            clickHandle = undefined;
             toggle(group.name);
           }, 200);
         }

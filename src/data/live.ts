@@ -22,7 +22,7 @@ import type { Store } from './store';
 import { perf } from './perf';
 import { utcToday } from '../ui/format';
 
-export const LIVE_INTERVAL_MS = 60_000;
+export const LIVE_CADENCE_MS = 60_000;
 
 const TAIL_CHECK_BYTES = 64;
 
@@ -63,7 +63,7 @@ export class LiveUpdater {
   private bucket: LogBucket;
   private channels: () => string[];
   private states = new Map<string, FileState>();
-  private timer: ReturnType<typeof setInterval> | null = null;
+  private handle: ReturnType<typeof setInterval> | null = null;
   private ticking = false;
   lastTick = 0;
 
@@ -74,19 +74,19 @@ export class LiveUpdater {
   }
 
   get running(): boolean {
-    return this.timer !== null;
+    return this.handle !== null;
   }
 
   start(): void {
-    if (this.timer) return;
+    if (this.handle) return;
     void this.tick();
-    this.timer = setInterval(() => void this.tick(), LIVE_INTERVAL_MS);
+    this.handle = setInterval(() => void this.tick(), LIVE_CADENCE_MS);
   }
 
   stop(): void {
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.timer = null;
+    if (this.handle) {
+      clearInterval(this.handle);
+      this.handle = null;
     }
     this.states.clear();
   }

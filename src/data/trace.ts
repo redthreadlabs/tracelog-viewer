@@ -3,7 +3,7 @@
  * records of one trace_id, arrange spans into parent/child order (DFS,
  * children by start time), and interleave trace-correlated events and
  * errors as point markers. Works identically for server traces and for
- * client perf-timer traces (which arrive as transaction+span records).
+ * client perf traces (which arrive as transaction+span records).
  */
 import type { Rec } from './types';
 
