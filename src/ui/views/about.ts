@@ -22,7 +22,7 @@ const corsSnippet = (apex: string): string => `{
   "CORSRules": [{
     "AllowedHeaders": ["*"],
     "AllowedMethods": ["GET", "HEAD"],
-    "AllowedOrigins": ["https://*.${apex}", "http://localhost:5173"],
+    "AllowedOrigins": ["https://*.${apex}"],
     "ExposeHeaders": ["ETag", "Content-Length", "Last-Modified", "Content-Range", "Accept-Ranges"],
     "MaxAgeSeconds": 3600
   }]
