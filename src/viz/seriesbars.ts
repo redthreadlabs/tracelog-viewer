@@ -134,8 +134,11 @@ export function renderSeriesbars(
 
   // drag to set the time range
   const brush = brushX<unknown>()
+    // -MARGIN.top lifts the brushable area from the plot top up to the very top
+    // of the SVG (the group is translated down by MARGIN.top), so a drag can
+    // start at the chart's top edge rather than below the headroom margin
     .extent([
-      [0, 0],
+      [0, -MARGIN.top],
       [innerW, innerH],
     ])
     .on('end', (event: D3BrushEvent<unknown>) => {
