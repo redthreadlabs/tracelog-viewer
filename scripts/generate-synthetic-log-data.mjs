@@ -1,25 +1,25 @@
 #!/usr/bin/env node
 /**
- * Synthetic fleet generator (SPEC §8.1) — writes gzipped tracelog JSONL in
+ * Synthetic log-data generator (SPEC §8.1) — writes gzipped tracelog JSONL in
  * the exact §3.1 key layout so the viewer can be stress-tested at known
  * record counts. The record shapes follow tracelog's SCHEMA.md: timestamps
  * in epoch µs, durations in ms, one top-level kind key per line.
  *
  * Zero dependencies; deterministic for a given seed.
  *
- *   node scripts/synth-fleet.mjs --out /tmp/tracelog-fleet [--seed 20260612]
+ *   node scripts/generate-synthetic-log-data.mjs --out /tmp/tracelog-fleet [--seed 20260612]
  *       [--tiers tier-10k,tier-100k,tier-1m] [--end 2026-06-11]
  *
  * Each tier is its own channel, so tiers are selected in the viewer the
- * same way real channels are. All days are in the past → every file is
+ * same way real channels are. All intervals are in the past → every file is
  * finalized (no `_current`), which also exercises the IndexedDB cache.
  *
  * Each log object gets a `<logkey>.meta.json` sidecar (SPEC §8): the exact
  * uncompressed size, record count, and an hourly interval×kind histogram —
  * built with @redthreadlabs/tracelog-schema's MetaAccumulator. A slice of
- * events is back-dated to a previous day (simulating a client that buffered
+ * events is back-dated to a previous interval (simulating a client that buffered
  * offline and flushed late), so the sidecars show real interval drift —
- * a file's nominal day containing records from earlier days.
+ * a file's nominal interval containing records from earlier intervals.
  *
  * Upload — TWO syncs, because the headers differ (sidecars are plain JSON,
  * never gzip-encoded):
@@ -48,21 +48,21 @@ const args = Object.fromEntries(
 );
 const OUT = args.out;
 if (!OUT) {
-  console.error('usage: node scripts/synth-fleet.mjs --out DIR [--seed N] [--tiers a,b] [--end YYYY-MM-DD]');
+  console.error('usage: node scripts/generate-synthetic-log-data.mjs --out DIR [--seed N] [--tiers a,b] [--end YYYY-MM-DD]');
   process.exit(1);
 }
 const SEED = Number(args.seed ?? 20260612);
-const END_DAY = args.end ?? '2026-06-11'; // last (most recent) generated day
+const END_INTERVAL = args.end ?? '2026-06-11'; // last (most recent) generated interval
 
 // ------------------------------------------------------------------- tiers
 
 const TIERS = [
-  { channel: 'tier-10k', target: 10_000, days: 1, hosts: 1 },
-  { channel: 'tier-100k', target: 100_000, days: 3, hosts: 1 },
-  { channel: 'tier-1m', target: 1_000_000, days: 7, hosts: 4 },
+  { channel: 'tier-10k', target: 10_000, intervals: 1, hosts: 1 },
+  { channel: 'tier-100k', target: 100_000, intervals: 3, hosts: 1 },
+  { channel: 'tier-1m', target: 1_000_000, intervals: 7, hosts: 4 },
   // the wall-finder: ~3 GB of projected heap is past Chromium's default
   // per-tab limit — this tier exists to measure where and how it breaks
-  { channel: 'tier-10m', target: 10_000_000, days: 14, hosts: 16 },
+  { channel: 'tier-10m', target: 10_000_000, intervals: 14, hosts: 16 },
 ].filter((t) => !args.tiers || args.tiers.split(',').includes(t.channel));
 
 // Force `_seq` overflow files at the high end (SPEC §8.1 realism note).
@@ -133,7 +133,7 @@ const SCANNER_AGENTS = [
 ];
 const ROUTE_W = ROUTES.reduce((s, r) => s + r.w, 0);
 
-const SPAN_KINDS = {
+const SPAN_TYPES = {
   pg: { type: 'db', subtype: 'postgresql', action: 'query',
     names: ['SELECT FROM users', 'SELECT FROM orders', 'INSERT INTO orders', 'SELECT FROM products', 'UPDATE sessions', 'SELECT FROM notifications'],
     dest: { address: 'db.internal', port: 5432 } },
@@ -196,8 +196,8 @@ const HOUR_W_SUM = HOUR_W.reduce((a, b) => a + b, 0);
 
 // --------------------------------------------------------------- generation
 
-function dayString(endDay, back) {
-  const [y, m, d] = endDay.split('-').map(Number);
+function intervalLabel(endInterval, back) {
+  const [y, m, d] = endInterval.split('-').map(Number);
   const t = Date.UTC(y, m - 1, d) - back * 86400_000;
   return new Date(t).toISOString().slice(0, 10);
 }
@@ -214,7 +214,7 @@ function metadataLine(host, version) {
 }
 
 function makeRequest(t, tsMs, route, version, users, errMult = 1) {
-  const recs = [];
+  const records = [];
   const traceId = t.hex(32);
   const txnId = t.hex(16);
   const dur = Math.min(30_000, Math.max(0.4,
@@ -230,24 +230,24 @@ function makeRequest(t, tsMs, route, version, users, errMult = 1) {
   const profile = route.spans.filter(() => t.rng() < 0.92);
   if (route.spans.length && t.rng() < 0.15) profile.push(t.pick(route.spans));
   let cursor = 0.05 + t.rng() * 0.1; // fraction of txn elapsed
-  for (const kindKey of profile) {
-    const kind = SPAN_KINDS[kindKey];
+  for (const typeKey of profile) {
+    const spanType = SPAN_TYPES[typeKey];
     const frac = (0.85 - cursor) * (0.2 + t.rng() * 0.5);
     const sDur = Math.max(0.2, dur * frac);
     const sTs = Math.round((tsMs + dur * cursor) * 1000);
     cursor += frac + 0.02;
-    const name = t.pick(kind.names);
-    recs.push({ ts: sTs, line: JSON.stringify({ span: {
+    const name = t.pick(spanType.names);
+    records.push({ ts: sTs, line: JSON.stringify({ span: {
       id: t.hex(16), trace_id: traceId, transaction_id: txnId, parent_id: txnId,
-      name, type: kind.type, ...(kind.subtype && { subtype: kind.subtype }),
-      ...(kind.action && { action: kind.action }),
+      name, type: spanType.type, ...(spanType.subtype && { subtype: spanType.subtype }),
+      ...(spanType.action && { action: spanType.action }),
       duration: Math.round(sDur * 1000) / 1000, timestamp: sTs,
       sync: false, outcome: 'success',
       context: {
-        ...(kind.type === 'db' && { db: { type: kind.subtype, instance: 'fleet' } }),
-        ...(kind.subtype === 'http' && { http: { method: name.split(' ')[0], url: `https://${name.split(' ')[1]}/v1`, status_code: 200 } }),
-        destination: { address: kind.dest.address, port: kind.dest.port,
-          service: { resource: `${kind.subtype}/${kind.dest.address}` } },
+        ...(spanType.type === 'db' && { db: { type: spanType.subtype, instance: 'fleet' } }),
+        ...(spanType.subtype === 'http' && { http: { method: name.split(' ')[0], url: `https://${name.split(' ')[1]}/v1`, status_code: 200 } }),
+        destination: { address: spanType.dest.address, port: spanType.dest.port,
+          service: { resource: `${spanType.subtype}/${spanType.dest.address}` } },
       },
     } }) });
   }
@@ -256,7 +256,7 @@ function makeRequest(t, tsMs, route, version, users, errMult = 1) {
   const method = route.name.split(' ')[0];
   const path = route.scanner ? t.pick(SCANNER_PATHS) : route.name.split(' ')[1];
   const ua = route.scanner ? t.pick(SCANNER_AGENTS) : 'fleet-app/1.0';
-  recs.push({ ts: tsUs, line: JSON.stringify({ transaction: {
+  records.push({ ts: tsUs, line: JSON.stringify({ transaction: {
     id: txnId, trace_id: traceId, name: route.name, type: 'request',
     duration: Math.round(dur * 1000) / 1000, timestamp: tsUs,
     result: `HTTP ${String(status)[0]}xx`, sampled: true,
@@ -282,7 +282,7 @@ function makeRequest(t, tsMs, route, version, users, errMult = 1) {
         lineno: t.int(10, 400), library_frame: filename.startsWith('node_modules') };
     });
     const eTs = Math.round((tsMs + dur * 0.7) * 1000);
-    recs.push({ ts: eTs, line: JSON.stringify({ error: {
+    records.push({ ts: eTs, line: JSON.stringify({ error: {
       id: t.hex(16), timestamp: eTs, trace_id: traceId,
       transaction_id: txnId, parent_id: txnId,
       culprit: `${frames[0].filename}:${frames[0].function}`,
@@ -292,7 +292,7 @@ function makeRequest(t, tsMs, route, version, users, errMult = 1) {
       ...(userId && { context: { user: { id: userId } } }),
     } }) });
   }
-  return recs;
+  return records;
 }
 
 function makeEvent(t, tsMs, version, users) {
@@ -358,12 +358,12 @@ function makeMetricsets(t, tsMs, topRoutes) {
   } }) }];
   for (let i = 0; i < 2; i++) {
     const route = t.pick(topRoutes);
-    const kindKey = route.spans.length ? t.pick(route.spans) : 'app';
-    const kind = SPAN_KINDS[kindKey];
+    const typeKey = route.spans.length ? t.pick(route.spans) : 'app';
+    const spanType = SPAN_TYPES[typeKey];
     out.push({ ts: tsUs, line: JSON.stringify({ metricset: {
       timestamp: tsUs,
       transaction: { name: route.name, type: 'request' },
-      span: kind ? { type: kind.type, subtype: kind.subtype } : { type: 'app' },
+      span: spanType ? { type: spanType.type, subtype: spanType.subtype } : { type: 'app' },
       samples: {
         'span.self_time.count': { value: t.int(1, 40) },
         'span.self_time.sum.us': { value: t.int(500, 800_000) },
@@ -375,7 +375,7 @@ function makeMetricsets(t, tsMs, topRoutes) {
 
 // ------------------------------------------------------------- file writing
 
-function writeHostDay(dir, host, interval, lines) {
+function writeHostInterval(dir, host, interval, lines) {
   // split into _seq files at MAX_FILE_BYTES uncompressed (§3.1 grammar)
   const files = [];
   let buf = [];
@@ -413,72 +413,72 @@ for (const tier of TIERS) {
   const t = makeTools(mulberry32(SEED ^ hashStr(tier.channel)));
   const users = Array.from({ length: 200 }, (_, i) => `user-${String(i + 1).padStart(4, '0')}`);
   const topRoutes = ROUTES.filter((r) => r.spans.length);
-  const perHostDay = Math.round(tier.target / (tier.days * tier.hosts));
+  const perHostInterval = Math.round(tier.target / (tier.intervals * tier.hosts));
   const hosts = Array.from({ length: tier.hosts }, (_, i) => `10.0.${1 + ((i / 250) | 0)}.${10 + (i % 250)}`);
   const kindCounts = {};
   const tierTotals = { records: 0, raw: 0, gz: 0, files: 0 };
 
-  for (let back = tier.days - 1; back >= 0; back--) {
-    const day = dayString(END_DAY, back);
-    const dayStartMs = Date.parse(day + 'T00:00:00Z');
+  for (let back = tier.intervals - 1; back >= 0; back--) {
+    const interval = intervalLabel(END_INTERVAL, back);
+    const intervalStartMs = Date.parse(interval + 'T00:00:00Z');
     // deployment marker: version bump halfway through the range
-    const version = back >= tier.days / 2 ? '2.3.0' : '2.4.0';
+    const version = back >= tier.intervals / 2 ? '2.3.0' : '2.4.0';
 
     for (const host of hosts) {
-      const recs = [];
-      // metricsets at a cadence that spends ≤40% of the host-day budget
-      const msBudget = Math.min(3 * 1440, Math.floor(perHostDay * 0.4));
-      const msTriples = Math.max(1, Math.floor(msBudget / 3));
-      const msCadenceMs = 86400_000 / msTriples;
-      for (let i = 0; i < msTriples; i++) {
-        recs.push(...makeMetricsets(t, dayStartMs + i * msCadenceMs + t.rng() * 800, topRoutes));
+      const records = [];
+      // metricsets at a cadence that spends ≤40% of the host-interval budget
+      const metricsetBudget = Math.min(3 * 1440, Math.floor(perHostInterval * 0.4));
+      const metricsetTriples = Math.max(1, Math.floor(metricsetBudget / 3));
+      const metricsetCadenceMs = 86400_000 / metricsetTriples;
+      for (let i = 0; i < metricsetTriples; i++) {
+        records.push(...makeMetricsets(t, intervalStartMs + i * metricsetCadenceMs + t.rng() * 800, topRoutes));
       }
       // traffic fills the rest: ~15% of records are standalone events, the
       // rest request units (txn + spans + occasional error). A request unit
       // emits ~2.4 records, so the per-iteration event probability is higher
       // than the record share.
-      const traffic = perHostDay - msTriples * 3;
-      // error burst (SPEC §8.1): one ~10-minute window per host-day at 25×
-      const burstStart = dayStartMs + t.rng() * 85_800_000;
+      const traffic = perHostInterval - metricsetTriples * 3;
+      // error burst (SPEC §8.1): one ~10-minute window per host-interval at 25×
+      const burstStart = intervalStartMs + t.rng() * 85_800_000;
       const burstEnd = burstStart + 600_000;
       let made = 0;
       for (let h = 0; h < 24 && made < traffic; h++) {
         const hourShare = Math.round((traffic * HOUR_W[h]) / HOUR_W_SUM);
-        const hourStart = dayStartMs + h * 3600_000;
+        const hourStart = intervalStartMs + h * 3600_000;
         let inHour = 0;
         while (inHour < hourShare && made < traffic) {
           const tsMs = hourStart + t.rng() * 3600_000;
           if (t.rng() < 0.33) {
             // ~5% of events are a buffered client flushing late: the event was
-            // recorded 1–2 days ago but lands in *this* day's file, so the
-            // sidecar shows interval drift (a day's file holding older records).
+            // recorded 1–2 intervals ago but lands in *this* interval's file, so the
+            // sidecar shows interval drift (a interval's file holding older records).
             const evMs = t.rng() < 0.05 ? tsMs - t.int(1, 2) * 86400_000 : tsMs;
-            recs.push(makeEvent(t, evMs, version, users));
+            records.push(makeEvent(t, evMs, version, users));
             inHour += 1; made += 1;
           } else {
             let acc = t.rng() * ROUTE_W;
             const route = ROUTES.find((r) => (acc -= r.w) < 0) ?? ROUTES[0];
             const errMult = tsMs >= burstStart && tsMs < burstEnd ? 25 : 1;
             const unit = makeRequest(t, tsMs, route, version, users, errMult);
-            recs.push(...unit);
+            records.push(...unit);
             inHour += unit.length; made += unit.length;
           }
         }
       }
-      recs.sort((a, b) => a.ts - b.ts);
-      const lines = [metadataLine(host, version), ...recs.map((r) => r.line)];
-      for (const r of recs) {
+      records.sort((a, b) => a.ts - b.ts);
+      const lines = [metadataLine(host, version), ...records.map((r) => r.line)];
+      for (const r of records) {
         const kind = r.line.slice(2, r.line.indexOf('"', 2));
         kindCounts[kind] = (kindCounts[kind] ?? 0) + 1;
       }
-      const dir = join(OUT, tier.channel, day);
+      const dir = join(OUT, tier.channel, interval);
       mkdirSync(dir, { recursive: true });
-      for (const f of writeHostDay(dir, host, day, lines)) {
+      for (const f of writeHostInterval(dir, host, interval, lines)) {
         tierTotals.files += 1;
         tierTotals.raw += f.raw;
         tierTotals.gz += f.gz;
       }
-      tierTotals.records += recs.length;
+      tierTotals.records += records.length;
     }
   }
 

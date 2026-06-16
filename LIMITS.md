@@ -3,7 +3,7 @@
 Tracelog's pitch is "observability essentially for free, until scale makes
 it impossible." This file is the *until*, measured. Numbers come from the
 viewer's own instrumentation (`#/internals/perf` → copy as JSON) against
-the synthetic fleet (`scripts/synth-fleet.mjs`, seed 20260612), so anyone
+the synthetic fleet (`scripts/generate-synthetic-log-data.mjs`, seed 20260612), so anyone
 can reproduce them: generate, sync to a scratch bucket, load a tier, copy
 the export.
 
