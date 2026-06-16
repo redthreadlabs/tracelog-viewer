@@ -292,18 +292,23 @@ function workspaceSwitcher(active: Profile | null): HTMLElement {
   const ctx = workspaceContext();
   const here = ctx.current;
   const apex = isApexHome();
-  const pillText = apex
-    ? 'Workspaces'
-    : ctx.apexHost
-      ? active ? here : `${here} · connect…`
-      : active ? (active.bucket || 'connected') : 'connect…';
-
   const wrap = el('div', { className: 'switcher' });
   const pill = el('button', {
     className: 'chip',
-    text: pillText,
     title: active ? `s3://${active.bucket} · ${active.region}` : 'workspaces',
   });
+  if (apex) {
+    pill.textContent = 'Workspaces'; // the launcher, not a single workspace
+  } else if (ctx.apexHost) {
+    // a named subdomain workspace — label it "workspace: <name>"
+    pill.append(
+      el('span', { className: 'chip-label', text: 'workspace:' }),
+      el('span', { text: active ? here : `${here} · connect…` }),
+    );
+  } else {
+    // single-origin (localhost/self-host): this origin's connection, not a named workspace
+    pill.textContent = active ? active.bucket || 'connected' : 'connect…';
+  }
   wrap.append(pill);
 
   let pop: HTMLElement | null = null;
