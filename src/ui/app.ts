@@ -112,10 +112,15 @@ export function startApp(root: HTMLElement): void {
           title: 'toggle light / dark',
           on: {
             click: (ev) => {
+              // a theme change is a restyle, not a rebuild: flipping the attr
+              // re-skins everything via the CSS cascade with the DOM (and view
+              // state) untouched. toggleTheme fires THEME_CHANGE_EVENT so the
+              // charts — the only thing that bakes computed token hex — redraw
+              // in place. No route(): a re-mount would wipe e.g. the overview's
+              // enabled/disabled row selection.
               toggleTheme();
               (ev.currentTarget as HTMLElement).textContent =
                 currentTheme() === 'dark' ? '☀' : '☾';
-              route(); // charts re-read color tokens on render
             },
           },
         }),

@@ -11,6 +11,7 @@ import { sortTxnGroups, type TxnGroup, type TxnSortKey, type SeriesResult } from
 import { renderSeriesbars } from '../../viz/seriesbars';
 import { viewState } from '../../state';
 import { pushParams, setView, RANGE_NAV_EVENT } from '../hashstate';
+import { THEME_CHANGE_EVENT } from '../theme';
 import { chosenBucketMs, bucketLabel } from '../bucketpicker';
 import type { Metric } from '../query';
 import { fmtBytes, fmtCount, fmtDuration, isUtcMode } from '../format';
@@ -32,8 +33,11 @@ export function renderOverview(container: HTMLElement): () => void {
   let selection: string[] | null = null;
   let displayed = new Set<string>(); // names drawn by the last response
   // a stable color slot per transaction, so toggling one never recolors the
-  // others: in default mode it tracks the top-N by rank, in explicit mode it
-  // persists (freed on removal). slot % PALETTE picks the hue.
+  // others: in default mode it tracks the top-N by rank; once the selection is
+  // explicit, a name's slot is sticky for the life of the view — never freed on
+  // toggle-off or solo — so re-showing a row restores its exact hue. Only a
+  // restore-to-default re-ranks. slot % PALETTE picks the hue (collisions are
+  // allowed past PALETTE rows).
   const slot = new Map<string, number>();
   const colorForSlot = (name: string, styles: CSSStyleDeclaration): string => {
     const i = slot.get(name);
@@ -58,7 +62,8 @@ export function renderOverview(container: HTMLElement): () => void {
     const i = selection.indexOf(name);
     if (i !== -1) {
       selection.splice(i, 1);
-      slot.delete(name); // free the color
+      // keep the color slot: a hidden row reserves its hue, so toggling it back
+      // on (and any row added meanwhile) leaves every color stable
     } else {
       selection.push(name);
       assignSlots([name]);
@@ -71,14 +76,11 @@ export function renderOverview(container: HTMLElement): () => void {
   // predictable, and simpler.)
   function soloOrRestore(name: string): void {
     if (selection?.length === 1 && selection[0] === name) {
-      selection = null; // back to the default top-N
-      slot.clear();
+      selection = null; // back to the default top-N (render re-ranks colors)
     } else {
-      const keep = slot.get(name); // preserve its color if it had one
+      // isolate this row but keep every slot — un-soloing restores prior colors
       selection = [name];
-      slot.clear();
-      if (keep !== undefined) slot.set(name, keep);
-      else assignSlots([name]);
+      assignSlots([name]);
     }
     void render();
   }
@@ -97,6 +99,9 @@ export function renderOverview(container: HTMLElement): () => void {
       });
       sw.addEventListener('click', (e) => {
         e.stopPropagation();
+        // freeze the top-N into an explicit selection first; in default mode the
+        // next render re-ranks slots by rank and would discard this manual color
+        if (selection === null) selection = [...displayed];
         slot.set(name, i);
         menu.remove();
         void render();
@@ -495,6 +500,13 @@ export function renderOverview(container: HTMLElement): () => void {
   const onResize = () => void render();
   window.addEventListener('resize', onResize);
 
+  // theme toggle: the cascade re-skins the chrome/table for free, but the d3
+  // chart bakes computed token hex, so redraw it. render() reuses the current
+  // selection/slots (closure state survives — that's the whole point of not
+  // re-mounting), and the old chart stays up during the brief local re-query.
+  const onThemeChange = () => void render();
+  window.addEventListener(THEME_CHANGE_EVENT, onThemeChange);
+
   void render();
 
   return () => {
@@ -503,5 +515,6 @@ export function renderOverview(container: HTMLElement): () => void {
     storeClient.removeEventListener('plan', onPlan);
     storeClient.removeEventListener('progress', onProgress);
     window.removeEventListener('resize', onResize);
+    window.removeEventListener(THEME_CHANGE_EVENT, onThemeChange);
   };
 }

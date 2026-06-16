@@ -16,6 +16,7 @@ import { renderHistogram } from '../../viz/histogram';
 import { renderScatter, resultFamily } from '../../viz/scatter';
 import { viewState } from '../../state';
 import { setView } from '../hashstate';
+import { THEME_CHANGE_EVENT } from '../theme';
 import type { Rec } from '../../data/types';
 import { fmtCount, fmtDateTime, fmtDuration } from '../format';
 
@@ -332,9 +333,15 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
   };
   const onPlan = () => void rebuild();
   const onResize = () => void rebuild();
+  // theme toggle: re-solve so the scatter + histogram re-read color tokens (the
+  // result-mix dots use var(--…) inline and re-skin via the cascade for free).
+  // The rebuild clears + redraws synchronously after the fast index solve, so
+  // no flash; view state lives in the closure, untouched by the re-mount we skip.
+  const onThemeChange = () => void rebuild();
   storeClient.addEventListener('data', onData);
   storeClient.addEventListener('plan', onPlan);
   window.addEventListener('resize', onResize);
+  window.addEventListener(THEME_CHANGE_EVENT, onThemeChange);
   void rebuild();
 
   return () => {
@@ -344,5 +351,6 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
     storeClient.removeEventListener('data', onData);
     storeClient.removeEventListener('plan', onPlan);
     window.removeEventListener('resize', onResize);
+    window.removeEventListener(THEME_CHANGE_EVENT, onThemeChange);
   };
 }

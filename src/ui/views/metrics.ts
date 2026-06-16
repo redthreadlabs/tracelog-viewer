@@ -16,6 +16,7 @@ import { renderStackbars } from '../../viz/stackbars';
 import { spanTypeColorToken } from '../../data/trace';
 import { chosenBucketMs, bucketLabel } from '../bucketpicker';
 import { viewState } from '../../state';
+import { THEME_CHANGE_EVENT } from '../theme';
 import { fmtBytes, fmtDuration, isUtcMode } from '../format';
 
 interface SeriesSpec {
@@ -161,11 +162,16 @@ export function renderMetricsView(container: HTMLElement): () => void {
   storeClient.addEventListener('data', onData);
   const onResize = () => void render();
   window.addEventListener('resize', onResize);
+  // theme toggle: redraw so the d3 charts re-read color tokens (the cascade
+  // can't reach baked SVG/canvas hex); render() preserves view state in place
+  const onThemeChange = () => void render();
+  window.addEventListener(THEME_CHANGE_EVENT, onThemeChange);
   void render();
 
   return () => {
     token++;
     storeClient.removeEventListener('data', onData);
     window.removeEventListener('resize', onResize);
+    window.removeEventListener(THEME_CHANGE_EVENT, onThemeChange);
   };
 }
