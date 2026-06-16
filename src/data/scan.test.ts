@@ -40,7 +40,10 @@ const hourWindow = (h: number): [number, number] => [BASE + h * HOUR + HOUR * 0.
 /** drain the microtask queue so a resolved load's continuation + re-pump run */
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
-function makeHarness(initialWindow: [number, number] | null = null) {
+function makeHarness(
+  initialWindow: [number, number] | null = null,
+  memoryLimitBytes: number | null = null,
+) {
   const store = new Store();
   const started: string[] = [];
   const pending = new Map<string, { resolve: () => void; reject: (m: string) => void }>();
@@ -61,7 +64,7 @@ function makeHarness(initialWindow: [number, number] | null = null) {
     });
   };
 
-  const controller = new LoadController(store, BUCKET, null, () => win, loadFile);
+  const controller = new LoadController(store, BUCKET, null, memoryLimitBytes, () => win, loadFile);
 
   return {
     store,
@@ -277,5 +280,34 @@ describe('LoadController setPlan (incremental, keep-on-narrow)', () => {
     expect(h.sourceKeys()).toEqual(new Set([k(0), k(1)]));
     h.setPlan([0], 'other'); // different channel → wipe (store reflects the new selection)
     expect(h.sourceKeys()).toEqual(new Set());
+  });
+});
+
+describe('LoadController record eviction (memory limit)', () => {
+  it('evicts the least-recently-in-set out-of-set file when over the limit', async () => {
+    const h = makeHarness(null, 250); // ~2 files of 100 fit
+    h.setPlan([0, 1], 'server', null); // working set = hours 0,1
+    await h.complete(k(0));
+    await h.complete(k(1));
+    expect(h.sourceKeys()).toEqual(new Set([k(0), k(1)])); // 200 ≤ 250
+
+    h.setWindow(hourWindow(0)); // hour 1 leaves the set but is KEPT (still under)
+    expect(h.sourceKeys()).toEqual(new Set([k(0), k(1)]));
+
+    // load hour 2 → 300 > 250, evict the LRU out-of-set file. hour 0 was just
+    // refreshed by the narrow, so hour 1 (least recent) goes; 0 and 2 survive.
+    h.setPlan([0, 1, 2], 'server', hourWindow(2));
+    await h.complete(k(2));
+    expect(h.sourceKeys()).toEqual(new Set([k(0), k(2)]));
+  });
+
+  it('never evicts a file that is in the working set', async () => {
+    const h = makeHarness(null, 150); // limit fits ~1, but the set needs 2
+    h.setPlan([0, 1], 'server', null);
+    await h.complete(k(0));
+    await h.complete(k(1));
+    // the working set itself (200) exceeds the limit — eviction can't touch
+    // in-set files (that's the load clamp's job), so both stay
+    expect(h.sourceKeys()).toEqual(new Set([k(0), k(1)]));
   });
 });

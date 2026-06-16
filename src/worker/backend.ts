@@ -138,6 +138,7 @@ class Session {
       this.store,
       this.bucket,
       this.cacheLimitBytes,
+      mbToBytes(profile.memoryLimitMb), // bounds the record store (eviction)
       () => this.currentRange,
     );
     this.live = new LiveUpdater(this.store, this.bucket, () => this.liveChannels);

@@ -608,9 +608,15 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
   (`gunzipForEachLine`, peak memory one chunk, not the file) and a raw-line peek
   streams to line N and stops (`gunzipLineN`), re-inflating from the compressed
   cache on demand. So the parsed **records** are the only significant in-memory
-  tier; the memory limit governs the load clamp (below). (Accurate per-record
-  memory accounting — the limit mapping closely to actual heap — is a parked
-  follow-up; see `MEMORY_MANAGEMENT_GOTCHAS.md`.) A persistent **size ledger** records
+  tier; the memory limit bounds it two ways. (1) **Eviction:** the loader retains
+  records across a range narrow (`setPlan` is additive — narrowing has no effect,
+  no re-parse; only a channel change wipes), and when the resident total
+  (decompressed size, proxying record heap) exceeds the limit it evicts
+  out-of-working-set files — least-recently-in-set, then biggest — never one a
+  view is showing. (2) The **load clamp** (below) caps a single load's working
+  set. (Accurate per-record memory accounting — the limit mapping closely to
+  actual heap — is a parked follow-up; see `MEMORY_MANAGEMENT_GOTCHAS.md`.) A
+  persistent **size ledger** records
   every file's compressed/decompressed size and per-channel compression
   ratio, OUTLIVING byte eviction — so before a load the worker estimates the
   view's in-memory cost (known sizes by key, ratios for the rest) and, if it

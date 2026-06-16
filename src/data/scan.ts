@@ -144,6 +144,10 @@ export class LoadController {
   private plan: ParsedKey[] = [];
   private planChannels: string[] = []; // the plan's channel selection (a change wipes; a range-only change is additive)
   private ws: ParsedKey[] = []; // cached working set (plan ∩ range)
+  /** per-file recency: a monotonic tick set each time the file is in the working
+   *  set, so eviction can pick the least-recently-in-set out-of-set file first */
+  private recency = new Map<string, number>();
+  private tick = 0;
   /** exact decompressed size per file key (sidecar `bytes`), for the in-memory
    *  load denominator; unloaded files fall back to this, loaded ones to the
    *  store's measured size */
@@ -166,6 +170,7 @@ export class LoadController {
     private store: Store,
     private bucket: LogBucket,
     private cacheLimitBytes: number | null,
+    private memoryLimitBytes: number | null,
     private getRange: () => TimeRange,
     loadFile?: FileLoader,
   ) {
@@ -233,8 +238,40 @@ export class LoadController {
   resync(): void {
     const w = this.getRange();
     this.ws = w ? this.plan.filter((f) => overlapsRange(f, w[0], w[1])) : this.plan;
+    for (const f of this.ws) this.recency.set(f.key, ++this.tick); // freshen in-set files
     this.updateProgress();
     this.pump();
+  }
+
+  /**
+   * Bound the record store under the memory limit (SPEC §8). The decompressed
+   * size of each loaded file proxies its record footprint (we can't measure the
+   * JS heap; see MEMORY_MANAGEMENT_GOTCHAS.md). When the resident total exceeds
+   * the limit, evict OUT-OF-working-set files only — least-recently-in-set first,
+   * then biggest — never one the views are showing. (If the working set itself
+   * exceeds the limit, that's the load clamp's job, not eviction's.)
+   */
+  private evictRecords(): void {
+    if (this.memoryLimitBytes == null) return;
+    let total = 0;
+    for (const f of this.store.files.values()) total += f.sizeUncompressed;
+    if (total <= this.memoryLimitBytes) return;
+    const wsKeys = new Set(this.ws.map((f) => f.key));
+    const victims = [...this.store.files.values()]
+      .filter((f) => !wsKeys.has(f.key))
+      .sort(
+        (a, b) =>
+          (this.recency.get(a.key) ?? 0) - (this.recency.get(b.key) ?? 0) ||
+          b.sizeUncompressed - a.sizeUncompressed,
+      );
+    const drop = new Set<string>();
+    for (const f of victims) {
+      if (total <= this.memoryLimitBytes) break;
+      drop.add(f.key);
+      this.recency.delete(f.key);
+      total -= f.sizeUncompressed;
+    }
+    this.store.dropFiles(drop);
   }
 
   /** Keys of the files this loader intends to load (its plan). When the plan is
@@ -296,6 +333,7 @@ export class LoadController {
           /* eviction is best-effort */
         }
       }
+      this.evictRecords(); // bound the record store (decompressed-size proxy)
       this.updateProgress();
       this.pump();
     }

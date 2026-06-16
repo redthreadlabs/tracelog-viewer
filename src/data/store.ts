@@ -168,6 +168,21 @@ export class Store extends EventTarget {
     this.replaceFile(sourceKey, []);
   }
 
+  /** Evict several files' records in ONE pass (records filtered once, indexes
+   *  rebuilt once) — for memory eviction, where dropping N files individually
+   *  would be O(N · records). */
+  dropFiles(keys: Set<string>): void {
+    if (keys.size === 0) return;
+    for (const key of keys) {
+      this.files.delete(key);
+      this.fileIndexes.delete(key); // its kind buckets GC with it
+    }
+    this.records = this.records.filter((r) => !keys.has(r.sourceKey)); // order preserved → no re-sort
+    this.rebuildIndexes();
+    this.generation++;
+    this.emitData();
+  }
+
   addBatch(batch: Rec[]): void {
     for (const rec of batch) {
       this.records.push(rec);
