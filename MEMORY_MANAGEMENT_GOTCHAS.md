@@ -102,6 +102,28 @@ This is **factor-1** (charge raw compressed size). It *under*-estimates actual h
 — a deliberate, technical-user choice (set the limit lower). Calibration is still
 parked.
 
+## Per-record heap reduction — explored, then DECLINED (2026-06-15)
+
+Measured the worker heap on the full synthetic set (11M records, 511 files,
+504 MB compressed, 4.99 GB decompressed): **3,464 MB**, i.e. heap ≈ 6.9×
+compressed ≈ 0.69× decompressed ≈ ~330 B/record.
+
+- **Shipped:** interning the id fields (traceId/transactionId/selfId/parentId) —
+  they cross-reference, so duplicates collapse. Freed ~318 MB (3,464 → 3,146).
+- **Declined — byte-packing the (mostly-unique) ids:** ~250 MB more (~8%), but
+  needs hex materialized on demand for display + search. Not worth it.
+- **Declined — columnar (struct-of-arrays):** a `Rec` is ~25 pointer slots ≈
+  208 B of pure object structure, ~73% of the per-record heap and untouchable
+  without replacing 11M JS objects with parallel typed arrays. Massive change,
+  every consumer affected.
+
+**Decision:** stop optimizing per-record size. 11M records is ample for the
+target user (an ops person on a few days of one service). **Scale is a scoping
+problem, not a record-size problem** — workspaces → channels → the working-set
+memory budget already bound the resident set at any dataset size, and they scale
+arbitrarily where byte-packing buys a one-time 8%. Reopen only if a concrete
+workload can't be scoped down to fit.
+
 ### TODO when we revisit (the legibility pass)
 - [ ] Calibrate a **factor** (heap ≈ factor × compressed) so `memoryLimitMb` maps
       to actual heap — via `measureUserAgentSpecificMemory` (add COOP/COEP to the
