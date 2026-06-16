@@ -93,9 +93,10 @@ export function startApp(root: HTMLElement): void {
       ? profiles.active() && !isApexHome() ? '/overview' : '/about'
       : readHash().view;
     // the zone (TIME) toggle only affects how log timestamps render, so it
-    // belongs exactly where the log-data views live (where the scanbar shows) —
-    // hidden on About, the Connect/config path, the internals pages, and the apex
-    const showZone = shouldShowScanbar();
+    // belongs on the log-data views (where the scanbar shows) plus the store
+    // inspector (which renders file lastModified times in the active zone) —
+    // hidden on About, the Connect/config path, the other internals, and the apex
+    const showZone = shouldShowScanbar() || currentView === '/internals/store';
     // the apex is the public landing only — no data views in its nav
     const navItems = isApexHome() ? NAV.filter((i) => i.view === '/about') : NAV;
     const nav = el('nav', { className: 'masthead-nav' });
