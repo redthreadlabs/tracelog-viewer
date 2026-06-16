@@ -576,10 +576,16 @@ pre.json .b {
   color: var(--ink-faint);
 }
 
-/* sun = current light mode (amber), moon = current dark mode (light grey) */
+/* sun = current light mode (amber), moon = current dark mode (light grey).
+ * SVGs fill/stroke with currentColor, so these `color`s drive them. */
 .toggle-ico {
-  font-size: 14px;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+}
+.toggle-ico svg {
+  display: block;
+  width: 15px;
+  height: 15px;
 }
 .toggle-ico.sun {
   color: #f5a623;

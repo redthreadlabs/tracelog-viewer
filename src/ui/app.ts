@@ -34,6 +34,23 @@ import { renderOverview } from './views/overview';
 import { renderTraceView } from './views/trace';
 import { renderTransactionView } from './views/transaction';
 
+// Masthead theme-toggle icons (our own SVGs, not font glyphs, for a consistent
+// shape). Both fill/stroke with currentColor so .toggle-ico.sun/.moon drive the
+// color. Sun: a prominent filled disc + eight short, thick rays. Moon: a solid
+// filled crescent (not an outline).
+const SUN_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+  '<circle cx="12" cy="12" r="5.2" fill="currentColor"/>' +
+  '<g stroke="currentColor" stroke-width="2.2" stroke-linecap="round">' +
+  '<line x1="12" y1="2.5" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="21.5"/>' +
+  '<line x1="2.5" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="21.5" y2="12"/>' +
+  '<line x1="5.3" y1="5.3" x2="7.05" y2="7.05"/><line x1="16.95" y1="16.95" x2="18.7" y2="18.7"/>' +
+  '<line x1="5.3" y1="18.7" x2="7.05" y2="16.95"/><line x1="16.95" y1="7.05" x2="18.7" y2="5.3"/>' +
+  '</g></svg>';
+const MOON_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+  '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="currentColor"/></svg>';
+
 const NAV: { view: string; label: string }[] = [
   { view: '/about', label: 'About' },
   { view: '/overview', label: 'Overview' },
@@ -116,7 +133,7 @@ export function startApp(root: HTMLElement): void {
       const dark = currentTheme() === 'dark';
       clear(themeBtn);
       themeBtn.append(
-        el('span', { className: `toggle-ico ${dark ? 'moon' : 'sun'}`, text: dark ? '☾' : '☀' }),
+        el('span', { className: `toggle-ico ${dark ? 'moon' : 'sun'}`, html: dark ? MOON_ICON : SUN_ICON }),
         el('span', { text: dark ? 'DARK' : 'LIGHT' }),
       );
     };
