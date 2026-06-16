@@ -45,8 +45,9 @@ import {
   type AggregateIndex,
   type StoredIndex,
 } from '../data/indexes';
-import { mergeRangeBins, quantileFromBins, binValue, type Bins } from '../data/durhist';
-import { mergeRangeTotals, type TxnTotals } from '../data/txnindex';
+import { mergeRangeBins, quantileFromBins, binValue, type Bins, type DurHistFileIndex } from '../data/durhist';
+import { mergeRangeTotals, type TxnTotals, type TxnFileIndex } from '../data/txnindex';
+import { planIndexBatch, type MetricSpec } from '../data/planner';
 import { assembleTrace } from '../data/trace';
 import { deploymentMarkers, runtimeSeries, breakdownSelfTime } from '../data/metrics';
 import {
@@ -455,6 +456,69 @@ async function solveSeriesAggregate(
 }
 
 /**
+ * The overview as ONE batch (SPEC §11): the chart's Σ-duration series and the
+ * table's count / Σ / errors / P95 totals, solved together from a single cube
+ * pass + a single histogram pass via the planner — instead of two independent
+ * solves each re-reading the cube. Returns null when the batch can't be fully
+ * index-served (cold range, sub-hour grid, a missing/stale index) so the caller
+ * falls back to the per-metric solves.
+ */
+async function solveOverviewBatch(
+  s: Session,
+  range: TimeRange,
+  bucketMs: number | null,
+  utc: boolean,
+  show: string[] | undefined,
+): Promise<{ series: SeriesResult; groups: TxnGroup[] } | null> {
+  if (!range) return null;
+  const grid = bucketGrid(range[0], range[1], range, bucketMs, utc);
+  if (!matchIndex('sum', 'duration', 'transaction', grid.bucketMs, grid.start)) return null;
+  const prefix = s.bucket.bucket + SEP;
+  const overlapping = s.currentPlan.filter((f) => overlapsRange(f, range[0], range[1]));
+  if (overlapping.length === 0) return null;
+
+  const cube = await s.loadIndex(txnIndex);
+  const hist = await s.loadIndex(durHistIndex);
+  const cubePayloads: TxnFileIndex[] = [];
+  const histPayloads: DurHistFileIndex[] = [];
+  for (const f of overlapping) {
+    const c = cube.get(prefix + f.key);
+    const h = hist.get(prefix + f.key);
+    // any in-range file we can't index → not fully coverable → fall back
+    if (!c || !h || !f.etag || c.etag !== f.etag || h.etag !== f.etag) return null;
+    cubePayloads.push(c.payload);
+    histPayloads.push(h.payload);
+  }
+
+  const showSet = show && new Set(show);
+  const metrics: MetricSpec[] = [
+    { key: 'series', op: 'sum', field: 'duration', shape: 'series' },
+    { key: 'count', op: 'count', shape: 'total' },
+    { key: 'sumDur', op: 'sum', field: 'duration', shape: 'total' },
+    { key: 'errors', op: 'sum', field: 'errors', shape: 'total' },
+    { key: 'p95', op: 'p95', field: 'duration', shape: 'total' },
+  ];
+  const { series, totals } = planIndexBatch(
+    { metrics, range, bucketMs, utc, show: showSet, topN: showSet ? showSet.size : SERIES_TOP_N },
+    cubePayloads,
+    histPayloads,
+  );
+  const count = totals.get('count')!;
+  const sumDur = totals.get('sumDur')!;
+  const errors = totals.get('errors')!;
+  const p95 = totals.get('p95')!;
+  const groups: TxnGroup[] = [...count].map(([name, c]) => ({
+    name,
+    count: c,
+    totalDuration: sumDur.get(name) ?? 0,
+    errors: errors.get(name) ?? 0,
+    avg: c > 0 ? (sumDur.get(name) ?? 0) / c : undefined,
+    p95: p95.get(name),
+  }));
+  return { series: series.get('series')!, groups };
+}
+
+/**
  * The transaction TABLE, served entirely from the durable indexes (SPEC §11,
  * #1a). count / Σ duration / errors / avg sum exactly out of the cube; P95 is
  * read off the merged duration-histogram sketch. No record scan, no load —
@@ -734,6 +798,23 @@ const ops: Record<string, OpHandler> = {
     };
     const show = a.show as string[] | undefined;
 
+    // fastest plan: when the whole overview is index-coverable, solve the chart
+    // series and the table totals as ONE batch — a single cube pass + histogram
+    // pass for both, instead of two solves each re-reading the cube (SPEC §11).
+    const batch = await solveOverviewBatch(s, range, bucketMs, utc, show);
+    if (batch) {
+      return {
+        series: batch.series,
+        ghostSpans: [] as [number, number][],
+        complete: true,
+        groups: batch.groups,
+        p95Estimated: true,
+      };
+    }
+
+    // fallback (cold range / sub-hour grid / a missing index): the chart scans
+    // the loaded records + the not-loaded indexed remainder; the table is still
+    // index-served. Two solves, each reading the cube.
     const { result, ghostSpans, complete } = await solveSeriesAggregate(
       s,
       metric,
@@ -742,10 +823,6 @@ const ops: Record<string, OpHandler> = {
       utc,
       show,
     );
-
-    // the table lists ALL transactions (so any can be toggled into the chart),
-    // independent of which the chart is currently displaying — solver-served, so
-    // it's complete and instant whether or not the records are loaded
     const { groups, p95Estimated } = await solveTransactionTotals(s, range);
     return { series: result, ghostSpans, complete, groups, p95Estimated };
   },

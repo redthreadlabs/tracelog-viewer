@@ -15,10 +15,10 @@ import { type WeightedPoint, resultFamily } from './aggregate';
 import { hourBucket } from '@redthreadlabs/tracelog-schema';
 import { openDb, INDEX_STORE, SEP, bucketRange } from './cache';
 
-const HOUR_MS = 3_600_000;
+export const HOUR_MS = 3_600_000;
 
 /** Parse a UTC hour label 'YYYY-MM-DDTHH' back to epoch-ms, or null. */
-function hourLabelToMs(label: string): number | null {
+export function hourLabelToMs(label: string): number | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})$/.exec(label);
   return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4]) : null;
 }

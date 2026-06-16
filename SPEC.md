@@ -966,6 +966,23 @@ the schema-on-read work below.)
    immediate even though the scatter still needs the ~80s on-demand load (which
    #2 will hide).
 
+7. **The batch planner** *(in progress, 2026-06-15)* — the solver now takes a
+   SET of metrics over one window and produces them all, reading each source
+   ONCE, instead of answering one metric at a time. `data/planner.ts` groups the
+   requested metrics by source (the cube for count/Σ; the duration sketch for
+   P95), iterates each source a single time, and fans every cell out to all the
+   metrics that read it — series-shaped metrics emit pre-aggregated points (handed
+   to `aggregateBySeries`), total-shaped ones fold into a per-group tally.
+   `overviewData` now solves the chart's Σ-duration series and the table's
+   count/Σ/errors/P95 totals as **one batch** — a single cube pass for both —
+   when the window is fully index-coverable; it falls back to the per-metric
+   solves (chart scan + index table) for a cold range, sub-hour grid, or a
+   missing index. `sourceOf` already classifies a metric whose cheapest plan is a
+   `scan` — the next step is the deferred path (#2): a batch returns its
+   index-served metrics immediately plus tokens for the scan-served ones, which
+   the worker resolves over the SharedWorker boundary once the load it kicks off
+   completes (the drill-down's records sections are the first consumer).
+
 ### 11.5 Philosophy
 
 - **Declarative separation.** A chart names a question; it never encodes a
