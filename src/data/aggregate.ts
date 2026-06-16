@@ -378,7 +378,7 @@ export function percentile(sortedAsc: number[], p: number): number | undefined {
   return sortedAsc[lo] + (sortedAsc[hi] - sortedAsc[lo]) * (idx - lo);
 }
 
-export interface HistBucket {
+export interface HistBin {
   /** bin bounds, ms */
   x0: number;
   x1: number;
@@ -390,7 +390,7 @@ export interface HistBucket {
  * linear bins put everything in the first bar. Zero/sub-10µs durations are
  * clamped into the lowest bin.
  */
-export function logHistogram(durations: number[], bins = 24): HistBucket[] {
+export function logHistogram(durations: number[], binCount = 24): HistBin[] {
   if (durations.length === 0) return [];
   const MIN = 0.01; // 10µs floor
   // a loop, not Math.max(...durations): spreading puts every element on
@@ -399,9 +399,9 @@ export function logHistogram(durations: number[], bins = 24): HistBucket[] {
   for (const d of durations) if (d > max) max = d;
   const lo = Math.log10(MIN);
   const hi = Math.log10(max * 1.001);
-  const step = (hi - lo) / bins;
+  const step = (hi - lo) / binCount;
 
-  const buckets: HistBucket[] = Array.from({ length: bins }, (_, i) => ({
+  const bins: HistBin[] = Array.from({ length: binCount }, (_, i) => ({
     x0: Math.pow(10, lo + i * step),
     x1: Math.pow(10, lo + (i + 1) * step),
     count: 0,
@@ -410,9 +410,9 @@ export function logHistogram(durations: number[], bins = 24): HistBucket[] {
   for (const d of durations) {
     const clamped = Math.max(d, MIN);
     let idx = Math.floor((Math.log10(clamped) - lo) / step);
-    if (idx >= bins) idx = bins - 1;
+    if (idx >= binCount) idx = binCount - 1;
     if (idx < 0) idx = 0;
-    buckets[idx].count++;
+    bins[idx].count++;
   }
-  return buckets;
+  return bins;
 }

@@ -626,7 +626,7 @@ async function txnSummaryData(s: Session, name: string, range: TimeRange) {
   }
   const bins = merged.get(name) ?? {};
   const binIdxs = Object.keys(bins).map(Number).sort((x, y) => x - y);
-  // a HistBucket[] straight off the fixed sketch bins (same shape logHistogram
+  // a HistBin[] straight off the fixed sketch bins (same shape logHistogram
   // produces, so the same renderer draws either)
   const histogram = binIdxs.map((i) => ({ x0: binValue(i), x1: binValue(i + 1), count: bins[i] }));
   const count = t?.c ?? 0;

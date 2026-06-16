@@ -6,7 +6,7 @@ import { select } from 'd3-selection';
 import { scaleLinear, scaleLog } from 'd3-scale';
 import { axisBottom, axisLeft } from 'd3-axis';
 import { el, clear } from '../ui/dom';
-import type { HistBucket } from '../data/aggregate';
+import type { HistBin } from '../data/aggregate';
 import { fmtCount, fmtDuration, omitZero } from '../ui/format';
 import { logTicks, contentWidth, axisLeftMargin } from './ticks';
 import { drawGhostFill, GHOST_FOOTNOTE } from './timegrid';
@@ -17,13 +17,13 @@ const MARGIN = { top: 8, right: 10, bottom: 24, left: 44 };
 
 export function renderHistogram(
   container: HTMLElement,
-  buckets: HistBucket[],
+  bins: HistBin[],
   /** non-empty when the instance set is partial (over budget): the whole
    *  distribution is unfulfilled, so wash the entire panel with the ghost hatch */
   ghostSpans: [number, number][] = [],
 ): void {
   clear(container);
-  const nonEmpty = buckets.filter((b) => b.count > 0);
+  const nonEmpty = bins.filter((b) => b.count > 0);
   if (nonEmpty.length === 0) return;
 
   const width = contentWidth(container, 280);
@@ -35,7 +35,7 @@ export function renderHistogram(
   const inkFaint = styles.getPropertyValue('--ink-faint').trim();
   const axisFont = `10.5px ${styles.getPropertyValue('--font-data').trim()}`;
 
-  const maxCount = Math.max(...buckets.map((b) => b.count));
+  const maxCount = Math.max(...bins.map((b) => b.count));
   const y = scaleLinear().domain([0, maxCount]).nice().range([innerH, 0]);
 
   // y-axis count labels (zero origin omitted) + a left margin sized to the
@@ -85,21 +85,21 @@ export function renderHistogram(
   const tooltip = el('div', { className: 'chart-tooltip' });
   container.append(tooltip);
 
-  for (const bucket of buckets) {
-    if (bucket.count === 0 || bucket.x1 < x0) continue;
-    const bx0 = x(Math.max(bucket.x0, x0));
-    const bx1 = x(bucket.x1);
+  for (const bin of bins) {
+    if (bin.count === 0 || bin.x1 < x0) continue;
+    const bx0 = x(Math.max(bin.x0, x0));
+    const bx1 = x(bin.x1);
     g.append('rect')
       .attr('x', bx0 + 0.5)
-      .attr('y', y(bucket.count))
+      .attr('y', y(bin.count))
       .attr('width', Math.max(bx1 - bx0 - 1, 1))
-      .attr('height', innerH - y(bucket.count))
+      .attr('height', innerH - y(bin.count))
       .attr('fill', barColor)
       .attr('fill-opacity', 1)
       .attr('shape-rendering', 'crispEdges')
       .on('mousemove', (event: MouseEvent) => {
         tooltip.innerHTML =
-          `<div class="t">${fmtDuration(bucket.x0)} – ${fmtDuration(bucket.x1)}</div><span class="row">requests<span class="v">${fmtCount(bucket.count)}</span></span>` +
+          `<div class="t">${fmtDuration(bin.x0)} – ${fmtDuration(bin.x1)}</div><span class="row">requests<span class="v">${fmtCount(bin.count)}</span></span>` +
           (ghostSpans.length > 0 ? GHOST_FOOTNOTE : '');
         tooltip.style.display = 'block';
         placeTooltip(tooltip, container, event);

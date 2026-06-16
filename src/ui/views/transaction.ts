@@ -10,7 +10,7 @@
 import { el, clear, pendingBlock } from '../dom';
 import { storeClient } from '../../data/storeclient';
 import { perf } from '../../data/perf';
-import type { HistBucket } from '../../data/aggregate';
+import type { HistBin } from '../../data/aggregate';
 import type { SampleNote } from '../../worker/backend';
 import { renderHistogram } from '../../viz/histogram';
 import { renderScatter, resultFamily } from '../../viz/scatter';
@@ -33,7 +33,7 @@ interface TxnSummary {
   p99?: number;
   max?: number;
   rpm?: number;
-  histogram: HistBucket[];
+  histogram: HistBin[];
   estimated: true;
 }
 
