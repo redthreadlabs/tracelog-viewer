@@ -795,6 +795,13 @@ pre.json .b {
   display: block;
 }
 
+/* axis + gridline labels are decorative chrome, not content — never let a drag
+ * (e.g. brushing the time range) turn into a text selection */
+.chart-host svg text {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .chart-tooltip {
   display: none;
   position: absolute;
