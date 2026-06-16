@@ -16,7 +16,12 @@ export function isUtcMode(): boolean {
 
 export function zoneLabel(): string {
   if (utcMode) return 'UTC';
-  return new Intl.DateTimeFormat().resolvedOptions().timeZone.split('/').pop() ?? 'local';
+  // the IANA zone's final segment, e.g. 'America/New_York' → 'New York' (never
+  // "local" — that reads as the user's own time, which is a separate concept)
+  const tz = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (tz) return tz.split('/').pop()!.replace(/_/g, ' ');
+  const offsetHours = -new Date().getTimezoneOffset() / 60;
+  return `GMT${offsetHours >= 0 ? '+' : ''}${offsetHours}`;
 }
 
 /** epoch-ms → `2026-06-12` (in the active zone) */

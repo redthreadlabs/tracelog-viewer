@@ -5,7 +5,7 @@
  */
 import { el, clear } from './dom';
 import { initTheme, toggleTheme, currentTheme } from './theme';
-import { setUtcMode, isUtcMode } from './format';
+import { setUtcMode, isUtcMode, zoneLabel } from './format';
 import { profiles } from './profiles';
 import { renderConfig } from './config';
 import { renderScanbar } from './scanbar';
@@ -88,42 +88,49 @@ export function startApp(root: HTMLElement): void {
       );
     }
 
+    // Zone toggle — shows the CURRENT time zone (the word "UTC", or the zone
+    // name like "New York"), not an on/off state. Flips the display zone and
+    // re-renders the active view.
+    const zoneBtn = el('button', { className: 'toggle', title: 'show times in UTC or your time zone' });
+    const paintZone = (): void => {
+      clear(zoneBtn);
+      zoneBtn.append(el('span', { text: zoneLabel() }));
+    };
+    paintZone();
+    zoneBtn.addEventListener('click', () => {
+      setUtcMode(!isUtcMode());
+      paintZone();
+      route(); // re-render the active view with the new zone
+    });
+
+    // Theme toggle — shows the CURRENT mode: the word + a sun (light, amber) or
+    // moon (dark, grey) icon. A theme change is a restyle, not a rebuild:
+    // toggleTheme flips data-theme (the cascade re-skins everything) and fires
+    // THEME_CHANGE_EVENT for the charts to redraw; no route(), so view state
+    // (e.g. the overview's row selection) survives. We just repaint this button.
+    const themeBtn = el('button', { className: 'toggle', title: 'switch light / dark theme' });
+    const paintTheme = (): void => {
+      const dark = currentTheme() === 'dark';
+      clear(themeBtn);
+      themeBtn.append(
+        el('span', { text: dark ? 'DARK' : 'LIGHT' }),
+        el('span', { className: `toggle-ico ${dark ? 'moon' : 'sun'}`, text: dark ? '☾' : '☀' }),
+      );
+    };
+    paintTheme();
+    themeBtn.addEventListener('click', () => {
+      toggleTheme();
+      paintTheme();
+    });
+
     const masthead = el('div', { className: 'masthead' }, [
       el('span', { className: 'masthead-title', text: 'Tracelog' }),
       nav,
       el('span', { className: 'masthead-spacer' }),
       el('div', { className: 'masthead-controls' }, [
         workspaceSwitcher(active),
-        el('button', {
-          className: isUtcMode() ? 'toggle on' : 'toggle',
-          text: 'UTC',
-          title: 'toggle UTC / local time display',
-          on: {
-            click: (ev) => {
-              setUtcMode(!isUtcMode());
-              (ev.currentTarget as HTMLElement).classList.toggle('on', isUtcMode());
-              route(); // re-render the active view with the new zone
-            },
-          },
-        }),
-        el('button', {
-          className: 'toggle',
-          text: currentTheme() === 'dark' ? '☀' : '☾',
-          title: 'toggle light / dark',
-          on: {
-            click: (ev) => {
-              // a theme change is a restyle, not a rebuild: flipping the attr
-              // re-skins everything via the CSS cascade with the DOM (and view
-              // state) untouched. toggleTheme fires THEME_CHANGE_EVENT so the
-              // charts — the only thing that bakes computed token hex — redraw
-              // in place. No route(): a re-mount would wipe e.g. the overview's
-              // enabled/disabled row selection.
-              toggleTheme();
-              (ev.currentTarget as HTMLElement).textContent =
-                currentTheme() === 'dark' ? '☀' : '☾';
-            },
-          },
-        }),
+        zoneBtn,
+        themeBtn,
       ]),
     ]);
 
