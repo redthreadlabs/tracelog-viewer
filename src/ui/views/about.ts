@@ -231,8 +231,17 @@ export function renderAbout(container: HTMLElement): () => void {
         text:
           ' — a turnkey deployer that creates or adopts the bucket, CloudFront ' +
           'distribution, and DNS in your own account. Or skip AWS hosting ' +
-          'entirely: the built app runs from any static file server.',
+          'entirely: the built app runs from any static file server. The ',
       }),
+      el('a', {
+        text: 'self-hosting guide',
+        attrs: {
+          href: 'https://github.com/redthreadlabs/tracelog-viewer/blob/main/docs/self-hosting.md',
+          target: '_blank',
+          rel: 'noopener',
+        },
+      }),
+      el('span', { text: ' walks through the whole process.' }),
     ]),
   ]);
 
