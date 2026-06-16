@@ -29,65 +29,62 @@ export interface TraceModel {
 export function assembleTrace(records: Rec[], traceId: string): TraceModel {
   const members = records.filter((r) => r.traceId === traceId);
 
-  const transactions = members
-    .filter((r) => r.kind === 'transaction')
-    .sort((a, b) => a.ts - b.ts);
-  const root = transactions[0] ?? null;
-  const rootId = root?.selfId;
+  // Tree nodes are transactions + spans. A trace can hold MORE than one
+  // transaction: a distributed trace nests a downstream service's transaction
+  // under the caller's exit span (its parent_id is that span's id), all sharing
+  // the trace_id. So we build a general parent_id forest over both kinds rather
+  // than assuming a single root transaction with a flat span tree.
+  const nodes = members.filter((r) => r.kind === 'transaction' || r.kind === 'span');
+  const byId = new Map<string, Rec>();
+  for (const n of nodes) if (n.selfId) byId.set(n.selfId, n);
 
-  const spans = members.filter((r) => r.kind === 'span').sort((a, b) => a.ts - b.ts);
+  // parent selfId → child nodes; entry transactions (no in-trace parent) are roots
+  const byParent = new Map<string, Rec[]>();
+  const roots: Rec[] = [];
+  for (const n of nodes) {
+    const parentId = n.parentId;
+    if (parentId && byId.has(parentId)) {
+      const list = byParent.get(parentId);
+      if (list) list.push(n);
+      else byParent.set(parentId, [n]);
+    } else if (n.kind === 'transaction') {
+      // the trace entry point, or a downstream txn whose caller isn't loaded
+      roots.push(n);
+    }
+    // a span whose parent isn't in the trace falls to the orphan sweep below
+  }
+  for (const list of byParent.values()) list.sort((a, b) => a.ts - b.ts);
+  roots.sort((a, b) => a.ts - b.ts);
+  const root = roots[0] ?? null;
+
+  const rows: TraceRow[] = [];
+  const depthById = new Map<string, number>();
+  const visited = new Set<string>();
+  function walk(node: Rec, depth: number): void {
+    const id = node.selfId;
+    if (id) {
+      if (visited.has(id)) return;
+      visited.add(id);
+      depthById.set(id, depth);
+    }
+    rows.push(toRow(node, depth));
+    if (id) for (const child of byParent.get(id) ?? []) walk(child, depth + 1);
+  }
+  for (const r of roots) walk(r, 0);
+  // orphans (parent not in the trace) + anything unreached → depth 1
+  for (const n of nodes) if (n.selfId && !visited.has(n.selfId)) walk(n, 1);
+
+  // events/errors as point markers, nested under their transaction/span when
+  // that parent is in the trace (else depth 1)
   const points = members
     .filter((r) => r.kind === 'event' || r.kind === 'error')
     .sort((a, b) => a.ts - b.ts);
-
-  // span id → children, parented via parent_id
-  const byParent = new Map<string, Rec[]>();
-  const spanIds = new Set(spans.map((s) => s.selfId).filter(Boolean) as string[]);
-  const orphans: Rec[] = [];
-  for (const span of spans) {
-    const parentId = span.parentId;
-    if (parentId && (spanIds.has(parentId) || parentId === rootId)) {
-      const list = byParent.get(parentId) ?? [];
-      list.push(span);
-      byParent.set(parentId, list);
-    } else {
-      orphans.push(span); // parent not in the scanned data — show at depth 1
-    }
-  }
-
-  const rows: TraceRow[] = [];
-  if (root) {
-    rows.push(toRow(root, 0));
-  }
-
-  const visited = new Set<string>();
-  function walk(parentId: string, depth: number): void {
-    for (const span of byParent.get(parentId) ?? []) {
-      const id = span.selfId;
-      if (id && visited.has(id)) continue;
-      if (id) visited.add(id);
-      rows.push(toRow(span, depth));
-      if (id) walk(id, depth + 1);
-    }
-  }
-  if (rootId) walk(rootId, 1);
-  for (const orphan of orphans) {
-    const id = orphan.selfId;
-    if (id && visited.has(id)) continue;
-    if (id) visited.add(id);
-    rows.push(toRow(orphan, 1));
-    if (id) walk(id, 2);
-  }
-  // any remaining (e.g. parented to a missing mid-chain span)
-  for (const span of spans) {
-    const id = span.selfId;
-    if (id && !visited.has(id)) {
-      rows.push(toRow(span, 1));
-    }
-  }
-
   for (const point of points) {
-    rows.push(toRow(point, 1));
+    const parent =
+      (point.parentId !== undefined ? byId.get(point.parentId) : undefined) ??
+      (point.transactionId !== undefined ? byId.get(point.transactionId) : undefined);
+    const pid = parent?.selfId;
+    rows.push(toRow(point, pid !== undefined ? (depthById.get(pid) ?? 0) + 1 : 1));
   }
 
   // overall bounds

@@ -72,6 +72,27 @@ describe('assembleTrace', () => {
     expect(model.rows.map((r) => r.depth)).toEqual([0, 1, 1, 2, 1]);
   });
 
+  it('nests a downstream service transaction under the caller span (distributed trace)', () => {
+    const entry = rec({ kind: 'transaction', name: 'GET /v1/feed', ts: 1000, duration: 200, selfId: 'entry00000000000' });
+    const dbSpan = rec({ name: 'SELECT users', ts: 1010, duration: 15, selfId: 'db00000000000000', parentId: 'entry00000000000', result: 'db/postgresql' });
+    const callSpan = rec({ name: 'POST auth-service', ts: 1030, duration: 60, selfId: 'call000000000000', parentId: 'entry00000000000', result: 'external/http' });
+    // the downstream service's transaction parents to the caller's exit span
+    const downTxn = rec({ kind: 'transaction', name: 'POST /token', ts: 1032, duration: 50, selfId: 'down000000000000', parentId: 'call000000000000', transactionId: 'down000000000000' });
+    const downSpan = rec({ name: 'SELECT credentials', ts: 1035, duration: 8, selfId: 'ds00000000000000', parentId: 'down000000000000', result: 'db/postgresql' });
+
+    const model = assembleTrace([downSpan, callSpan, entry, downTxn, dbSpan], TRACE);
+    expect(model.root?.name).toBe('GET /v1/feed');
+    expect(model.rows.map((r) => r.rec.name)).toEqual([
+      'GET /v1/feed',
+      'SELECT users',
+      'POST auth-service',
+      'POST /token',
+      'SELECT credentials',
+    ]);
+    // entry(0) → its spans(1) → the caller span's child is the downstream txn(2) → its span(3)
+    expect(model.rows.map((r) => r.depth)).toEqual([0, 1, 1, 2, 3]);
+  });
+
   it('computes trace bounds from bars and points', () => {
     const model = assembleTrace([txn, spanA, spanB, spanChild, event], TRACE);
     expect(model.t0).toBe(1000);
