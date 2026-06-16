@@ -15,10 +15,11 @@
  * machines and there is no server — so the only thing that ever mutates it
  * is this browser creating or deleting a workspace.
  */
-import { registrableDomain } from './domain';
+import { siteApex } from './domain';
 
 export interface WorkspaceContext {
-  /** registrable apex, e.g. 'tracelog.org'; null when there's no apex to use */
+  /** the deployment apex, e.g. 'tracelog.org' or a configured sub-level apex
+   *  like 'tracelog.example.com'; null when there's no apex to use */
   apexHost: string | null;
   /** current subdomain label, e.g. 'duiduidui'; '' on the apex itself */
   current: string;
@@ -46,7 +47,7 @@ function isBareHost(host: string): boolean {
 export function workspaceContext(): WorkspaceContext {
   const host = location.hostname;
   if (isBareHost(host)) return { apexHost: null, current: '', apexOrigin: null };
-  const apexHost = registrableDomain(host);
+  const apexHost = siteApex(host);
   // the subdomain label(s) before the apex ('' when we're on the apex itself)
   const current = host === apexHost ? '' : host.slice(0, -(apexHost.length + 1));
   return { apexHost, current, apexOrigin: `${location.protocol}//${apexHost}` };

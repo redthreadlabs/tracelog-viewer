@@ -34,8 +34,44 @@ export function registrableDomain(host: string): string {
   return MULTI_PART_TLDS.has(lastTwo) ? parts.slice(-3).join('.') : lastTwo;
 }
 
-/** Whether two hostnames share a registrable domain (same site, incl. sibling
- *  subdomains) — e.g. `a.example.com` and `b.example.com`. */
+/**
+ * Optional deploy-configured apex. A self-host whose apex is itself a sub-level
+ * — e.g. `tracelog.example.com`, where the registrable domain `example.com`
+ * would be wrong — declares it with `<meta name="tracelog:apex" content="…">`
+ * in index.html, stamped there by `deploy-site.mjs --domain`. Read once and
+ * synchronously: the workspace boot redirects before first render, so there's
+ * no time for an async fetch. An absent/empty tag — and the unreplaced
+ * `__TRACELOG_APEX__` placeholder (no dot) — both read as null, i.e. "fall back
+ * to the registrable domain", which keeps `tracelog.org` zero-config.
+ */
+let apexOverride: string | null | undefined;
+export function configuredApex(): string | null {
+  if (apexOverride === undefined) {
+    const raw =
+      typeof document !== 'undefined'
+        ? document.querySelector('meta[name="tracelog:apex"]')?.getAttribute('content')
+        : null;
+    const v = (raw ?? '').trim().toLowerCase();
+    apexOverride = v.includes('.') ? v : null;
+  }
+  return apexOverride;
+}
+
+/**
+ * The deployment apex for `host`: the configured override when it actually
+ * covers this host (the host *is* the apex or a subdomain of it), otherwise the
+ * registrable domain. This — not `registrableDomain` directly — is the apex the
+ * workspace model keys on. `configured` is injectable for tests.
+ */
+export function siteApex(host: string, configured: string | null = configuredApex()): string {
+  if (configured && (host === configured || host.endsWith(`.${configured}`))) return configured;
+  return registrableDomain(host);
+}
+
+/** Whether two hostnames share a deployment apex (same site, incl. sibling
+ *  subdomains) — e.g. `a.example.com` and `b.example.com`. Honors a configured
+ *  apex, so a sibling outside it (`evil.example.com` vs `a.tracelog.example.com`)
+ *  is correctly *not* same-site. */
 export function sameSite(a: string, b: string): boolean {
-  return a === b || registrableDomain(a) === registrableDomain(b);
+  return a === b || siteApex(a) === siteApex(b);
 }

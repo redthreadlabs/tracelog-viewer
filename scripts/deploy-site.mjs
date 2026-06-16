@@ -19,8 +19,10 @@
  *             policy is attached to the default cache behavior either way.
  *   dns       UPSERT alias A/AAAA for the domain (+ wildcard) when the
  *             Route53 zone exists in this account
- *   deploy    vite build → upload (immutable assets, fresh index.html) →
- *             invalidation
+ *   deploy    vite build → stamp the apex meta in index.html (so the workspace
+ *             model keys on --domain, e.g. a sub-level apex like
+ *             tracelog.example.com) → upload (immutable assets, fresh
+ *             index.html) → invalidation
  *
  * Flags: --bucket NAME  --domain HOST  --cert ARN  --distribution ID
  *        --no-wildcard  --skip-infra  --skip-dns  --skip-build
@@ -29,6 +31,7 @@
  * (the CSP step needs a CloudFront distribution, so it is skipped too).
  */
 import { spawnSync } from 'node:child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 const argv = process.argv.slice(2);
 const flag = (name) => {
@@ -189,8 +192,11 @@ if (!has('skip-infra') && !DISTRIBUTION && DOMAIN) {
     if (!CERT) {
       const certs = aws(['acm', 'list-certificates', '--region', 'us-east-1',
         '--certificate-statuses', 'ISSUED'])?.CertificateSummaryList ?? [];
-      const apex = DOMAIN.split('.').slice(-2).join('.');
-      CERT = certs.find((c) => c.DomainName === DOMAIN || c.DomainName === apex)?.CertificateArn;
+      // a cert covering the apex itself or its workspace subdomains. Match on
+      // DOMAIN directly (not the eTLD+1) so a sub-level apex like
+      // tracelog.example.com finds tracelog.example.com / *.tracelog.example.com
+      // rather than a broader *.example.com cert that wouldn't cover them.
+      CERT = certs.find((c) => c.DomainName === DOMAIN || c.DomainName === `*.${DOMAIN}`)?.CertificateArn;
       if (!CERT) {
         console.error(`  no ISSUED us-east-1 ACM cert found for ${DOMAIN} — pass --cert ARN`);
         process.exit(1);
@@ -282,6 +288,17 @@ if (!has('skip-upload')) {
   step(`upload to s3://${BUCKET}`);
   aws(['s3', 'sync', 'dist/assets', `s3://${BUCKET}/assets`,
     '--cache-control', 'public,max-age=31536000,immutable', '--delete'], { json: false });
+  // stamp the configured apex into index.html so the app keys the workspace
+  // model on the real deploy apex — a sub-level apex like tracelog.example.com
+  // can't be derived from the hostname. No --domain leaves an empty content,
+  // which the app reads as "unset" → falls back to the registrable domain.
+  const indexPath = 'dist/index.html';
+  const stamped = readFileSync(indexPath, 'utf8').replace(
+    /(<meta name="tracelog:apex" content=")[^"]*(")/,
+    `$1${DOMAIN ?? ''}$2`,
+  );
+  writeFileSync(indexPath, stamped);
+  console.log(`  apex meta: ${DOMAIN ?? '(unset → registrable domain)'}`);
   aws(['s3', 'cp', 'dist/index.html', `s3://${BUCKET}/index.html`,
     '--cache-control', 'public,max-age=60', '--content-type', 'text/html; charset=utf-8'], { json: false });
   if (DISTRIBUTION) {
