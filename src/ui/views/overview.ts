@@ -472,6 +472,10 @@ export function renderOverview(container: HTMLElement): () => void {
   }
 
   const onData = () => {
+    // when the overview is complete from the indexes, records streaming in (the
+    // background prefetch) don't change it — so don't re-solve/redraw on every
+    // batch. Only the incomplete (cold/scan) overview fills in as records arrive.
+    if (lastComplete) return;
     if (storeClient.snapshot.generation !== lastGeneration) void render();
   };
   // the scanbar fires 'plan' once the selection's files are known — re-query so

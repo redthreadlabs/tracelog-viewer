@@ -19,6 +19,7 @@
  */
 import type { ParsedKey } from '../s3/keys';
 import { RECORD_KINDS, type FileMeta, type Rec, type RecordKind } from './types';
+import { gunzipForEachLine } from './gzip';
 
 export interface ParseResult {
   records: Rec[];
@@ -98,6 +99,56 @@ export function parseRaw(rec: Rec): Record<string, unknown> {
   }
 }
 
+/**
+ * A line-at-a-time NDJSON parser holding the per-file state (intern pool,
+ * positional metadata context, counts). Feeding it line by line — whether from
+ * a decoded buffer (`parseFile`) or a streamed inflate (`parseFileStreaming`) —
+ * yields the identical result, so the two paths share this one source of truth.
+ */
+interface LineParser {
+  push(line: string, lineNo: number): void;
+  finish(byteLength: number): ParseResult;
+}
+function createLineParser(file: ParsedKey, initialMeta: FileMeta, shedRaw: boolean): LineParser {
+  const pool: InternPool = new Map();
+  const records: Rec[] = [];
+  const metas: FileMeta[] = [];
+  let meta: FileMeta = initialMeta;
+  let skippedLines = 0;
+  let unknownKinds = 0;
+  return {
+    push(line, lineNo) {
+      if (line.trim() === '') return;
+      let obj: Record<string, unknown>;
+      try {
+        obj = JSON.parse(line);
+      } catch {
+        skippedLines++;
+        return;
+      }
+      const kind = Object.keys(obj)[0];
+      const body = obj[kind] as Record<string, unknown> | undefined;
+      if (!body || typeof body !== 'object') {
+        skippedLines++;
+        return;
+      }
+      if (kind === 'metadata') {
+        meta = extractMeta(body);
+        metas.push(meta);
+        return;
+      }
+      if (!RECORD_KINDS.includes(kind as RecordKind)) {
+        unknownKinds++;
+        return;
+      }
+      records.push(normalize(kind as RecordKind, body, line, lineNo, shedRaw, file, meta, pool));
+    },
+    finish(byteLength) {
+      return { records, metas, lastMeta: meta, byteLength, skippedLines, unknownKinds };
+    },
+  };
+}
+
 export function parseFile(
   bytes: Uint8Array,
   file: ParsedKey,
@@ -105,53 +156,33 @@ export function parseFile(
   shedRaw = false,
 ): ParseResult {
   const text = new TextDecoder().decode(bytes);
-  const pool: InternPool = new Map();
-  const records: Rec[] = [];
-  const metas: FileMeta[] = [];
-  let meta: FileMeta = initialMeta;
-  let skippedLines = 0;
-  let unknownKinds = 0;
-
+  const p = createLineParser(file, initialMeta, shedRaw);
   let start = 0;
   let lineNo = -1;
   while (start < text.length) {
     let end = text.indexOf('\n', start);
     if (end === -1) end = text.length;
-    const line = text.slice(start, end);
+    p.push(text.slice(start, end), ++lineNo);
     start = end + 1;
-    lineNo++;
-    if (line.trim() === '') continue;
-
-    let obj: Record<string, unknown>;
-    try {
-      obj = JSON.parse(line);
-    } catch {
-      skippedLines++;
-      continue;
-    }
-
-    const kind = Object.keys(obj)[0];
-    const body = obj[kind] as Record<string, unknown> | undefined;
-    if (!body || typeof body !== 'object') {
-      skippedLines++;
-      continue;
-    }
-
-    if (kind === 'metadata') {
-      meta = extractMeta(body);
-      metas.push(meta);
-      continue;
-    }
-
-    if (!RECORD_KINDS.includes(kind as RecordKind)) {
-      unknownKinds++;
-      continue;
-    }
-
-    records.push(normalize(kind as RecordKind, body, line, lineNo, shedRaw, file, meta, pool));
   }
+  return p.finish(bytes.length);
+}
 
-  return { records, metas, lastMeta: meta, byteLength: bytes.length, skippedLines, unknownKinds };
+/**
+ * Parse a finalized file straight from its gzip bytes by STREAMING the inflate —
+ * the decompressed body is never fully materialized (SPEC §8). Same result as
+ * `parseFile`, used for cached (immutable) files; the volatile `_current` path
+ * stays on `parseFile` since its bytes arrive already inflated.
+ */
+export async function parseFileStreaming(
+  gz: Uint8Array,
+  file: ParsedKey,
+  initialMeta: FileMeta = {},
+  shedRaw = false,
+): Promise<ParseResult> {
+  const p = createLineParser(file, initialMeta, shedRaw);
+  const byteLength = await gunzipForEachLine(gz, (line, lineNo) => p.push(line, lineNo));
+  return p.finish(byteLength);
 }
 
 function extractMeta(body: Record<string, unknown>): FileMeta {

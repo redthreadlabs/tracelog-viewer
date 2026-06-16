@@ -405,37 +405,45 @@ export function renderScanbar(container: HTMLElement): void {
       }
       return;
     }
-    if (storeClient.snapshot.progress.running) return;
-    if (planSignature(state.plan) === loadedSignature) {
-      // same data, possibly a different slice of it: apply the range and
-      // re-render the views without refetching anything
+    const view = readHash().view;
+    // App pages (About/config/internals) read no logs → never load.
+    if (view !== '/overview' && !viewNeedsRecords(view)) {
       applyRange();
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
       return;
     }
-    // #1b: load raw records only for views that read them. The overview is
-    // served from durable indexes — load only if they can't satisfy this
-    // range+grid (cold range / sub-hour bars / a missing index).
-    const view = readHash().view;
-    if (!viewNeedsRecords(view)) {
-      if (view === '/overview') {
-        const indexed = await storeClient.request<boolean>('overviewIndexed', {
+
+    // The overview is served from durable indexes. When they cover this
+    // range+grid it renders instantly AND we PREFETCH the working set in the
+    // background (throttled) so a drill-down is ready — the same load a record
+    // view would do, just started early and at low priority. When they can't
+    // cover it (cold range / sub-hour bars / missing index) the overview itself
+    // needs the scan, so that runs foreground.
+    const isOverview = view === '/overview';
+    const indexed = isOverview
+      ? await storeClient.request<boolean>('overviewIndexed', {
           range: [state.startMs, state.endMs],
           bucketMs: chosenBucketMs(),
           utc: isUtcMode(),
-        });
-        if (indexed) {
-          applyRange();
-          storeClient.dispatchEvent(new Event('plan')); // re-query the overview at the new range
-          return;
-        }
-        // not index-covered → fall through to load (which builds the indexes)
-      } else {
-        applyRange(); // app page (About/config/internals) — no working-set load
-        return;
-      }
+        })
+      : false;
+
+    // every data view reflects the new range — even while a load is in flight
+    // (the overview renders from the index regardless of the store's state)
+    applyRange();
+    if (isOverview) storeClient.dispatchEvent(new Event('plan'));
+
+    // a load already in flight: don't start another — just match its priority to
+    // this view (a record view un-throttles the prefetch; the overview re-throttles)
+    if (storeClient.snapshot.progress.running) {
+      updateLoadPriority();
+      return;
     }
-    void runScan();
+    if (planSignature(state.plan) === loadedSignature) {
+      // same data, a different slice — re-render the narrowed view, no refetch
+      if (!isOverview) window.dispatchEvent(new HashChangeEvent('hashchange'));
+      return;
+    }
+    void runScan({ background: isOverview && indexed });
   }
 
   /** The view is the range: every view narrows to [start, end]. (For a
@@ -486,29 +494,40 @@ export function renderScanbar(container: HTMLElement): void {
     if (changed) {
       void replan(); // re-plans + (per view) loads via maybeAutoLoad
     } else {
-      render();
-      ensureLoadForView(); // a pure view nav (range unchanged): load if we just
-      // landed on a record-needing view that isn't loaded yet
+      render(); // re-renders the scanbar pill (the over-budget warning is per-view)
+      ensureLoadForView(); // a record view we just landed on, not yet loaded → load
+      updateLoadPriority(); // an in-flight prefetch → match it to the new view
     }
   }
 
-  /** Load the working set if the active view needs records and they aren't
-   *  loaded — the load-on-entry that the index-served overview defers (#1b). */
+  /** Load the working set if a record-needing view isn't loaded — the
+   *  load-on-entry for a view nav. The overview's prefetch covers the rest. */
   function ensureLoadForView(): void {
     if (!state.plan || state.plan.files.length === 0) return;
     if (storeClient.snapshot.progress.running) return;
     if (planSignature(state.plan) === loadedSignature) return; // already loaded
     if (!viewNeedsRecords(readHash().view)) return; // index-served → no load
-    void runScan();
+    void runScan({ background: false });
   }
 
-  /** Actually load a plan (no budget check — runScan gates before this). */
-  function executePlan(plan: ScanPlan): void {
+  /** Match an in-flight load's priority to the active view: a record view waits
+   *  on it (foreground), an index-served view only prefetches (background). Same
+   *  plan, so this never re-loads — it just changes the in-flight cap. */
+  function updateLoadPriority(): void {
+    if (!storeClient.snapshot.progress.running) return;
+    void storeClient.request('setLoadPriority', {
+      background: !viewNeedsRecords(readHash().view),
+    });
+  }
+
+  /** Actually load a plan (no budget check — runScan gates before this).
+   *  `background` starts it throttled (a prefetch) — see runScan. */
+  function executePlan(plan: ScanPlan, background: boolean): void {
     loadedSignature = planSignature(plan);
     resetViewState(); // a new scan invalidates any prior range / deep link
     // hand the worker the active range so it loads overlapping files first
     const range = [state.startMs, state.endMs];
-    void storeClient.request('executeScan', { plan, range });
+    void storeClient.request('executeScan', { plan, range, background });
     applyRange();
   }
 
@@ -519,14 +538,14 @@ export function renderScanbar(container: HTMLElement): void {
    * dimension (channels/hosts/range — the lever that matches their cause),
    * going Back, or raising the limit. No limit set → load it all.
    */
-  async function runScan(): Promise<void> {
+  async function runScan(opts: { background: boolean }): Promise<void> {
     const plan = state.plan;
     if (!plan || plan.files.length === 0) return;
 
     const limitMb = profiles.active()?.memoryLimitMb;
     if (limitMb == null || limitMb <= 0) {
       viewState.overBudget = null;
-      executePlan(plan);
+      executePlan(plan, opts.background);
       return;
     }
     const limitBytes = limitMb * MB;
@@ -536,27 +555,31 @@ export function renderScanbar(container: HTMLElement): void {
       est = await storeClient.request('estimateView', { files: plan.files });
     } catch {
       viewState.overBudget = null;
-      executePlan(plan); // estimate unavailable — don't hold the data back
+      executePlan(plan, opts.background); // estimate unavailable — don't hold the data back
       return;
     }
     if (est.total <= limitBytes) {
       viewState.overBudget = null;
-      executePlan(plan);
+      executePlan(plan, opts.background);
       return;
     }
 
-    // over budget: load the newest files that fit and record the overage so the
-    // scanbar shows the indicator (the chart already blanks un-loaded intervals)
+    // over budget: load the newest files that fit (a prefetch warms only what
+    // fits, silently — the amber pill surfaces only on a record view, where the
+    // clamp bites; the chart already blanks un-loaded intervals).
     const keep = clampByMemory(plan.files, est.perFile, limitBytes);
     const files = keep.map((i) => plan.files[i]);
     viewState.overBudget = { estBytes: est.total };
-    executePlan({
-      files,
-      totalBytes: files.reduce((sum, f) => sum + f.size, 0),
-      hosts: [...new Set(files.map((f) => f.host))].sort(),
-      allHosts: plan.allHosts, // the candidate set is unchanged by clamping
-      channels: [...new Set(files.map((f) => f.channel))].sort(),
-    });
+    executePlan(
+      {
+        files,
+        totalBytes: files.reduce((sum, f) => sum + f.size, 0),
+        hosts: [...new Set(files.map((f) => f.host))].sort(),
+        allHosts: plan.allHosts, // the candidate set is unchanged by clamping
+        channels: [...new Set(files.map((f) => f.channel))].sort(),
+      },
+      opts.background,
+    );
   }
 
 
@@ -870,7 +893,11 @@ export function renderScanbar(container: HTMLElement): void {
     // the worker can't self-measure its heap (no performance.memory there),
     // so report the decompressed bytes it's holding — a real proxy for it
     const inMemory = snap.files.reduce((s, f) => s + f.sizeUncompressed, 0);
-    if (viewState.overBudget) {
+    // the over-budget warning surfaces only where the clamp actually bites — a
+    // record-reading view. The index-served overview is complete from the cube
+    // even when the prefetch loaded only the newest slice, so it shows plain
+    // LOADED there (the prefetch warms what fits, silently).
+    if (viewState.overBudget && viewNeedsRecords(readHash().view)) {
       // we loaded the newest slice that fits — tap through to the store inspector
       // (the memory page) to adjust the budget; narrowing a filter or Back also
       // resolve it. Same target as the LOADED pill, so internals stays reachable.

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseFile, parseRaw, nthLine } from './parse';
+import { parseFile, parseFileStreaming, parseRaw, nthLine } from './parse';
+import { gzip, gunzipForEachLine, gunzipLineN } from './gzip';
 import { parseKey } from '../s3/keys';
 
 const FILE = parseKey('server/2026-06-12/172.31.27.225_current.jsonl.gz', 100)!;
@@ -231,5 +232,46 @@ describe('rawLine shedding (SPEC §8: finalized files re-read raw on demand)', (
     expect(nthLine(text, 0)).toBe('a');
     expect(nthLine(text, 2)).toBe('ccc');
     expect(nthLine(text, 3)).toBeNull();
+  });
+});
+
+describe('streaming inflate', () => {
+  const enc = (s: string) => new TextEncoder().encode(s);
+  const stripId = (recs: { id: number }[]) => recs.map(({ id: _id, ...r }) => r);
+
+  it('gunzipForEachLine yields every line + the exact decompressed byte length', async () => {
+    const text = 'alpha\nbravo\ncharlie\n';
+    const lines: [string, number][] = [];
+    const total = await gunzipForEachLine(await gzip(enc(text)), (l, n) => lines.push([l, n]));
+    expect(lines).toEqual([['alpha', 0], ['bravo', 1], ['charlie', 2]]);
+    expect(total).toBe(text.length); // ascii: bytes == chars
+  });
+
+  it('gunzipForEachLine yields a final line with no trailing newline', async () => {
+    const lines: string[] = [];
+    await gunzipForEachLine(await gzip(enc('one\ntwo')), (l) => lines.push(l));
+    expect(lines).toEqual(['one', 'two']);
+  });
+
+  it('gunzipLineN returns the nth line (0-based), null past the end', async () => {
+    const gz = await gzip(enc('a\nbb\nccc\n'));
+    expect(await gunzipLineN(gz, 0)).toBe('a');
+    expect(await gunzipLineN(gz, 2)).toBe('ccc');
+    expect(await gunzipLineN(gz, 3)).toBeNull();
+  });
+
+  it('parseFileStreaming matches parseFile on the same content', async () => {
+    const bytes = ndjson([
+      META,
+      { transaction: { name: 'GET /a', type: 'request', id: 'a'.repeat(16), trace_id: 'b'.repeat(32), timestamp: 1781230284718007, duration: 10, result: 'HTTP 2xx', outcome: 'success' } },
+      { event: { name: 'login', timestamp: 1781230284719000, level: 'info' } },
+      'not json at all',
+    ]);
+    const full = parseFile(bytes, FILE);
+    const streamed = await parseFileStreaming(await gzip(bytes), FILE);
+    expect(stripId(streamed.records)).toEqual(stripId(full.records));
+    expect(streamed.metas).toEqual(full.metas);
+    expect(streamed.byteLength).toBe(full.byteLength);
+    expect(streamed.skippedLines).toBe(full.skippedLines);
   });
 });

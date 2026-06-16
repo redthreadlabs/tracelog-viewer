@@ -4,16 +4,18 @@
  */
 import type { LogBucket } from '../s3/client';
 import { type ParsedKey, overlapsRange } from '../s3/keys';
-import { parseFile } from './parse';
-import { cachedDecompressed, storeFetched, type MemBytes } from './blobs';
+import { parseFile, parseFileStreaming, type ParseResult } from './parse';
+import { gzip, isGzip } from './gzip';
 import { recordFetched, enforceCacheLimit, recordSidecarsBatch, ledgerRecords } from './ledger';
 import { INDEXES } from './indexes';
-import { SEP } from './cache';
+import { SEP, cacheGet, cachePut } from './cache';
 import type { Store } from './store';
 import type { Rec } from './types';
 import { perf } from './perf';
 
 export const CONCURRENCY = 4;
+/** in-flight cap for a background prefetch — half, to stay out of the way */
+const PREFETCH_CONCURRENCY = 2;
 const SIDECAR_CONCURRENCY = 8;
 
 /**
@@ -53,37 +55,46 @@ export async function hydrateSidecars(bucket: LogBucket, files: ParsedKey[]): Pr
   await recordSidecarsBatch(bucket.bucket, entries);
 }
 
-/** Fetch one file's bytes (hot LRU / IndexedDB first), parse it, and time both. */
+/** Fetch one file's bytes, parse it, and time both. Finalized files stay
+ *  compressed end-to-end — the gz comes from the IndexedDB cache (or S3) and is
+ *  parsed by a STREAMING inflate, so the decompressed body is never held in
+ *  memory (SPEC §8). Volatile `_current` snapshots arrive already inflated. */
 async function fetchAndParse(
   bucket: LogBucket,
   file: ParsedKey,
-  mem: MemBytes,
-): Promise<{ result: ReturnType<typeof parseFile>; fromCache: boolean }> {
+): Promise<{ result: ParseResult; fromCache: boolean }> {
   const doneFetch = perf.begin('fetch', file.key);
-  // finalized files: hot decompressed LRU → IndexedDB (compressed) inflated
-  let bytes = file.current ? null : await cachedDecompressed(mem, bucket.bucket, file.key, file.etag);
-  const fromCache = bytes !== null;
-  if (!bytes) {
-    if (file.current) {
-      bytes = await bucket.getObjectBytes(file.key); // volatile snapshot, never cached
-    } else {
-      // pull the stored gzip bytes raw, cache them as-is, inflate for parsing
-      bytes = await storeFetched(
-        mem,
-        bucket.bucket,
-        file.key,
-        file.etag,
-        await bucket.getObjectCompressed(file.key),
-      );
+  let result: ParseResult;
+  let fromCache: boolean;
+  if (file.current) {
+    // volatile snapshot — fetched already inflated, never cached; keep raw lines
+    const bytes = await bucket.getObjectBytes(file.key);
+    fromCache = false;
+    doneFetch({ bytes: bytes.length, cached: false });
+    const doneParse = perf.begin('parse', file.key);
+    result = parseFile(bytes, file, {}, false);
+    doneParse({ bytes: result.byteLength, records: result.records.length });
+  } else {
+    // finalized + immutable: gz from the cache, else S3; keep the disk tier
+    // compressed, then stream-parse it (shedding raw lines — re-read on demand)
+    let gz = await cacheGet(bucket.bucket, file.key, file.etag);
+    fromCache = gz !== null;
+    if (!gz) {
+      const fetched = await bucket.getObjectCompressed(file.key);
+      gz = isGzip(fetched) ? fetched : await gzip(fetched);
+      if (file.etag) {
+        try {
+          await cachePut(bucket.bucket, file.key, file.etag, gz);
+        } catch {
+          /* storage unavailable — degrade to network on the next read */
+        }
+      }
     }
+    doneFetch({ bytes: gz.length, cached: fromCache });
+    const doneParse = perf.begin('parse', file.key);
+    result = await parseFileStreaming(gz, file, {}, true);
+    doneParse({ bytes: result.byteLength, records: result.records.length });
   }
-  doneFetch({ bytes: bytes.length, cached: fromCache });
-
-  const doneParse = perf.begin('parse', file.key);
-  // Finalized files are cached, so their records shed raw lines (rawsource
-  // re-reads on demand); _current snapshots have no cache to go back to.
-  const result = parseFile(bytes, file, {}, !file.current);
-  doneParse({ bytes: result.byteLength, records: result.records.length });
   // ledger: now we know this file's decompressed size, and it was just
   // loaded for display (feeds the per-channel ratio + LRU recency); awaited
   // so the ledger is settled before post-scan cache eviction reads it
@@ -142,13 +153,17 @@ export class LoadController {
   private failed?: string;
   private epoch = 0; // bumped on reset; stale in-flight results are discarded
   private dirty = false; // records added since the last sort
+  /** in-flight cap. Lowered while this load is a BACKGROUND prefetch (a view that
+   *  doesn't need the records yet), so it doesn't saturate IO or starve the
+   *  index queries the overview is running on the same thread; restored to full
+   *  the moment a view actually waits on the records (SPEC §8/§11). */
+  private concurrency = CONCURRENCY;
   private doneScan: ((info: Record<string, unknown>) => void) | null = null;
   private loadFile: FileLoader;
 
   constructor(
     private store: Store,
     private bucket: LogBucket,
-    private mem: MemBytes,
     private cacheLimitBytes: number | null,
     private getRange: () => TimeRange,
     loadFile?: FileLoader,
@@ -156,7 +171,7 @@ export class LoadController {
     this.loadFile =
       loadFile ??
       ((file) =>
-        fetchAndParse(this.bucket, file, this.mem).then(({ result, fromCache }) => ({
+        fetchAndParse(this.bucket, file).then(({ result, fromCache }) => ({
           records: result.records,
           byteLength: result.byteLength,
           fromCache,
@@ -210,8 +225,15 @@ export class LoadController {
     return null;
   }
 
+  /** Set the load priority: background (throttled prefetch) vs foreground (a view
+   *  is waiting). Raising it pumps more workers immediately. */
+  setBackground(background: boolean): void {
+    this.concurrency = background ? PREFETCH_CONCURRENCY : CONCURRENCY;
+    if (!background) this.pump(); // un-throttle: fill the freed slots now
+  }
+
   private pump(): void {
-    while (this.active < CONCURRENCY && !this.failed) {
+    while (this.active < this.concurrency && !this.failed) {
       const file = this.nextPending();
       if (!file) break;
       this.active++;
@@ -312,9 +334,8 @@ export async function loadOneFile(
   bucket: LogBucket,
   file: ParsedKey,
   cacheLimitBytes: number | null,
-  mem: MemBytes,
 ): Promise<void> {
-  const { result } = await fetchAndParse(bucket, file, mem);
+  const { result } = await fetchAndParse(bucket, file);
   store.registerFile(file, result.byteLength);
   store.replaceFile(file.key, result.records);
   if (cacheLimitBytes != null) await enforceCacheLimit(bucket.bucket, cacheLimitBytes);

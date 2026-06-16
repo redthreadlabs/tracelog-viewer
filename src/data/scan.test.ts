@@ -11,7 +11,6 @@
 import { describe, it, expect } from 'vitest';
 import { LoadController, CONCURRENCY, type FileLoader } from './scan';
 import { Store } from './store';
-import { MemBytes } from './blobs';
 import type { LogBucket } from '../s3/client';
 import type { ParsedKey } from '../s3/keys';
 import type { Rec } from './types';
@@ -43,7 +42,6 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 
 function makeHarness(initialWindow: [number, number] | null = null) {
   const store = new Store();
-  const mem = new MemBytes(null);
   const started: string[] = [];
   const pending = new Map<string, { resolve: () => void; reject: (m: string) => void }>();
   let win = initialWindow;
@@ -63,7 +61,7 @@ function makeHarness(initialWindow: [number, number] | null = null) {
     });
   };
 
-  const controller = new LoadController(store, BUCKET, mem, null, () => win, loadFile);
+  const controller = new LoadController(store, BUCKET, null, () => win, loadFile);
 
   return {
     store,

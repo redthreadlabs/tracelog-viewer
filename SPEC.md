@@ -330,11 +330,10 @@ src/
                                 _current files are never cached. Survives
                                 profile switches; deleting the last profile
                                 for a bucket wipes that bucket's entries
-             blobs.ts         — two-tier byte cache: in-memory decompressed
-                                LRU (MemBytes, bounded by the memory limit) in
-                                front of cache.ts; inflate/deflate on the
-                                boundary so disk stays compressed, RAM hot
-             gzip.ts          — gzip/gunzip over (De)CompressionStream + magic
+             gzip.ts          — gzip/gunzip over (De)CompressionStream + magic;
+                                STREAMING line readers (gunzipForEachLine,
+                                gunzipLineN) so finalized files parse + raw-read
+                                without ever holding the decompressed body
              ledger.ts        — persistent per-file size record (compressed +
                                 decompressed, per-channel ratios) that OUTLIVES
                                 the byte cache: drives memory-limit estimates,
@@ -604,9 +603,14 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
   **gzip-compressed** — fetched raw via `Range: bytes=0-` (§3.3) so the
   on-disk form is the exact stored object, ~10× smaller, with the cache limit
   accounted against the listing size and evicted LRU by display-recency (then
-  older interval, then bigger). In front, an in-memory **decompressed LRU**
-  (MemBytes) bounded by the memory limit holds hot bodies so parse and
-  raw-line re-reads skip a re-inflate. A persistent **size ledger** records
+  older interval, then bigger). There is **no decompressed RAM tier**: finalized
+  files stay gzip-compressed end-to-end — parse STREAMS the inflate
+  (`gunzipForEachLine`, peak memory one chunk, not the file) and a raw-line peek
+  streams to line N and stops (`gunzipLineN`), re-inflating from the compressed
+  cache on demand. So the parsed **records** are the only significant in-memory
+  tier; the memory limit governs the load clamp (below). (Accurate per-record
+  memory accounting — the limit mapping closely to actual heap — is a parked
+  follow-up; see `MEMORY_MANAGEMENT_GOTCHAS.md`.) A persistent **size ledger** records
   every file's compressed/decompressed size and per-channel compression
   ratio, OUTLIVING byte eviction — so before a load the worker estimates the
   view's in-memory cost (known sizes by key, ratios for the rest) and, if it

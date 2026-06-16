@@ -21,8 +21,8 @@ import { planScan, type ScanPlan } from '../s3/scanner';
 import { LoadController, loadOneFile, hydrateSidecars } from '../data/scan';
 import { LiveUpdater } from '../data/live';
 import { perf, type PerfEntry } from '../data/perf';
-import { cacheKeys, cacheWipeBucket, SEP } from '../data/cache';
-import { MemBytes, cachedDecompressedAny } from '../data/blobs';
+import { cacheKeys, cacheWipeBucket, cacheGetAny, SEP } from '../data/cache';
+import { gunzipLineN, isGzip } from '../data/gzip';
 import { parseKey, dedupeCurrents, overlapsRange, intervalSpan, type ParsedKey } from '../s3/keys';
 import { nthLine } from '../data/parse';
 import type { Rec, RecordKind } from '../data/types';
@@ -116,8 +116,6 @@ class Session {
   ports = new Set<PortLike>();
   lastUsed = Date.now();
   cacheLimitBytes: number | null;
-  /** hot decompressed-byte cache, bounded by the workspace memory limit */
-  mem: MemBytes;
   /** the current selection's files (set by planScan) — the FULL selection, used
    *  by metadata-served charts (may exceed what the loader is loading if the
    *  load was clamped to a memory budget) */
@@ -136,11 +134,9 @@ class Session {
   constructor(profile: Profile) {
     this.bucket = new LogBucket(profile);
     this.cacheLimitBytes = mbToBytes(profile.cacheLimitMb);
-    this.mem = new MemBytes(mbToBytes(profile.memoryLimitMb));
     this.loader = new LoadController(
       this.store,
       this.bucket,
-      this.mem,
       this.cacheLimitBytes,
       () => this.currentRange,
     );
@@ -744,7 +740,14 @@ const ops: Record<string, OpHandler> = {
         decompressedByKey.set(r.id.slice(prefix.length), r.decompressed);
       }
     }
+    s.loader.setBackground(a.background === true); // a prefetch loads throttled
     s.loader.reset((a.plan as ScanPlan).files, decompressedByKey);
+  },
+  /** Re-prioritise an in-flight load: foreground (a view now waits on the
+   *  records) un-throttles it, background (back to an index-served view) throttles
+   *  it. Same plan — just the in-flight cap, so navigating never re-loads. */
+  setLoadPriority: (s, a) => {
+    s.loader.setBackground(a.background === true);
   },
   clearStore: (s) => {
     s.currentPlan = [];
@@ -758,13 +761,11 @@ const ops: Record<string, OpHandler> = {
   },
 
   // ---- store inspector ----
-  loadOneFile: (s, a) => loadOneFile(s.store, s.bucket, a.file as ParsedKey, s.cacheLimitBytes, s.mem),
+  loadOneFile: (s, a) => loadOneFile(s.store, s.bucket, a.file as ParsedKey, s.cacheLimitBytes),
   /** Fetch a file's metadata sidecar (the .meta.json) for the inspector drawer. */
   getSidecar: (s, a) => s.bucket.getSidecar(a.key as string),
   dropFile: (s, a) => {
-    const key = a.key as string;
-    s.store.dropFile(key);
-    s.mem.delete(key);
+    s.store.dropFile(a.key as string);
   },
   cacheKeys: (s) => cacheKeys(s.bucket.bucket),
   /** Factual per-file sizes/counts from sidecars (hydrates the ledger first),
@@ -857,7 +858,6 @@ const ops: Record<string, OpHandler> = {
       .sort((a2, b) => b.n - a2.n);
   },
   wipeCache: (s) => {
-    s.mem.clear();
     s.clearIndexCache(); // the wipe deletes the stored indexes too
     return cacheWipeBucket(s.bucket.bucket);
   },
@@ -1057,18 +1057,26 @@ const ops: Record<string, OpHandler> = {
 
   scannerData: (s, a) => scannerStats(s.store.kindRecords('transaction'), a.range as TimeRange),
 
-  /** raw body for the drawer: retained line, cached file, or the bucket */
+  /** raw body for the drawer: retained line, else stream the file to line N.
+   *  Finalized files are cached compressed — we inflate just up to the line and
+   *  stop (gunzipLineN). A volatile/uncached file is fetched inflated and read
+   *  by index. Neither holds the decompressed body (SPEC §8). */
   rawBody: async (s, a) => {
     const rec = a.rec as Pick<Rec, 'rawLine' | 'sourceKey' | 'line' | 'kind'>;
     try {
       let line = rec.rawLine;
       if (line === null) {
         const done = perf.begin('fetch', rec.sourceKey);
-        let bytes = await cachedDecompressedAny(s.mem, s.bucket.bucket, rec.sourceKey);
-        const fromCache = bytes !== null;
-        if (!bytes) bytes = await s.bucket.getObjectBytes(rec.sourceKey);
-        done({ detail: `raw line ${rec.line}`, bytes: bytes.length, cached: fromCache });
-        line = nthLine(new TextDecoder().decode(bytes), rec.line);
+        const gz = await cacheGetAny(s.bucket.bucket, rec.sourceKey);
+        if (gz && isGzip(gz)) {
+          line = await gunzipLineN(gz, rec.line); // cached gz → inflate to line N, stop
+          done({ detail: `raw line ${rec.line}`, bytes: gz.length, cached: true });
+        } else {
+          // uncached (or volatile _current) → fetch inflated, read by index
+          const bytes = gz ?? (await s.bucket.getObjectBytes(rec.sourceKey));
+          done({ detail: `raw line ${rec.line}`, bytes: bytes.length, cached: gz !== null });
+          line = nthLine(new TextDecoder().decode(bytes), rec.line);
+        }
       }
       if (line === null) return {};
       const obj = JSON.parse(line) as Record<string, unknown>;
