@@ -128,6 +128,14 @@ export class Store extends EventTarget {
     return arr.sort((a, b) => a.ts - b.ts);
   }
 
+  /** One loaded file's records, in arrival order (≈ time). Lets the solver
+   *  build an aggregate index in memory for a file that isn't persisted — the
+   *  `_current` interval is never indexed at parse time but is always loaded
+   *  while it overlaps the working set. Empty if the file isn't loaded. */
+  recordsOf(sourceKey: string): Rec[] {
+    return this.fileIndexes.get(sourceKey)?.records ?? [];
+  }
+
   /** Every record of one trace, time-sorted (waterfall assembly). */
   traceRecords(traceId: string): Rec[] {
     const arr: Rec[] = [];

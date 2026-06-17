@@ -555,6 +555,28 @@ async function solveOverviewBatch(
 }
 
 /**
+ * The aggregate payload to merge for one in-range file (SPEC §11): the persisted
+ * payload when it matches the file's ETag; otherwise — for a file whose records
+ * are loaded but unindexed — the index built in memory on the spot, via the same
+ * `build()` the parse path persists (so it merges through the identical code).
+ * The `_current` interval is never indexed at parse time, but it's always loaded
+ * while it overlaps the working set, so this builds it on demand rather than
+ * dropping it. Null only when a file is neither indexed nor loaded — never the
+ * `_current` interval, which is the bug this closes.
+ */
+export function filePayload<P>(
+  s: Session,
+  ix: AggregateIndex<P>,
+  stored: Map<string, StoredIndex<P>>,
+  f: ParsedKey,
+): P | null {
+  const rec = stored.get(s.bucket.bucket + SEP + f.key);
+  if (rec && f.etag && rec.etag === f.etag) return rec.payload;
+  if (s.store.files.has(f.key)) return ix.build(s.store.recordsOf(f.key));
+  return null;
+}
+
+/**
  * The transaction TABLE, served entirely from the durable indexes (SPEC §11,
  * #1a). count / Σ duration / errors / avg sum exactly out of the cube; P95 is
  * read off the merged duration-histogram sketch. No record scan, no load —
@@ -568,15 +590,13 @@ async function solveTransactionTotals(
   range: TimeRange,
 ): Promise<{ groups: TxnGroup[]; p95Estimated: boolean; n: number }> {
   const [from, to] = range ?? operatingRange(s);
-  const prefix = s.bucket.bucket + SEP;
   const inRange = s.currentPlan.filter((f) => overlapsRange(f, from, to));
 
   const cube = await s.loadIndex(txnIndex);
   const totals = new Map<string, TxnTotals>();
   for (const f of inRange) {
-    const rec = cube.get(prefix + f.key);
-    if (!rec || !f.etag || rec.etag !== f.etag) continue; // unindexed/stale → omitted
-    mergeRangeTotals(rec.payload, from, to, totals);
+    const payload = filePayload(s, txnIndex, cube, f); // index, or built from the loaded _current
+    if (payload) mergeRangeTotals(payload, from, to, totals);
   }
   let n = 0;
   for (const t of totals.values()) n += t.c;
@@ -584,9 +604,8 @@ async function solveTransactionTotals(
   const hist = await s.loadIndex(durHistIndex);
   const merged = new Map<string, Bins>();
   for (const f of inRange) {
-    const rec = hist.get(prefix + f.key);
-    if (!rec || !f.etag || rec.etag !== f.etag) continue;
-    mergeRangeBins(rec.payload, from, to, merged);
+    const payload = filePayload(s, durHistIndex, hist, f);
+    if (payload) mergeRangeBins(payload, from, to, merged);
   }
   const groups: TxnGroup[] = [...totals].map(([name, t]) => ({
     name,
@@ -606,22 +625,21 @@ async function solveTransactionTotals(
  */
 async function txnSummaryData(s: Session, name: string, range: TimeRange) {
   const [from, to] = range ?? operatingRange(s);
-  const prefix = s.bucket.bucket + SEP;
   const inRange = s.currentPlan.filter((f) => overlapsRange(f, from, to));
 
   const cube = await s.loadIndex(txnIndex);
   const totals = new Map<string, TxnTotals>();
   for (const f of inRange) {
-    const rec = cube.get(prefix + f.key);
-    if (rec && f.etag && rec.etag === f.etag) mergeRangeTotals(rec.payload, from, to, totals);
+    const payload = filePayload(s, txnIndex, cube, f); // index, or built from the loaded _current
+    if (payload) mergeRangeTotals(payload, from, to, totals);
   }
   const t = totals.get(name);
 
   const hist = await s.loadIndex(durHistIndex);
   const merged = new Map<string, Bins>();
   for (const f of inRange) {
-    const rec = hist.get(prefix + f.key);
-    if (rec && f.etag && rec.etag === f.etag) mergeRangeBins(rec.payload, from, to, merged);
+    const payload = filePayload(s, durHistIndex, hist, f);
+    if (payload) mergeRangeBins(payload, from, to, merged);
   }
   const bins = merged.get(name) ?? {};
   const binIdxs = Object.keys(bins).map(Number).sort((x, y) => x - y);

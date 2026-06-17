@@ -101,8 +101,10 @@ async function fetchAndParse(
   await recordFetched(bucket.bucket, file, result.byteLength, !file.current, Date.now());
   // build + persist every registered aggregate index for finalized (immutable)
   // files, so a later query can be served from one without re-fetching (SPEC
-  // §11). Current snapshots change, so we don't index them — they're always
-  // loaded fresh. Fire-and-forget; the solver reads these when it can.
+  // §11). Current snapshots change, so we don't PERSIST an index for them —
+  // they're always loaded fresh, and the solver builds their index in memory on
+  // demand instead (backend.ts `filePayload`), so the _current interval is never
+  // dropped from a query. Fire-and-forget; the solver reads these when it can.
   if (!file.current) {
     for (const ix of INDEXES) {
       void ix.persist(bucket.bucket, file.key, file.etag, ix.build(result.records));
