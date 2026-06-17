@@ -932,6 +932,11 @@ const ops: Record<string, OpHandler> = {
     return { summary, records, token };
   },
 
+  /** The index-served headline alone — for an in-place refresh as the working
+   *  set (notably the loaded `_current` interval) streams in, without tearing
+   *  down the drill-down's structure or its records subscription. */
+  txnSummary: (s, a) => txnSummaryData(s, a.name as string, a.range as TimeRange),
+
   traceData: (s, a) => assembleTrace(s.store.traceRecords(a.traceId as string), a.traceId as string),
 
   recordsPage: (s, a) => {

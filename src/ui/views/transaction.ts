@@ -70,6 +70,9 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
   let sampleHost: HTMLElement | null = null;
   let slowestBody: HTMLElement | null = null;
   let slowestHead: HTMLElement | null = null;
+  // index-served headline hosts — refreshed in place as the working set loads
+  let statCardsHost: HTMLElement | null = null;
+  let histHost: HTMLElement | null = null;
 
   // ---- solve the plan: index summary now, records streaming under a token ----
   async function rebuild(): Promise<void> {
@@ -103,15 +106,37 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
     }
   }
 
+  // Refresh just the index-served headline in place. The summary is index-first
+  // (it renders before records load), so at the first solve the `_current`
+  // interval usually isn't in the store yet and the solver builds nothing for
+  // it; once its records stream in (and as live appends grow them), re-read the
+  // summary and re-render the stat cards + distribution — without tearing down
+  // the structure or the records subscription, so the scatter/table don't flash.
+  async function refreshSummary(): Promise<void> {
+    const t = token;
+    const s = await storeClient.request<TxnSummary>('txnSummary', {
+      name,
+      range: viewState.timeRange,
+    });
+    if (t !== token || !container.isConnected || !built || s.count === 0) return;
+    if (statCardsHost) {
+      clear(statCardsHost);
+      statCardsHost.append(statCards(s));
+    }
+    if (histHost) renderHistogram(histHost, s.histogram, []);
+  }
+
   function buildStructure(s: TxnSummary): void {
     clear(body);
 
     // stat cards (latency cells italicised — they're index estimates) + the
     // result mix, which fills from records
     mixHost = el('div', { className: 'result-mix' });
+    statCardsHost = el('div', { className: 'stat-cards-host' });
+    statCardsHost.append(statCards(s));
     body.append(
       el('div', { className: 'stat-row' }, [
-        statCards(s),
+        statCardsHost,
         el('div', {}, [
           mixHost,
           el('div', {
@@ -124,7 +149,7 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
     );
 
     // duration distribution (from the sketch, instant) + the scatter (records)
-    const histHost = el('div', { className: 'chart-host' });
+    histHost = el('div', { className: 'chart-host' });
     sampleHost = el('span');
     scatterHost = el('div', { className: 'chart-host' });
     scatterHost.append(pendingBlock(190));
@@ -325,11 +350,14 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
   renderHead();
   body.append(pendingBlock(220));
 
-  // the records sections stream in under the plan's token, so we don't re-fetch
-  // on 'data' — except a cold range (no index yet, summary count 0) rebuilds once
-  // its index exists; a range/selection change or resize re-solves.
+  // the records sections stream in under the plan's token, so 'data' doesn't
+  // re-fetch them — but it does refresh the index-served headline in place (the
+  // _current interval lands after the first solve; its count/percentiles must
+  // catch up). A cold range (no index yet, summary count 0) rebuilds once its
+  // index exists; a range/selection change or resize re-solves.
   const onData = () => {
     if (!built) void rebuild();
+    else void refreshSummary(); // working set / live appends grew — re-read the headline
   };
   const onPlan = () => void rebuild();
   const onResize = () => void rebuild();
