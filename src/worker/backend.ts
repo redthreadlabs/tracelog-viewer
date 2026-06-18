@@ -112,6 +112,9 @@ class Session {
   bucket: LogBucket;
   live: LiveUpdater;
   liveChannels: string[] = [];
+  /** hosts the live updater actively watches (null = all) — the manual subset,
+   *  or the resolved live set in "all current" mode (SPEC §6.0) */
+  liveHostFilter: string[] | null = null;
   ports = new Set<PortLike>();
   lastUsed = Date.now();
   cacheLimitBytes: number | null;
@@ -140,7 +143,12 @@ class Session {
       mbToBytes(profile.memoryLimitMb), // bounds the record store (eviction)
       () => this.currentRange,
     );
-    this.live = new LiveUpdater(this.store, this.bucket, () => this.liveChannels);
+    this.live = new LiveUpdater(
+      this.store,
+      this.bucket,
+      () => this.liveChannels,
+      () => this.liveHostFilter,
+    );
     this.store.addEventListener('data', () => {
       this.broadcast('data');
       void this.fireDeferred();
@@ -755,6 +763,10 @@ const ops: Record<string, OpHandler> = {
   },
   setLive: (s, a) => {
     s.liveChannels = a.channels as string[];
+    // hosts: the active watch set (manual subset or resolved "all current");
+    // undefined/absent = all. Idempotent — re-calling while live just updates
+    // the set (start() no-ops), so "all current" can push a new set each tick.
+    s.liveHostFilter = (a.hosts as string[] | undefined) ?? null;
     if (a.on) s.live.start();
     else s.live.stop();
     return s.live.running;

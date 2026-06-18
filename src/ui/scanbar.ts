@@ -43,10 +43,19 @@ interface ScanbarState {
   planning: boolean;
   live: boolean;
   /** is there a fresh `_current` host in the selected channels? — gates LIVE
-   *  (and, later, "all current"). False on a finalized-only bucket (SPEC §6.0). */
+   *  and "all current". False on a finalized-only bucket (SPEC §6.0). */
   liveAvailable: boolean;
+  /** 'current' = track the live host set dynamically ("all current"); else a
+   *  manual host subset. */
+  hostMode: 'manual' | 'current';
+  /** the resolved live host set (from liveStatus) — the working set in 'current'
+   *  mode, re-resolved as hosts come and go */
+  currentHosts: string[];
   error?: string;
 }
+
+/** Host sentinel meaning "track the live set" (no host is named `*…`). */
+const HOST_CURRENT = '*current';
 
 const DAY_MS = 86_400_000;
 
@@ -164,6 +173,8 @@ export function renderScanbar(container: HTMLElement): void {
     planning: false,
     live: false,
     liveAvailable: false,
+    hostMode: getParam('host') === HOST_CURRENT ? 'current' : 'manual',
+    currentHosts: [],
   };
 
   const selectedChannels = () =>
@@ -178,7 +189,8 @@ export function renderScanbar(container: HTMLElement): void {
     return v === null ? null : new Set(v.split(',').filter(Boolean));
   };
   let channelsFromUrl = parseFilterParam('ch');
-  let hostsFromUrl = parseFilterParam('host');
+  // the `*current` sentinel is a mode, not a host list — no manual pre-selection
+  let hostsFromUrl = getParam('host') === HOST_CURRENT ? null : parseFilterParam('host');
 
   /** Reconcile a picker against the candidate values present in the range: keep
    *  prior toggles, default a newly-seen value on (unless a deep link excludes
@@ -210,29 +222,35 @@ export function renderScanbar(container: HTMLElement): void {
     facetSig = sig;
   }
 
-  /** Refresh the "is anything live?" gate for the selected channels (depends on
-   *  the channel set, not the range). Disables LIVE on a finalized-only bucket,
-   *  and stops a running live session if its last current host went away. */
+  /** Refresh the live gate + resolved current-host set for the selected channels
+   *  (depends on the channel set, not the range). Channel-sig-guarded so range
+   *  drags don't re-LIST, unless `force` (the "all current" tracker, where host
+   *  membership changes with channels fixed). Returns whether the live set moved. */
   let liveStatusSig: string | null = null;
-  async function refreshLiveStatus(): Promise<void> {
+  async function refreshLiveStatus(force = false): Promise<boolean> {
     const channels = selectedChannels();
     const sig = [...channels].sort().join(',');
-    if (sig === liveStatusSig) return;
+    if (!force && sig === liveStatusSig) return false;
     liveStatusSig = sig;
     if (channels.length === 0) {
       state.liveAvailable = false;
+      const moved = state.currentHosts.length > 0;
+      state.currentHosts = [];
       maybeStopLive();
-      return;
+      return moved;
     }
     try {
       const st = await storeClient.request<{ available: boolean; hosts: string[] }>('liveStatus', {
         channels,
       });
       state.liveAvailable = st.available;
+      const moved = !sameStrings(state.currentHosts, st.hosts);
+      state.currentHosts = st.hosts;
       maybeStopLive();
       render();
+      return moved;
     } catch {
-      /* transient — the next replan retries */
+      return false; // transient — the next replan / tick retries
     }
   }
 
@@ -240,7 +258,51 @@ export function renderScanbar(container: HTMLElement): void {
   function maybeStopLive(): void {
     if (state.live && !state.liveAvailable) {
       state.live = false;
+      stopCurrentTracking();
       void storeClient.request('setLive', { on: false, channels: selectedChannels() });
+    }
+  }
+
+  // ---- "all current" dynamic membership ----
+  // While LIVE + "all current", periodically re-resolve the live host set (a
+  // discovery LIST) and, when it changes, update the worker's watch set and the
+  // working set. Cadence ~ the live tick; phase 3's per-host timers refine this.
+  let currentHandle: ReturnType<typeof setInterval> | null = null;
+  const CURRENT_TRACK_MS = 30_000;
+  function startCurrentTracking(): void {
+    if (currentHandle) return;
+    currentHandle = setInterval(() => {
+      void (async () => {
+        if (await refreshLiveStatus(true)) {
+          pushLiveHosts();
+          void replan(); // re-scope the working set to the new live host set
+        }
+      })();
+    }, CURRENT_TRACK_MS);
+  }
+  function stopCurrentTracking(): void {
+    if (currentHandle) clearInterval(currentHandle);
+    currentHandle = null;
+  }
+
+  /** Push the active watch set to the worker's live updater (idempotent). */
+  function pushLiveHosts(): void {
+    void storeClient.request('setLive', {
+      on: state.live,
+      channels: selectedChannels(),
+      hosts: hostFilter(),
+    });
+  }
+
+  /** Keep the live updater's watch set + the dynamic tracker in step with the
+   *  selection — called after a (re)plan and on the LIVE toggle. */
+  function syncLiveWatch(): void {
+    if (state.live) {
+      pushLiveHosts();
+      if (state.hostMode === 'current') startCurrentTracking();
+      else stopCurrentTracking();
+    } else {
+      stopCurrentTracking();
     }
   }
 
@@ -285,7 +347,7 @@ export function renderScanbar(container: HTMLElement): void {
   function cancelPicker(): void {
     if (openPicker && pickerSnapshot) {
       applyUrlSelection(state.channels, pickerSnapshot.ch);
-      applyUrlSelection(state.hosts, pickerSnapshot.host);
+      applyHostParam(pickerSnapshot.host);
     }
     openPicker = null;
     pickerSnapshot = null;
@@ -306,13 +368,18 @@ export function renderScanbar(container: HTMLElement): void {
    *  selected, else the selected subset ([] = none). Before the first plan
    *  populates the picker, honor the deep-link intent. */
   function hostFilter(): string[] | undefined {
+    // the resolved live set; if nothing's live (e.g. a finalized-only bucket via
+    // a deep link), fall back to all rather than showing empty
+    if (state.hostMode === 'current') return state.liveAvailable ? state.currentHosts : undefined;
     if (state.hosts.size === 0) return hostsFromUrl ? [...hostsFromUrl] : undefined;
     const sel = selectedHosts();
     return sel.length === state.hosts.size ? undefined : sel;
   }
 
-  /** The `host=` URL param mirroring the selection: null (omit) when all on. */
+  /** The `host=` URL param mirroring the selection: null (omit) when all on,
+   *  the `*current` sentinel in "all current" mode. */
   function hostUrlParam(): string | null {
+    if (state.hostMode === 'current') return HOST_CURRENT;
     if (state.hosts.size === 0) return hostsFromUrl ? [...hostsFromUrl].join(',') : null;
     const sel = selectedHosts();
     return sel.length === state.hosts.size ? null : sel.join(',');
@@ -338,6 +405,20 @@ export function renderScanbar(container: HTMLElement): void {
       }
     }
     return changed;
+  }
+
+  /** Apply a `host=` value (URL = truth on Back/Forward/commit): the `*current`
+   *  sentinel switches to "all current" mode; anything else is manual with that
+   *  subset. Returns whether anything moved. */
+  function applyHostParam(param: string | null): boolean {
+    if (param === HOST_CURRENT) {
+      const moved = state.hostMode !== 'current';
+      state.hostMode = 'current';
+      return moved;
+    }
+    const moved = state.hostMode !== 'manual';
+    state.hostMode = 'manual';
+    return applyUrlSelection(state.hosts, param) || moved;
   }
 
   // identity of the currently loaded plan, so range fiddling that resolves
@@ -383,7 +464,10 @@ export function renderScanbar(container: HTMLElement): void {
       render();
       return;
     }
-    void refreshLiveStatus(); // gate LIVE on whether any host is currently live
+    // gate LIVE + resolve the current-host set; awaited in "all current" mode so
+    // the plan below filters to the live set
+    if (state.hostMode === 'current') await refreshLiveStatus();
+    else void refreshLiveStatus();
     const selected = selectedChannels();
     state.plan = null;
     state.error = undefined;
@@ -428,6 +512,7 @@ export function renderScanbar(container: HTMLElement): void {
     // never auto-load while a picker is open — the user is still choosing; the
     // load fires when they close it (setOpenPicker)
     if (!openPicker) void maybeAutoLoad();
+    syncLiveWatch(); // keep the live updater's watch set in step with the selection
     render();
   }
 
@@ -527,7 +612,7 @@ export function renderScanbar(container: HTMLElement): void {
     // selection — apply after ensureFacets has the candidate keys for the range
     await ensureFacets();
     changed = applyUrlSelection(state.channels, getParam('ch')) || changed;
-    changed = applyUrlSelection(state.hosts, getParam('host')) || changed;
+    changed = applyHostParam(getParam('host')) || changed;
 
     if (changed) {
       void replan(); // re-plans + (per view) loads via maybeAutoLoad
@@ -735,6 +820,20 @@ export function renderScanbar(container: HTMLElement): void {
       values,
       selected,
       open: openPicker === id,
+      // hosts only: a leading "all current" mode-row, shown when something's live
+      special:
+        id === 'hosts' && state.liveAvailable
+          ? {
+              label: 'all current (live)',
+              active: state.hostMode === 'current',
+              title: 'track the hosts currently uploading live logs — updates as hosts come and go',
+              onToggle: () => {
+                state.hostMode = state.hostMode === 'current' ? 'manual' : 'current';
+                pickerDirty = true;
+                render();
+              },
+            }
+          : undefined,
       onOpen: () => openFacetPicker(id),
       onCommit: () => commitPicker(),
       onCancel: () => cancelPicker(),
@@ -742,6 +841,7 @@ export function renderScanbar(container: HTMLElement): void {
         // edit locally — checkboxes + summary update at once, but plan + load
         // (and the history entry) wait for OK; Cancel/tap-away/Esc revert
         for (const v of map.keys()) map.set(v, sel.has(v));
+        if (id === 'hosts') state.hostMode = 'manual'; // picking a host exits "all current"
         pickerDirty = true;
         render();
       },
@@ -828,7 +928,7 @@ export function renderScanbar(container: HTMLElement): void {
           state.live = !state.live;
           // live mode watches today: extend the range to include now
           if (state.live && state.endMs < Date.now()) state.endMs = Date.now();
-          void storeClient.request('setLive', { on: state.live, channels: selectedChannels() });
+          syncLiveWatch(); // setLive with the resolved host set + (de)activate tracking
           render();
         },
       },
@@ -886,6 +986,7 @@ export function renderScanbar(container: HTMLElement): void {
   activeClientListeners = () => {
     storeClient.removeEventListener('progress', onProgress);
     storeClient.removeEventListener('data', updateLoadedText);
+    stopCurrentTracking(); // drop the "all current" discovery timer
   };
 
   /** the MEM/loading readout is one pill — same chrome in both states */
@@ -961,6 +1062,13 @@ export function renderScanbar(container: HTMLElement): void {
   window.addEventListener(RANGE_NAV_EVENT, activeHashHandler);
 
   render();
+}
+
+/** Order-insensitive equality of two host lists (both are sorted in practice). */
+function sameStrings(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 function datetimeInput(ms: number, onChange: (ms: number) => void): HTMLInputElement {

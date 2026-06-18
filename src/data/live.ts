@@ -67,15 +67,26 @@ export class LiveUpdater {
   private store: Store;
   private bucket: LogBucket;
   private channels: () => string[];
+  /** the hosts to actively watch (null = all). Set by the scanbar via setLive:
+   *  the selected manual subset, or the resolved live set in "all current" mode.
+   *  A host outside this set is not fetched — but its already-loaded records are
+   *  KEPT in the store (we stop watching, we don't erase). */
+  private hosts: () => string[] | null;
   private states = new Map<string, FileState>();
   private handle: ReturnType<typeof setInterval> | null = null;
   private ticking = false;
   lastTick = 0;
 
-  constructor(store: Store, bucket: LogBucket, channels: () => string[]) {
+  constructor(
+    store: Store,
+    bucket: LogBucket,
+    channels: () => string[],
+    hosts: () => string[] | null = () => null,
+  ) {
     this.store = store;
     this.bucket = bucket;
     this.channels = channels;
+    this.hosts = hosts;
   }
 
   get running(): boolean {
@@ -105,6 +116,10 @@ export class LiveUpdater {
     let liveRecords = 0;
     try {
       const today = utcToday();
+      // the active host set (null = all). A host outside it is skipped — not
+      // fetched — but we never drop its records here (SPEC §6.0).
+      const hostFilter = this.hosts();
+      const allow = hostFilter ? new Set(hostFilter) : null;
       for (const channel of this.channels()) {
         const listing = await this.bucket.listChannelRange(channel, today, today);
         const finalizedSiblings = new Set<string>();
@@ -119,6 +134,8 @@ export class LiveUpdater {
         for (const obj of listing) {
           const parsed = parseKey(obj.key, obj.size, obj.lastModified, obj.etag);
           if (!parsed) continue;
+          // outside the active host set → stop watching it, but keep its records
+          if (allow && !allow.has(parsed.host)) continue;
           // a _current shadowed by its finalized file: purge, never load (§3.5)
           if (
             parsed.current &&

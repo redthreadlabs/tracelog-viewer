@@ -29,6 +29,10 @@ export interface ChooserSpec {
   /** display label for a value (defaults to the value itself) — lets the bars
    *  picker show "1 hour" for the token "1h" */
   labelOf?: (value: string) => string;
+  /** an optional leading mode-row (multi mode only), mutually exclusive with the
+   *  checkboxes — e.g. the hosts picker's "all current". When active it overrides
+   *  the summary and dims the list (the manual selection is set aside). */
+  special?: { label: string; active: boolean; title?: string; onToggle: () => void };
   /** the pill was clicked while closed → open (+ snapshot, in multi mode) */
   onOpen: () => void;
   /** an option changed. multi: pending only (not applied). single: apply + close. */
@@ -45,6 +49,7 @@ function summary(spec: ChooserSpec): string {
     const v = [...spec.selected][0];
     return v !== undefined ? label(v) : '—';
   }
+  if (spec.special?.active) return spec.special.label;
   if (spec.values.length === 0) return 'none available';
   const on = spec.values.filter((v) => spec.selected.has(v));
   if (on.length === 0) return 'none';
@@ -78,6 +83,24 @@ export function renderChooser(spec: ChooserSpec): HTMLElement {
 
   const pop = el('div', { className: 'chooser-pop' });
 
+  // an optional leading mode-row (e.g. hosts' "all current"): a distinct toggle
+  // above the list, mutually exclusive with the checkboxes
+  if (!single && spec.special) {
+    const sp = spec.special;
+    const input = el('input', { attrs: { type: 'checkbox' } });
+    (input as HTMLInputElement).checked = sp.active;
+    const row = el('label', { className: 'chooser-row chooser-special' }, [
+      input,
+      el('span', { text: sp.label }),
+    ]);
+    if (sp.title) row.title = sp.title;
+    row.addEventListener('click', (e) => {
+      e.preventDefault();
+      sp.onToggle();
+    });
+    pop.append(row);
+  }
+
   // bulk actions only make sense for multi-select
   if (!single) {
     pop.append(
@@ -96,8 +119,12 @@ export function renderChooser(spec: ChooserSpec): HTMLElement {
     );
   }
 
-  // only the option list scrolls — All/None and OK/Cancel stay anchored
-  const list = el('div', { className: 'chooser-list' });
+  // only the option list scrolls — All/None and OK/Cancel stay anchored. When
+  // the special mode is active the manual list is set aside (dimmed); clicking a
+  // value still works and the caller switches back to manual.
+  const list = el('div', {
+    className: spec.special?.active ? 'chooser-list dimmed' : 'chooser-list',
+  });
   if (spec.values.length === 0) {
     list.append(el('div', { className: 'faint chooser-empty', text: 'none in range' }));
   }

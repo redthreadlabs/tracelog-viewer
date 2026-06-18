@@ -2004,6 +2004,20 @@ th.sortable.on {
   margin-bottom: 4px;
 }
 
+/* the special mode-row (e.g. hosts' "all current") sits above the list */
+.chooser-special {
+  font-weight: 500;
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  margin-bottom: 4px;
+}
+
+/* when the special mode is active the manual list is set aside */
+.chooser-list.dimmed {
+  opacity: 0.4;
+}
+
 .chooser-row {
   display: flex;
   align-items: center;
