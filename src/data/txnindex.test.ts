@@ -108,4 +108,12 @@ describe('mergeRangeTotals', () => {
     mergeRangeTotals(idx, Date.UTC(2026, 5, 11, 0), Date.UTC(2026, 5, 11, 2), into); // same file twice → doubles
     expect(into.get('GET /a')).toEqual({ c: 4, d: 210, e: 2 });
   });
+
+  it('yields NOTHING for a sub-hour window straddling two hours (the hourly index cannot serve it)', () => {
+    // 00:30–01:30 contains no whole hour bucket → empty. This is why the overview
+    // totals fall back to a record scan on sub-hour grids (else the chart blanks).
+    const into = new Map<string, TxnTotals>();
+    mergeRangeTotals(idx, Date.UTC(2026, 5, 11, 0, 30), Date.UTC(2026, 5, 11, 1, 30), into);
+    expect(into.size).toBe(0);
+  });
 });

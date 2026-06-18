@@ -30,6 +30,7 @@ import {
   aggregateBySeries,
   blankPartialSeries,
   periodGrid,
+  groupTransactions,
   transactionStats,
   resultFamily,
   type SeriesResult,
@@ -917,8 +918,7 @@ const ops: Record<string, OpHandler> = {
     }
 
     // fallback (cold range / sub-hour grid / a missing index): the chart scans
-    // the loaded records + the not-loaded indexed remainder; the table is still
-    // index-served. Two solves, each reading the cube.
+    // the loaded records + the not-loaded indexed remainder.
     const { result, ghostSpans, complete } = await solveSeriesAggregate(
       s,
       metric,
@@ -927,7 +927,16 @@ const ops: Record<string, OpHandler> = {
       utc,
       show,
     );
-    const { groups, p95Estimated } = await solveTransactionTotals(s, range);
+    // The table: on a SUB-HOUR grid the hourly cube can't serve it — a window
+    // with no whole-hour bucket (e.g. "last 1 hour" straddling two hours) would
+    // total to zero and blank the whole overview. The chart already scans the
+    // loaded records for such grids, so total the table from the same records
+    // (exact p95, not estimated). Coarser grids stay index-served.
+    const subHour =
+      !!range && periodGrid(range[0], range[1], range, periodMs, utc).periodMs < 3_600_000;
+    const { groups, p95Estimated } = subHour
+      ? { groups: groupTransactions(s.store.records, range), p95Estimated: false }
+      : await solveTransactionTotals(s, range);
     return { series: result, ghostSpans, complete, groups, p95Estimated };
   },
 
