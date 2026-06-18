@@ -672,9 +672,15 @@ export function renderScanbar(container: HTMLElement): void {
   async function syncFromUrl(): Promise<void> {
     let changed = false;
 
-    // range — a relative `range=` token (re-resolved now) or absolute from/to
+    // range — a relative `range=` token or absolute from/to
     const spec = parseRangeToken(getParam('range'));
-    const r = spec ? resolveRange(spec, Date.now(), isUtcMode()) : rangeFromParams();
+    const specChanged = tokenOf(state.rangeSpec) !== tokenOf(spec);
+    // While PAUSED on the same relative spec, the window is FROZEN: a stray
+    // hashchange (navigation, a filter change) must not re-resolve it to `now`
+    // — that would slide the view and look like an un-pause. Only a genuinely
+    // different range (specChanged) re-resolves and resumes.
+    const frozen = state.paused && !specChanged && !!spec;
+    const r = frozen ? null : spec ? resolveRange(spec, Date.now(), isUtcMode()) : rangeFromParams();
     let startMs = state.startMs;
     let endMs = state.endMs;
     let wholeDays = state.wholeDays;
@@ -682,9 +688,9 @@ export function renderScanbar(container: HTMLElement): void {
       [startMs, endMs] = r;
       wholeDays = spec ? specWholeDays(spec) : isWholeDayRange(startMs);
     }
-    const specChanged = tokenOf(state.rangeSpec) !== tokenOf(spec);
     state.rangeSpec = spec;
     if (specChanged) {
+      state.paused = false; // a genuinely different range resumes (incl. a brush)
       if (spec) startRelativeRefresh();
       else stopRelativeRefresh();
     }
@@ -697,10 +703,6 @@ export function renderScanbar(container: HTMLElement): void {
       state.startMs = startMs;
       state.endMs = endMs;
       state.wholeDays = wholeDays;
-      // a GENUINE range change (a different spec, or an absolute brush/Back-Fwd)
-      // resumes — but a same-spec relative re-resolution (just `now` advancing)
-      // must NOT, or any stray hashchange would silently un-pause.
-      if (specChanged || !spec) state.paused = false;
       facetSig = null; // range changed → refresh the candidate keys
       changed = true;
     }
@@ -1065,6 +1067,12 @@ export function renderScanbar(container: HTMLElement): void {
         click: () => {
           if (!relevant) return; // display-only on a historical window
           state.paused = !state.paused;
+          // resuming a relative range: catch the frozen window up to now at once
+          // (the auto-refresh would otherwise wait up to one tick)
+          if (!state.paused && state.rangeSpec) {
+            [state.startMs, state.endMs] = resolveRange(state.rangeSpec, Date.now(), isUtcMode());
+            softRefreshView();
+          }
           syncLiveWatch();
           render();
         },
