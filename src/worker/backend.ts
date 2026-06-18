@@ -920,13 +920,12 @@ const ops: Record<string, OpHandler> = {
     }
     return out;
   },
-  /** Can the overview be served entirely from the durable indexes for this
-   *  range+grid? — i.e. an index matches the chart grid AND every in-range file
-   *  has a valid (ETag-matching) cube AND histogram. The scanbar uses this to
-   *  decide whether to load raw records at all (#1b): true → serve from indexes,
-   *  no load; false (cold range, sub-hour grid, missing/stale index) → load,
-   *  which also (re)builds the indexes. */
-  overviewIndexed: async (s, a) => {
+  /** Can the overview RENDER this range+grid without the working set? — a
+   *  load-policy question for the scanbar (#1b): true → the load is just a
+   *  background prefetch (so a drill-down is warm); false → the overview needs
+   *  the records, load foreground. HOW the solver serves it without records (the
+   *  index) is its own business — this only answers whether a load is required. */
+  overviewSelfServes: async (s, a) => {
     const range = a.range as TimeRange;
     if (!range) return false;
     const grid = periodGrid(range[0], range[1], range, (a.periodMs as number | null) ?? null, a.utc !== false);

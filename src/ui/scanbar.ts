@@ -529,15 +529,15 @@ export function renderScanbar(container: HTMLElement): void {
       return;
     }
 
-    // The overview is served from durable indexes. When they cover this
-    // range+grid it renders instantly AND we PREFETCH the working set in the
-    // background (throttled) so a drill-down is ready — the same load a record
-    // view would do, just started early and at low priority. When they can't
-    // cover it (cold range / sub-hour bars / missing index) the overview itself
-    // needs the scan, so that runs foreground.
+    // Ask the load planner whether the overview can render this range+grid
+    // WITHOUT the working set; if so it renders instantly and we PREFETCH the
+    // records in the background (throttled) so a drill-down is warm — the same
+    // load a record view would do, just early + low-priority. If not, the
+    // overview needs the records, so the scan runs foreground. (Whether an index
+    // or a scan ultimately serves it is the solver's business, not ours.)
     const isOverview = view === '/overview';
-    const indexed = isOverview
-      ? await storeClient.request<boolean>('overviewIndexed', {
+    const selfServes = isOverview
+      ? await storeClient.request<boolean>('overviewSelfServes', {
           range: [state.startMs, state.endMs],
           periodMs: chosenPeriodMs(),
           utc: isUtcMode(),
@@ -545,7 +545,7 @@ export function renderScanbar(container: HTMLElement): void {
       : false;
 
     // every data view reflects the new range — even while a load is in flight
-    // (the overview renders from the index regardless of the store's state)
+    // (the overview can render before the store fills)
     applyRange();
     if (isOverview) storeClient.dispatchEvent(new Event('plan'));
 
@@ -559,7 +559,7 @@ export function renderScanbar(container: HTMLElement): void {
     // PENDING fetches), or a brush-narrow mid-prefetch would let the loader keep
     // pursuing the old, wider plan to completion. runScan also (re)sets the load
     // priority, so the prefetch stays throttled.
-    void runScan({ background: isOverview && indexed });
+    void runScan({ background: isOverview && selfServes });
   }
 
   /** The view is the range: every view narrows to [start, end]. (For a
