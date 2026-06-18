@@ -57,9 +57,13 @@ interface ScanbarState {
   rangeOpen: boolean;
   plan: ScanPlan | null;
   planning: boolean;
-  live: boolean;
-  /** is there a fresh `_current` host in the selected channels? — gates LIVE
-   *  and "all current". False on a finalized-only bucket (SPEC §6.0). */
+  /** the user froze the live view (Pause). LIVE itself is DERIVED — it's on
+   *  whenever the window intersects the open `_current` interval and a fresh host
+   *  exists; `paused` is the only manual lever, freezing the slide + the fetch.
+   *  Reset by a range change (fresh intent to watch). */
+  paused: boolean;
+  /** is there a fresh `_current` host in the selected channels? — a prerequisite
+   *  for LIVE. False on a finalized-only bucket (SPEC §6.0). */
   liveAvailable: boolean;
   /** 'current' = track the live host set dynamically ("all current"); else a
    *  manual host subset. */
@@ -167,7 +171,7 @@ export function renderScanbar(container: HTMLElement): void {
     rangeOpen: false,
     plan: null,
     planning: false,
-    live: false,
+    paused: false,
     liveAvailable: false,
     hostMode: getParam('host') === HOST_CURRENT ? 'current' : 'manual',
     currentHosts: [],
@@ -232,6 +236,7 @@ export function renderScanbar(container: HTMLElement): void {
       state.liveAvailable = false;
       const moved = state.currentHosts.length > 0;
       state.currentHosts = [];
+      syncLiveWatch(); // availability changed → re-derive live
       return moved;
     }
     try {
@@ -241,16 +246,16 @@ export function renderScanbar(container: HTMLElement): void {
       state.liveAvailable = st.available;
       const moved = !sameStrings(state.currentHosts, st.hosts);
       state.currentHosts = st.hosts;
+      syncLiveWatch(); // availability resolved (async) → engage/disengage live
       render();
       return moved;
     } catch {
       return false; // transient — the next replan / tick retries
     }
   }
-  // A running live session is NOT force-stopped when availability dips: one stale
-  // reading (a host mid-flush on its 5-min upload cadence) must not kill live or
-  // the UI strands. While live, the tracker keeps re-resolving so availability
-  // self-heals; the user can always turn LIVE off manually.
+  // Live is DERIVED (relevant = window ∩ open interval + fresh host), so a single
+  // stale availability reading just re-derives on the next probe — it self-heals.
+  // The user's only lever is Pause, which never fights the relevance logic.
 
   // ---- "all current" dynamic membership ----
   // While LIVE + "all current", periodically re-resolve the live host set (a
@@ -274,23 +279,39 @@ export function renderScanbar(container: HTMLElement): void {
     currentHandle = null;
   }
 
+  /** Is live data relevant to the current view? — the window intersects an open
+   *  `_current` interval (so an append, even a back-dated one, could land in it)
+   *  AND a fresh host exists. Derived, not chosen: this is what makes the LIVE
+   *  chip a status, not a toggle. The open interval is the current UTC day. */
+  function liveRelevant(): boolean {
+    if (!state.liveAvailable) return false;
+    const dayStart = utcDayStart(0);
+    return state.startMs < dayStart + DAY_MS && state.endMs > dayStart;
+  }
+
+  /** Live is actually running when it's relevant and the user hasn't paused. */
+  function effectiveLive(): boolean {
+    return liveRelevant() && !state.paused;
+  }
+
   /** Push the active watch set to the worker's live updater (idempotent). */
   function pushLiveHosts(): void {
     void storeClient.request('setLive', {
-      on: state.live,
+      on: effectiveLive(),
       channels: selectedChannels(),
       hosts: hostFilter(),
     });
   }
 
-  /** Keep the live updater's watch set + the dynamic tracker in step with the
-   *  selection — called after a (re)plan and on the LIVE toggle. */
+  /** Drive the live updater + the dynamic tracker from the DERIVED live state —
+   *  called after a (re)plan, when availability resolves, and on Pause/Resume. */
   function syncLiveWatch(): void {
-    if (state.live) {
+    if (effectiveLive()) {
       pushLiveHosts();
       if (state.hostMode === 'current') startCurrentTracking();
       else stopCurrentTracking();
     } else {
+      pushLiveHosts(); // setLive(off) — stop fetching while paused / historical
       stopCurrentTracking();
     }
   }
@@ -572,6 +593,7 @@ export function renderScanbar(container: HTMLElement): void {
    *  relative spec and stops the auto-refresh. */
   function setRange(startMs: number, endMs: number, wholeDays: boolean): void {
     state.rangeSpec = null;
+    state.paused = false; // a range change is fresh intent → resume
     stopRelativeRefresh();
     state.startMs = startMs;
     state.endMs = Math.max(endMs, startMs + 60_000);
@@ -583,6 +605,7 @@ export function renderScanbar(container: HTMLElement): void {
    *  resolve it now, plan, and start the auto-refresh that keeps it sliding. */
   function applySpec(spec: RangeSpec): void {
     state.rangeSpec = spec;
+    state.paused = false; // a range change is fresh intent → resume
     const [s, e] = resolveRange(spec, Date.now(), isUtcMode());
     state.startMs = s;
     state.endMs = e;
@@ -604,8 +627,10 @@ export function renderScanbar(container: HTMLElement): void {
     if (relativeHandle || !state.rangeSpec) return;
     relativeHandle = setInterval(() => {
       if (!state.rangeSpec) return stopRelativeRefresh();
+      if (state.paused) return; // frozen for inspection — don't slide
       const before = coveringSig(state.startMs, state.endMs);
       const [s, e] = resolveRange(state.rangeSpec, Date.now(), isUtcMode());
+      if (s === state.startMs && e === state.endMs) return; // no movement (e.g. yesterday)
       state.startMs = s;
       state.endMs = e;
       if (coveringSig(s, e) !== before) void replan(); // day rollover → load new files
@@ -662,6 +687,7 @@ export function renderScanbar(container: HTMLElement): void {
       state.startMs = startMs;
       state.endMs = endMs;
       state.wholeDays = wholeDays;
+      state.paused = false; // a range change (brush / Back-Forward) resumes
       facetSig = null; // range changed → refresh the candidate keys
       changed = true;
     }
@@ -1003,25 +1029,33 @@ export function renderScanbar(container: HTMLElement): void {
 
     // right group, left to right: refresh · LIVE · status/MEM
     const right = el('div', { className: 'group', attrs: { style: 'margin-left:auto' } });
+    // LIVE is a DERIVED status, not a manual toggle: it's on whenever the window
+    // intersects the open _current interval (+ a fresh host). The only manual
+    // lever is Pause/Resume, offered only when live is relevant — so the control
+    // never fights its own auto on/off.
+    const relevant = liveRelevant();
+    const live = relevant && !state.paused;
     const liveChip = el('button', {
-      className: state.live ? 'chip live on' : 'chip live',
-      title: state.liveAvailable
-        ? "refresh today's _current snapshots every 60 s"
-        : 'no live hosts in the selected channels — nothing to watch',
+      className: live ? 'chip live on' : relevant ? 'chip live paused' : 'chip live',
+      title: !relevant
+        ? 'no live data in this range'
+        : live
+          ? 'live — click to pause'
+          : 'paused — click to resume',
       on: {
         click: () => {
-          // can't ENABLE when nothing's live; a running session can always stop
-          if (!state.live && !state.liveAvailable) return;
-          state.live = !state.live;
-          // live mode watches today: extend the range to include now
-          if (state.live && state.endMs < Date.now()) state.endMs = Date.now();
-          syncLiveWatch(); // setLive with the resolved host set + (de)activate tracking
+          if (!relevant) return; // display-only on a historical window
+          state.paused = !state.paused;
+          syncLiveWatch();
           render();
         },
       },
     });
-    liveChip.disabled = !state.live && !state.liveAvailable;
-    liveChip.append(el('span', { className: 'dot' }), el('span', { text: 'LIVE' }));
+    liveChip.disabled = !relevant; // a historical window's chip is just an indicator
+    liveChip.append(
+      el('span', { className: 'dot' }),
+      el('span', { text: relevant && state.paused ? 'PAUSED' : 'LIVE' }),
+    );
 
     const refreshChip = el('button', {
       className: 'chip refresh-chip',

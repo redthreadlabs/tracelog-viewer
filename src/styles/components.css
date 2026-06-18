@@ -1199,6 +1199,15 @@ th.sortable.on {
   50% { opacity: 0.25; }
 }
 
+/* relevant but frozen by the user — a static amber indicator (click to resume) */
+.chip.live.paused {
+  border-color: var(--level-warn);
+  color: var(--level-warn);
+}
+.chip.live.paused .dot {
+  background: var(--level-warn);
+}
+
 /* ---------- metrics view ---------- */
 
 .metrics-row {
