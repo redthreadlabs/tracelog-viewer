@@ -129,23 +129,15 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
   function buildStructure(s: TxnSummary): void {
     clear(body);
 
-    // stat cards (latency cells italicised — they're index estimates) + the
-    // result mix, which fills from records
+    // stat cards (latency cells italicised only when the solver marks them
+    // estimated — an index sketch; an exact scan isn't) + the result mix
     mixHost = el('div', { className: 'result-mix' });
     statCardsHost = el('div', { className: 'stat-cards-host' });
     statCardsHost.append(statCards(s));
+    const note = el('div', { className: 'budget faint', attrs: { style: 'margin-top:4px' } });
+    if (s.estimated) note.textContent = 'p50–max estimated from the index sketch';
     body.append(
-      el('div', { className: 'stat-row' }, [
-        statCardsHost,
-        el('div', {}, [
-          mixHost,
-          el('div', {
-            className: 'budget faint',
-            attrs: { style: 'margin-top:4px' },
-            text: 'p50–max estimated from the index sketch',
-          }),
-        ]),
-      ]),
+      el('div', { className: 'stat-row' }, [statCardsHost, el('div', {}, [mixHost, note])]),
     );
 
     // duration distribution (from the sketch, instant) + the scatter (records)
@@ -158,7 +150,10 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
         el('div', {}, [
           el('div', { className: 'section-head' }, [
             el('span', { className: 'label', text: 'Duration distribution' }),
-            el('span', { className: 'budget faint', text: 'from the index sketch' }),
+            el('span', {
+              className: 'budget faint',
+              text: s.estimated ? 'from the index sketch' : 'from loaded records',
+            }),
           ]),
           histHost,
         ]),
@@ -287,14 +282,17 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
         ]),
       );
     };
+    // latency cells are marked estimated only when the SOLVER says so (index
+    // sketch); an exact scan (sub-hour window) reports estimated=false
+    const est = s.estimated;
     card('requests', fmtCount(s.count));
     if (s.rpm !== undefined) {
       card('rate', `${s.rpm >= 10 ? Math.round(s.rpm) : s.rpm.toFixed(1)}/min`);
     }
-    if (s.p50 !== undefined) card('p50', fmtDuration(s.p50), true);
-    if (s.p95 !== undefined) card('p95', fmtDuration(s.p95), true);
-    if (s.p99 !== undefined) card('p99', fmtDuration(s.p99), true);
-    if (s.max !== undefined) card('max', fmtDuration(s.max), true);
+    if (s.p50 !== undefined) card('p50', fmtDuration(s.p50), est);
+    if (s.p95 !== undefined) card('p95', fmtDuration(s.p95), est);
+    if (s.p99 !== undefined) card('p99', fmtDuration(s.p99), est);
+    if (s.max !== undefined) card('max', fmtDuration(s.max), est);
     return cards;
   }
 

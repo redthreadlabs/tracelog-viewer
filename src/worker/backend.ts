@@ -30,6 +30,8 @@ import {
   aggregateBySeries,
   blankPartialSeries,
   periodGrid,
+  resolvePeriodMs,
+  logHistogram,
   groupTransactions,
   transactionStats,
   resultFamily,
@@ -692,6 +694,37 @@ async function solveOverview(
  */
 async function txnSummaryData(s: Session, name: string, range: TimeRange) {
   const [from, to] = range ?? operatingRange(s);
+
+  // sub-hour windows can't be tiled by the hourly cube (the same limitation that
+  // blanks the overview) — total the headline from the loaded records, exact,
+  // like the scatter/slowest already do. Coarser windows serve from the index
+  // (instant, estimated). The plan is chosen HERE, never by the view.
+  if (resolvePeriodMs(Math.max(to - from, 1), null) < 3_600_000) {
+    const stats = transactionStats(s.store.transactionsNamed(name), name, [from, to]);
+    let sum = 0;
+    let errors = 0;
+    const durations: number[] = [];
+    for (const r of stats.instances) {
+      sum += r.duration ?? 0;
+      if (r.duration !== undefined) durations.push(r.duration);
+      if (resultFamily(r) === 'bad') errors++;
+    }
+    const spanMin = (to - from) / 60_000;
+    return {
+      name,
+      count: stats.count,
+      errors,
+      avg: stats.count > 0 ? sum / stats.count : undefined,
+      p50: stats.p50,
+      p95: stats.p95,
+      p99: stats.p99,
+      max: stats.max,
+      rpm: stats.count > 0 && spanMin > 0 ? stats.count / spanMin : undefined,
+      histogram: logHistogram(durations),
+      estimated: false, // exact — scanned from loaded records
+    };
+  }
+
   const inRange = s.currentPlan.filter((f) => overlapsRange(f, from, to));
 
   const cube = await s.loadIndex(txnIndex);
