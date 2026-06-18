@@ -1207,6 +1207,20 @@ th.sortable.on {
 .chip.live.paused .dot {
   background: var(--level-warn);
 }
+/* the pause glyph sits where the live dot would, taking the chip's text color */
+.live-pause {
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
+}
+
+/* the RANGE pill mirrors the LIVE pill's red for an "until now" range — a cue
+   that the window tracks the present (persists while the picker is open) */
+.chip.range-pill.now {
+  background: var(--thread);
+  border-color: var(--thread);
+  color: #fff;
+}
 
 /* ---------- metrics view ---------- */
 

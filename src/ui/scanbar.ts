@@ -111,6 +111,15 @@ function specWholeDays(spec: RangeSpec): boolean {
   return spec.kind === 'named' || spec.unit === 'days' || spec.unit === 'weeks' || spec.unit === 'months';
 }
 
+/** Whether the spec is an "until now" range — every `last N`, plus the named
+ *  ranges that end at now (today / this-week / this-month). The closed-past ones
+ *  (yesterday / last-week / last-month) and absolute ranges are not. */
+function nowEnding(spec: RangeSpec | null): boolean {
+  if (!spec) return false;
+  if (spec.kind === 'last') return true;
+  return spec.name === 'today' || spec.name === 'this-week' || spec.name === 'this-month';
+}
+
 /** epoch-ms → value for <input type="datetime-local"> (local clock) */
 function toLocalInput(ms: number): string {
   const d = new Date(ms);
@@ -267,6 +276,7 @@ export function renderScanbar(container: HTMLElement): void {
     if (currentHandle) return;
     currentHandle = setInterval(() => {
       void (async () => {
+        if (state.paused) return; // frozen — don't re-resolve membership or replan
         if (await refreshLiveStatus(true)) {
           pushLiveHosts();
           void replan(); // re-scope the working set to the new live host set
@@ -687,7 +697,10 @@ export function renderScanbar(container: HTMLElement): void {
       state.startMs = startMs;
       state.endMs = endMs;
       state.wholeDays = wholeDays;
-      state.paused = false; // a range change (brush / Back-Forward) resumes
+      // a GENUINE range change (a different spec, or an absolute brush/Back-Fwd)
+      // resumes — but a same-spec relative re-resolution (just `now` advancing)
+      // must NOT, or any stray hashchange would silently un-pause.
+      if (specChanged || !spec) state.paused = false;
       facetSig = null; // range changed → refresh the candidate keys
       changed = true;
     }
@@ -1007,7 +1020,13 @@ export function renderScanbar(container: HTMLElement): void {
     const pillLabel = state.rangeSpec
       ? rangeLabel(state.rangeSpec)
       : `${shortStamp(state.startMs)} → ${shortStamp(state.endMs)}`;
-    const pill = el('button', { className: state.rangeOpen ? 'chip range-pill on' : 'chip range-pill' }, [
+    // an "until now" range gets the same live-red treatment as the LIVE pill —
+    // a visual cue that the window tracks the present
+    const pillClass =
+      'chip range-pill' +
+      (state.rangeOpen ? ' on' : '') +
+      (nowEnding(state.rangeSpec) ? ' now' : '');
+    const pill = el('button', { className: pillClass }, [
       el('span', { text: pillLabel }),
       el('span', { className: 'caret', text: '▾' }),
     ]);
@@ -1052,10 +1071,17 @@ export function renderScanbar(container: HTMLElement): void {
       },
     });
     liveChip.disabled = !relevant; // a historical window's chip is just an indicator
-    liveChip.append(
-      el('span', { className: 'dot' }),
-      el('span', { text: relevant && state.paused ? 'PAUSED' : 'LIVE' }),
-    );
+    const paused = relevant && state.paused;
+    const indicator = paused
+      ? el('span', {
+          className: 'live-pause',
+          html:
+            '<svg viewBox="0 0 10 10" width="8" height="9" fill="currentColor" aria-hidden="true">' +
+            '<rect x="1.4" y="1" width="2.4" height="8" rx="0.6"></rect>' +
+            '<rect x="6.2" y="1" width="2.4" height="8" rx="0.6"></rect></svg>',
+        })
+      : el('span', { className: 'dot' });
+    liveChip.append(indicator, el('span', { text: paused ? 'PAUSED' : 'LIVE' }));
 
     const refreshChip = el('button', {
       className: 'chip refresh-chip',
