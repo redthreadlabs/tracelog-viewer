@@ -13,6 +13,7 @@ import { parseKey, type ParsedKey } from '../../s3/keys';
 import { RECORD_KINDS, type RecordKind } from '../../data/types';
 import { internalsTabs } from './internals';
 import { fmtBytes, fmtCount, fmtDateTime, fmtHumane, zoneLabel } from '../format';
+import { isCurrent } from '../../data/cadence';
 import { profiles } from '../profiles';
 import { viewState } from '../../state';
 import { limitError, parseLimit } from '../config';
@@ -544,13 +545,25 @@ export function renderStoreView(container: HTMLElement): () => void {
     });
     if (row.cached) cachedCell.innerHTML = DOWNLOAD_ICON;
     else cachedCell.textContent = row.parsed.current ? 'live' : '';
+    // a still-living `_current` file gets a precise, ticking "M:SS ago" counter;
+    // finalized (or stale current) files keep the coarse humane stamp
+    const living =
+      row.parsed.current && row.lastModified !== undefined && isCurrent(Date.now(), [row.lastModified]);
+    const modCell = living
+      ? el('td', {
+          className: 'num live-mtime',
+          text: fmtAgo(Date.now() - row.lastModified!),
+          title: `${fmtDateTime(row.lastModified!)} ${zoneLabel()}`,
+          attrs: { 'data-mtime': String(row.lastModified) },
+        })
+      : el('td', {
+          className: 'num',
+          text: row.lastModified ? fmtHumane(row.lastModified) : '',
+          title: row.lastModified ? `${fmtDateTime(row.lastModified)} ${zoneLabel()}` : undefined,
+        });
     const tr = el('tr', { className: cls }, [
       el('td', { className: 'mono', text: row.parsed.key, title: row.parsed.key }),
-      el('td', {
-        className: 'num',
-        text: row.lastModified ? fmtHumane(row.lastModified) : '',
-        title: row.lastModified ? `${fmtDateTime(row.lastModified)} ${zoneLabel()}` : undefined,
-      }),
+      modCell,
       el('td', {
         className: 'num',
         text: loaded ? fmtCount(row.total) : '—',
@@ -798,13 +811,29 @@ export function renderStoreView(container: HTMLElement): () => void {
 
   const onData = () => void refreshKindCounts();
   storeClient.addEventListener('data', onData);
+  // tick the living `_current` "M:SS ago" counters between data events (a full
+  // re-render on each data event refreshes the underlying lastModified)
+  const ticker = setInterval(() => {
+    const now = Date.now();
+    for (const cell of container.querySelectorAll<HTMLElement>('.live-mtime')) {
+      const mt = Number(cell.dataset.mtime);
+      if (mt) cell.textContent = fmtAgo(now - mt);
+    }
+  }, 1000);
   render();
   void refreshKindCounts();
   void loadAvailability();
 
   return () => {
     storeClient.removeEventListener('data', onData);
+    clearInterval(ticker);
   };
+}
+
+/** "M:SS ago" for the ticking live counter on a `_current` file (e.g. "4:32 ago"). */
+function fmtAgo(deltaMs: number): string {
+  const total = Math.max(0, Math.round(deltaMs / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')} ago`;
 }
 
 function th(text: string, style: string): HTMLElement {
