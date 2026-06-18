@@ -267,10 +267,11 @@ export function renderOverview(container: HTMLElement): () => void {
         axisFormat: durationAxisFormat,
         onRange: (w) => {
           if (!w) return;
-          // dragging sets the time range (from/to): push a history entry (so Back
-          // returns to the previous range) and let the scanbar adopt it + reload
+          // dragging sets an ABSOLUTE time range (from/to): push a history entry
+          // (so Back returns to the previous range), clearing any relative `range`
+          // token (a brush freezes the window), and let the scanbar adopt + reload
           viewState.timeRange = w; // optimistic, so the chart doesn't flash the old range
-          pushParams({ from: String(Math.round(w[0])), to: String(Math.round(w[1])) });
+          pushParams({ from: String(Math.round(w[0])), to: String(Math.round(w[1])), range: null });
           globalThis.dispatchEvent(new Event(RANGE_NAV_EVENT));
         },
       },

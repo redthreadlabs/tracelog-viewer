@@ -25,6 +25,17 @@ import { PERIOD_CHOICES, chosenPeriodMs } from './periodpicker';
 import { renderChooser } from './chooser';
 import { profiles } from './profiles';
 import { clampByMemory } from '../data/ledger';
+import {
+  resolveRange,
+  rangeToken,
+  parseRangeToken,
+  rangeLabel,
+  TIME_UNITS,
+  NAMED_RANGES,
+  type RangeSpec,
+  type TimeUnit,
+} from './range';
+import { loadRecents, pushRecent } from './recents';
 
 const MB = 1024 * 1024;
 
@@ -33,9 +44,14 @@ interface ScanbarState {
   /** host filter, parallel to channels — discovered per channels+range from
    *  plan.allHosts, reconciled on each replan (the picker UI lands later) */
   hosts: Map<string, boolean>;
-  /** the selected range, epoch-ms (end may be "now" for quick presets) */
+  /** the RESOLVED range, epoch-ms. For a relative spec these slide as time
+   *  passes; for an absolute range they're fixed. */
   startMs: number;
   endMs: number;
+  /** the active relative spec (rolling "last N" or named), or null when the
+   *  range is an explicit absolute window. The source of truth for the URL
+   *  `range=` token and the auto-refresh. */
+  rangeSpec: RangeSpec | null;
   /** whole-day ranges don't narrow the time range after scanning */
   wholeDays: boolean;
   rangeOpen: boolean;
@@ -59,26 +75,6 @@ const HOST_CURRENT = '*current';
 
 const DAY_MS = 86_400_000;
 
-const QUICK_PRESETS: { label: string; minutes: number }[] = [
-  { label: 'Last 15 minutes', minutes: 15 },
-  { label: 'Last 1 hour', minutes: 60 },
-  { label: 'Last 2 hours', minutes: 120 },
-  { label: 'Last 3 hours', minutes: 180 },
-  { label: 'Last 4 hours', minutes: 240 },
-  { label: 'Last 6 hours', minutes: 360 },
-  { label: 'Last 12 hours', minutes: 720 },
-  { label: 'Last 24 hours', minutes: 1440 },
-];
-
-const DAY_PRESETS: { label: string; start: () => number }[] = [
-  { label: 'Today', start: () => utcDayStart(0) },
-  { label: 'This week', start: () => utcWeekStart() },
-  { label: 'Last 7 days', start: () => utcDayStart(6) },
-  { label: 'Last 30 days', start: () => utcDayStart(29) },
-  { label: 'Last 60 days', start: () => utcDayStart(59) },
-  { label: 'Last 90 days', start: () => utcDayStart(89) },
-];
-
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** compact local "Jun 10, 09:14" for the pill */
@@ -99,17 +95,16 @@ function utcDayStart(daysAgo: number): number {
   return Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()) - daysAgo * DAY_MS;
 }
 
-/** start of the current UTC week (Monday) */
-function utcWeekStart(): number {
-  const daysSinceMonday = (new Date().getUTCDay() + 6) % 7;
-  return utcDayStart(daysSinceMonday);
-}
-
-/** Internal hint (not a URL concept): a range that begins on a UTC midnight
- *  came from a day-preset, so the picker labels it as such and bars default
- *  coarser. Cleared for any sub-day range (quick presets, custom, drag). */
+/** Internal hint (not a URL concept): a day-aligned range labels coarser and
+ *  bars default coarser. True for absolute ranges starting on a UTC midnight,
+ *  and for relative specs that are day-granular (see specWholeDays). */
 function isWholeDayRange(startMs: number): boolean {
   return startMs % DAY_MS === 0;
+}
+
+/** Whether a relative spec is day-granular (named, or last-N-days/weeks/months). */
+function specWholeDays(spec: RangeSpec): boolean {
+  return spec.kind === 'named' || spec.unit === 'days' || spec.unit === 'weeks' || spec.unit === 'months';
 }
 
 /** epoch-ms → value for <input type="datetime-local"> (local clock) */
@@ -156,18 +151,19 @@ export function teardownScanbar(): void {
 export function renderScanbar(container: HTMLElement): void {
   teardownScanbar();
 
-  // initial range: the URL's from/to (epoch-ms) if present; else today (a
-  // placeholder until we auto-detect the latest interval). A fresh arrival
-  // pins no range — that's when we auto-detect rather than defaulting to a
-  // possibly-empty "today".
-  const pinned = rangeFromParams();
+  // initial range: a relative `range=` token (re-resolved now) wins; else the
+  // URL's from/to (absolute); else today (a placeholder until we auto-detect the
+  // latest interval). A fresh arrival pins nothing — that's when we auto-detect.
+  const initialSpec = parseRangeToken(getParam('range'));
+  const pinned = initialSpec ? resolveRange(initialSpec, Date.now(), isUtcMode()) : rangeFromParams();
   const rangePinned = pinned !== null;
   const state: ScanbarState = {
     channels: new Map(),
     hosts: new Map(),
     startMs: pinned ? pinned[0] : utcDayStart(0),
     endMs: pinned ? pinned[1] : Date.now(),
-    wholeDays: pinned ? isWholeDayRange(pinned[0]) : true,
+    rangeSpec: initialSpec,
+    wholeDays: initialSpec ? specWholeDays(initialSpec) : pinned ? isWholeDayRange(pinned[0]) : true,
     rangeOpen: false,
     plan: null,
     planning: false,
@@ -481,12 +477,16 @@ export function renderScanbar(container: HTMLElement): void {
       return;
     }
     state.planning = true;
-    setParams({
-      ch: channelUrlParam(),
-      host: hostUrlParam(),
-      from: String(Math.round(state.startMs)),
-      to: String(Math.round(state.endMs)),
-    });
+    // a relative range lives as `range=<token>` (no from/to); an absolute range
+    // as from/to (no range) — the resolved window is ephemeral, not in the URL
+    const rangeParams = state.rangeSpec
+      ? { range: rangeToken(state.rangeSpec), from: null, to: null }
+      : {
+          range: null,
+          from: String(Math.round(state.startMs)),
+          to: String(Math.round(state.endMs)),
+        };
+    setParams({ ch: channelUrlParam(), host: hostUrlParam(), ...rangeParams });
     render();
     try {
       state.plan = await storeClient.request<ScanPlan>('planScan', {
@@ -568,11 +568,63 @@ export function renderScanbar(container: HTMLElement): void {
     viewState.timeRange = [state.startMs, state.endMs];
   }
 
+  /** Apply an ABSOLUTE window (custom Apply, a recents entry). Clears any
+   *  relative spec and stops the auto-refresh. */
   function setRange(startMs: number, endMs: number, wholeDays: boolean): void {
+    state.rangeSpec = null;
+    stopRelativeRefresh();
     state.startMs = startMs;
     state.endMs = Math.max(endMs, startMs + 60_000);
     state.wholeDays = wholeDays;
     void replan();
+  }
+
+  /** Apply a RELATIVE spec (a "last N", a named range, or a recents entry):
+   *  resolve it now, plan, and start the auto-refresh that keeps it sliding. */
+  function applySpec(spec: RangeSpec): void {
+    state.rangeSpec = spec;
+    const [s, e] = resolveRange(spec, Date.now(), isUtcMode());
+    state.startMs = s;
+    state.endMs = e;
+    state.wholeDays = specWholeDays(spec);
+    pushRecent({ kind: 'spec', spec });
+    void replan();
+    startRelativeRefresh();
+  }
+
+  // ---- auto-refresh: keep a relative range sliding with the wall clock ----
+  // A ~30 s tick re-resolves the spec. When the covering UTC days are unchanged
+  // (the common case) it just re-windows in place — no LIST, no refetch, no
+  // history entry. Only a day rollover (covering days changed) replans.
+  let relativeHandle: ReturnType<typeof setInterval> | null = null;
+  const RELATIVE_REFRESH_MS = 30_000;
+  const coveringSig = (a: number, b: number): string => `${utcDayOf(a)}..${utcDayOf(b)}`;
+
+  function startRelativeRefresh(): void {
+    if (relativeHandle || !state.rangeSpec) return;
+    relativeHandle = setInterval(() => {
+      if (!state.rangeSpec) return stopRelativeRefresh();
+      const before = coveringSig(state.startMs, state.endMs);
+      const [s, e] = resolveRange(state.rangeSpec, Date.now(), isUtcMode());
+      state.startMs = s;
+      state.endMs = e;
+      if (coveringSig(s, e) !== before) void replan(); // day rollover → load new files
+      else softRefreshView(); // slid within the same days → re-window only
+    }, RELATIVE_REFRESH_MS);
+  }
+  function stopRelativeRefresh(): void {
+    if (relativeHandle) clearInterval(relativeHandle);
+    relativeHandle = null;
+  }
+
+  /** Re-window the active view to the resolved range without a replan/refetch or
+   *  a history entry: update viewState.timeRange and nudge the view to re-query
+   *  from already-loaded data + indexes ('plan' for the overview, 'data' else —
+   *  the signals each view re-renders on; neither re-triggers syncFromUrl). */
+  function softRefreshView(): void {
+    applyRange();
+    const ev = readHash().view === '/overview' ? 'plan' : 'data';
+    storeClient.dispatchEvent(new Event(ev));
   }
 
   /**
@@ -585,16 +637,28 @@ export function renderScanbar(container: HTMLElement): void {
   async function syncFromUrl(): Promise<void> {
     let changed = false;
 
-    // range — from/to (epoch-ms) are the whole story
-    const r = rangeFromParams();
+    // range — a relative `range=` token (re-resolved now) or absolute from/to
+    const spec = parseRangeToken(getParam('range'));
+    const r = spec ? resolveRange(spec, Date.now(), isUtcMode()) : rangeFromParams();
     let startMs = state.startMs;
     let endMs = state.endMs;
     let wholeDays = state.wholeDays;
     if (r) {
       [startMs, endMs] = r;
-      wholeDays = isWholeDayRange(startMs);
+      wholeDays = spec ? specWholeDays(spec) : isWholeDayRange(startMs);
     }
-    if (startMs !== state.startMs || endMs !== state.endMs || wholeDays !== state.wholeDays) {
+    const specChanged = tokenOf(state.rangeSpec) !== tokenOf(spec);
+    state.rangeSpec = spec;
+    if (specChanged) {
+      if (spec) startRelativeRefresh();
+      else stopRelativeRefresh();
+    }
+    if (
+      startMs !== state.startMs ||
+      endMs !== state.endMs ||
+      wholeDays !== state.wholeDays ||
+      specChanged
+    ) {
       state.startMs = startMs;
       state.endMs = endMs;
       state.wholeDays = wholeDays;
@@ -695,61 +759,88 @@ export function renderScanbar(container: HTMLElement): void {
   }
 
 
-  function currentPresetLabel(): string | null {
-    const now = Date.now();
-    for (const preset of QUICK_PRESETS) {
-      if (
-        !state.wholeDays &&
-        Math.abs(state.endMs - now) < 90_000 &&
-        Math.abs(state.endMs - state.startMs - preset.minutes * 60_000) < 30_000
-      ) {
-        return preset.label;
-      }
-    }
-    for (const preset of DAY_PRESETS) {
-      if (
-        state.wholeDays &&
-        state.startMs === preset.start() &&
-        utcDayOf(state.endMs) === utcDayOf(now)
-      ) {
-        return preset.label;
-      }
-    }
-    return null;
-  }
-
   function renderRangePop(): HTMLElement {
     const pop = el('div', { className: 'range-pop' });
-    const active = currentPresetLabel();
 
-    // left: presets as a vertical menu
-    const presets = el('div', { className: 'range-presets' });
-    const item = (label: string, onPick: () => void) =>
-      presets.append(
+    // LEFT: recently-used ranges (re-read from localStorage on each open)
+    const left = el('div', { className: 'range-presets' }, [
+      el('div', { className: 'label scol-title', text: 'Recent' }),
+    ]);
+    const recents = loadRecents();
+    if (recents.length === 0) {
+      left.append(el('div', { className: 'faint range-recent-empty', text: 'none yet' }));
+    }
+    for (const r of recents) {
+      const label =
+        r.kind === 'spec' ? rangeLabel(r.spec) : `${shortStamp(r.from)} → ${shortStamp(r.to)}`;
+      left.append(
         el('button', {
-          className: label === active ? 'range-preset on' : 'range-preset',
-          text: label.replace('Last ', ''),
+          className: 'range-preset',
+          text: label,
           on: {
             click: () => {
               state.rangeOpen = false;
-              onPick();
+              if (r.kind === 'spec') applySpec(r.spec);
+              else {
+                pushRecent(r); // move to front
+                setRange(r.from, r.to, isWholeDayRange(r.from));
+              }
             },
           },
         }),
       );
-    for (const preset of QUICK_PRESETS) {
-      item(preset.label, () =>
-        setRange(Date.now() - preset.minutes * 60_000, Date.now(), false),
-      );
-    }
-    for (const preset of DAY_PRESETS) {
-      item(preset.label, () => setRange(preset.start(), Date.now(), true));
     }
 
-    // right: custom range, inputs stacked, Apply in the lower-right
+    // RIGHT: LAST [n] [unit], a named-range dropdown, then Custom
+    const curLast = state.rangeSpec?.kind === 'last' ? state.rangeSpec : null;
+    const amountInput = el('input', {
+      className: 'input mono range-last-amount',
+      attrs: { type: 'text', inputmode: 'decimal', value: curLast ? String(curLast.amount) : '1' },
+    }) as HTMLInputElement;
+    const unitSel = el('select', { className: 'input range-unit' }) as HTMLSelectElement;
+    for (const u of TIME_UNITS) {
+      const opt = el('option', { text: u, attrs: { value: u } }) as HTMLOptionElement;
+      if (u === (curLast?.unit ?? 'hours')) opt.selected = true;
+      unitSel.append(opt);
+    }
+    const applyLast = (): void => {
+      const n = parseFloat(amountInput.value);
+      if (n > 0 && isFinite(n)) {
+        state.rangeOpen = false;
+        applySpec({ kind: 'last', amount: n, unit: unitSel.value as TimeUnit });
+      }
+    };
+    amountInput.addEventListener('keydown', (e) => {
+      if ((e as KeyboardEvent).key === 'Enter') applyLast();
+    });
+    unitSel.addEventListener('change', applyLast);
+
+    const namedSel = el('select', { className: 'input range-named' }) as HTMLSelectElement;
+    namedSel.append(el('option', { text: 'Named…', attrs: { value: '' } }));
+    for (const n of NAMED_RANGES) {
+      const opt = el('option', { text: n.label, attrs: { value: n.name } }) as HTMLOptionElement;
+      if (state.rangeSpec?.kind === 'named' && state.rangeSpec.name === n.name) opt.selected = true;
+      namedSel.append(opt);
+    }
+    namedSel.addEventListener('change', () => {
+      if (!namedSel.value) return;
+      state.rangeOpen = false;
+      applySpec({ kind: 'named', name: namedSel.value as (typeof NAMED_RANGES)[number]['name'] });
+    });
+
     const startInput = datetimeInput(state.startMs, () => {});
     const endInput = datetimeInput(state.endMs, () => {});
-    const custom = el('div', { className: 'range-custom-col' }, [
+    const right = el('div', { className: 'range-custom-col' }, [
+      el('div', { className: 'range-field range-last-row' }, [
+        el('span', { className: 'label', text: 'Last' }),
+        amountInput,
+        unitSel,
+      ]),
+      el('div', { className: 'range-field range-or-row' }, [
+        el('span', { className: 'label', text: 'or' }),
+        namedSel,
+      ]),
+      el('div', { className: 'range-divider-h' }),
       el('div', { className: 'label scol-title', text: 'Custom' }),
       el('div', { className: 'range-field' }, [
         el('span', { className: 'label', text: 'start' }),
@@ -769,6 +860,7 @@ export function renderScanbar(container: HTMLElement): void {
               const to = Date.parse(endInput.value);
               if (isFinite(from) && isFinite(to)) {
                 state.rangeOpen = false;
+                pushRecent({ kind: 'absolute', from, to });
                 setRange(from, to, false);
               }
             },
@@ -777,7 +869,7 @@ export function renderScanbar(container: HTMLElement): void {
       ]),
     ]);
 
-    pop.append(presets, el('div', { className: 'sdivider' }), custom);
+    pop.append(left, el('div', { className: 'sdivider' }), right);
 
     // close on outside click
     setTimeout(() => {
@@ -886,8 +978,9 @@ export function renderScanbar(container: HTMLElement): void {
       el('span', { className: 'label', text: 'Range' }),
     ]);
 
-    const pillLabel =
-      currentPresetLabel() ?? `${shortStamp(state.startMs)} → ${shortStamp(state.endMs)}`;
+    const pillLabel = state.rangeSpec
+      ? rangeLabel(state.rangeSpec)
+      : `${shortStamp(state.startMs)} → ${shortStamp(state.endMs)}`;
     const pill = el('button', { className: state.rangeOpen ? 'chip range-pill on' : 'chip range-pill' }, [
       el('span', { text: pillLabel }),
       el('span', { className: 'caret', text: '▾' }),
@@ -982,6 +1075,7 @@ export function renderScanbar(container: HTMLElement): void {
     storeClient.removeEventListener('progress', onProgress);
     storeClient.removeEventListener('data', updateLoadedText);
     stopCurrentTracking(); // drop the "all current" discovery timer
+    stopRelativeRefresh(); // drop the relative-range auto-refresh timer
   };
 
   /** the MEM/loading readout is one pill — same chrome in both states */
@@ -1056,7 +1150,14 @@ export function renderScanbar(container: HTMLElement): void {
   window.addEventListener('hashchange', activeHashHandler);
   window.addEventListener(RANGE_NAV_EVENT, activeHashHandler);
 
+  if (state.rangeSpec) startRelativeRefresh(); // a relative range deep-link slides from load
+
   render();
+}
+
+/** Null-safe range token, for comparing the active spec across a URL sync. */
+function tokenOf(spec: RangeSpec | null): string {
+  return spec ? rangeToken(spec) : '';
 }
 
 /** Order-insensitive equality of two host lists (both are sorted in practice). */

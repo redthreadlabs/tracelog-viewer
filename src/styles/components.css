@@ -1524,6 +1524,37 @@ th.sortable.on {
   justify-content: flex-end;
 }
 
+/* the "LAST [n] [unit]" and "or [named]" rows sit on one line each */
+.range-last-row,
+.range-or-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.range-last-row .label,
+.range-or-row .label {
+  min-width: 28px;
+}
+.range-last-amount {
+  width: 56px;
+  text-align: right;
+}
+.range-unit,
+.range-named {
+  flex: 1;
+  padding: 3px 6px;
+  font-size: 12px;
+}
+/* a faint horizontal rule between the relative controls and Custom */
+.range-divider-h {
+  border-top: 1px solid var(--line);
+  margin: 4px 0 2px;
+}
+.range-recent-empty {
+  font-size: 12px;
+  padding: 4px 2px;
+}
+
 
 /* pill-shaped select, matching the chips beside it */
 .select-pill {
