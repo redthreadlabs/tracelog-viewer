@@ -15,16 +15,18 @@
  * falls back to a full re-parse and replace.
  */
 import type { LogBucket } from '../s3/client';
-import { parseKey } from '../s3/keys';
+import { parseKey, type ParsedKey } from '../s3/keys';
 import { parseFile } from './parse';
 import type { FileMeta } from './types';
 import type { Store } from './store';
 import { perf } from './perf';
 import { utcToday } from '../ui/format';
-import { pushMtime, isCurrent } from './cadence';
+import { pushMtime, isCurrent, nextPollDelay } from './cadence';
 import { recordMtimes } from './ledger';
 
-export const LIVE_CADENCE_MS = 60_000;
+/** Discovery LIST cadence — finds new hosts (deploys), rollovers, shadowed
+ *  `_current`s. Membership only; the per-host conditional GETs carry the data. */
+export const DISCOVERY_CADENCE_MS = 60_000;
 
 const TAIL_CHECK_BYTES = 64;
 
@@ -73,9 +75,15 @@ export class LiveUpdater {
    *  KEPT in the store (we stop watching, we don't erase). */
   private hosts: () => string[] | null;
   private states = new Map<string, FileState>();
-  private handle: ReturnType<typeof setInterval> | null = null;
-  private ticking = false;
-  lastTick = 0;
+  /** keys we're actively polling → their parsed key (membership source of truth) */
+  private watched = new Map<string, ParsedKey>();
+  /** per-key consecutive-304 count, for the conditional-GET back-off */
+  private misses = new Map<string, number>();
+  /** per-key scheduled conditional-GET timer (a `handle`, per naming) */
+  private fetchHandles = new Map<string, ReturnType<typeof setTimeout>>();
+  /** the slow discovery LIST timer */
+  private discoverHandle: ReturnType<typeof setInterval> | null = null;
+  private discovering = false;
 
   constructor(
     store: Store,
@@ -90,132 +98,159 @@ export class LiveUpdater {
   }
 
   get running(): boolean {
-    return this.handle !== null;
+    return this.discoverHandle !== null;
   }
 
   start(): void {
-    if (this.handle) return;
-    void this.tick();
-    this.handle = setInterval(() => void this.tick(), LIVE_CADENCE_MS);
+    if (this.discoverHandle) return;
+    void this.discover();
+    this.discoverHandle = setInterval(() => void this.discover(), DISCOVERY_CADENCE_MS);
   }
 
   stop(): void {
-    if (this.handle) {
-      clearInterval(this.handle);
-      this.handle = null;
+    if (this.discoverHandle) {
+      clearInterval(this.discoverHandle);
+      this.discoverHandle = null;
     }
+    for (const h of this.fetchHandles.values()) clearTimeout(h);
+    this.fetchHandles.clear();
+    this.watched.clear();
+    this.misses.clear();
     this.states.clear();
   }
 
-  async tick(): Promise<void> {
-    if (this.ticking) return;
-    this.ticking = true;
-    // idle ticks (list-only, nothing changed) are not worth a log entry
-    const doneTick = perf.begin('live', 'live tick');
-    let refetched = 0;
-    let liveRecords = 0;
+  /**
+   * Discovery tier (SPEC §6.0, phase 3): a slow LIST per channel that finds the
+   * watched `_current` files, starts a per-host conditional-GET loop for each new
+   * one, and reaps loops whose host left the watch set or whose `_current`
+   * finalized / rolled over. It never fetches data — the per-host loops do.
+   */
+  private async discover(): Promise<void> {
+    if (this.discovering) return;
+    this.discovering = true;
     try {
       const today = utcToday();
-      // the active host set (null = all). A host outside it is skipped — not
-      // fetched — but we never drop its records here (SPEC §6.0).
       const hostFilter = this.hosts();
-      const allow = hostFilter ? new Set(hostFilter) : null;
+      const allow = hostFilter ? new Set(hostFilter) : null; // null = all hosts
+      const liveKeys = new Set<string>();
       for (const channel of this.channels()) {
-        const listing = await this.bucket.listChannelRange(channel, today, today);
-        const finalizedSiblings = new Set<string>();
+        let listing;
+        try {
+          listing = await this.bucket.listChannelRange(channel, today, today);
+        } catch {
+          continue; // transient — next discovery retries
+        }
+        const finalized = new Set<string>();
         for (const obj of listing) {
-          const parsed = parseKey(obj.key, obj.size, obj.lastModified, obj.etag);
-          if (parsed && !parsed.current) {
-            finalizedSiblings.add(
-              `${parsed.channel}/${parsed.interval}/${parsed.host}/${parsed.seq}`,
-            );
-          }
+          const p = parseKey(obj.key, obj.size, obj.lastModified, obj.etag);
+          if (p && !p.current) finalized.add(`${p.host}/${p.seq}`);
         }
         for (const obj of listing) {
-          const parsed = parseKey(obj.key, obj.size, obj.lastModified, obj.etag);
-          if (!parsed) continue;
-          // outside the active host set → stop watching it, but keep its records
-          if (allow && !allow.has(parsed.host)) continue;
-          // a _current shadowed by its finalized file: purge, never load (§3.5)
-          if (
-            parsed.current &&
-            finalizedSiblings.has(
-              `${parsed.channel}/${parsed.interval}/${parsed.host}/${parsed.seq}`,
-            )
-          ) {
-            if (this.states.has(parsed.key)) {
-              this.store.dropFile(parsed.key);
-              this.states.delete(parsed.key);
-            }
+          const p = parseKey(obj.key, obj.size, obj.lastModified, obj.etag);
+          if (!p || !p.current) continue;
+          // a _current shadowed by its finalized sibling: purge + stop (§3.5)
+          if (finalized.has(`${p.host}/${p.seq}`)) {
+            if (this.watched.has(p.key)) this.reap(p.key, true);
             continue;
           }
-          const etag = obj.etag ?? '';
-          const prev = this.states.get(parsed.key);
-          if (prev?.etag === etag) continue;
-
-          const bytes = await this.bucket.getObjectBytes(parsed.key);
-          refetched++;
-          const tailBytes = prev ? appendPlan(prev, bytes) : null;
-
-          // track the live update cadence from the file's S3 LastModified (the
-          // agent's real flush time, not our poll time); persist the window so a
-          // fresh load can judge currency before observing a tick (SPEC §6.0)
-          let mtimes = prev?.mtimes ?? [];
-          if (parsed.current) {
-            const mt = parsed.lastModified?.getTime();
-            if (mt) {
-              mtimes = pushMtime(mtimes, mt);
-              void recordMtimes(
-                this.bucket.bucket,
-                {
-                  key: parsed.key,
-                  channel: parsed.channel,
-                  interval: parsed.interval,
-                  size: obj.size,
-                  etag,
-                },
-                mtimes,
-              );
-            }
-          }
-
-          if (tailBytes) {
-            // verified append: parse + append only the new lines
-            const result = parseFile(tailBytes, parsed, prev!.lastMeta);
-            liveRecords += result.records.length;
-            this.store.registerFile(parsed, result.byteLength, true);
-            this.store.appendSorted(result.records);
-            this.states.set(parsed.key, {
-              etag,
-              byteLen: bytes.length,
-              tail: takeTail(bytes),
-              lastMeta: result.lastMeta,
-              mtimes,
-            });
-          } else {
-            const result = parseFile(bytes, parsed);
-            liveRecords += result.records.length;
-            this.store.registerFile(parsed, result.byteLength);
-            this.store.replaceFile(parsed.key, result.records);
-            this.states.set(parsed.key, {
-              etag,
-              byteLen: bytes.length,
-              tail: takeTail(bytes),
-              lastMeta: result.lastMeta,
-              mtimes,
-            });
-          }
+          if (allow && !allow.has(p.host)) continue; // outside the watch set
+          liveKeys.add(p.key);
+          const isNew = !this.watched.has(p.key);
+          this.watched.set(p.key, p); // (re)freshen parsed (size / etag / mtime move)
+          if (isNew) this.scheduleFetch(p, 0); // new host → poll now
         }
       }
-      this.lastTick = Date.now();
-    } catch {
-      // transient failures are fine; the next tick retries
-    } finally {
-      this.ticking = false;
-      if (refetched > 0) {
-        doneTick({ detail: `${refetched} snapshots refetched`, records: liveRecords });
+      // reap loops whose key is no longer a watched live current — host left the
+      // set, or rolled to a new interval. KEEP their already-loaded records.
+      for (const key of [...this.watched.keys()]) {
+        if (!liveKeys.has(key)) this.reap(key, false);
       }
+    } finally {
+      this.discovering = false;
     }
+  }
+
+  private reap(key: string, purgeStore: boolean): void {
+    const h = this.fetchHandles.get(key);
+    if (h) clearTimeout(h);
+    this.fetchHandles.delete(key);
+    this.watched.delete(key);
+    this.misses.delete(key);
+    this.states.delete(key);
+    if (purgeStore) this.store.dropFile(key); // only the shadowed-by-finalized case
+  }
+
+  private scheduleFetch(parsed: ParsedKey, delayMs: number): void {
+    const existing = this.fetchHandles.get(parsed.key);
+    if (existing) clearTimeout(existing);
+    this.fetchHandles.set(
+      parsed.key,
+      setTimeout(() => void this.pollHost(parsed), delayMs),
+    );
+  }
+
+  /**
+   * One per-host conditional GET: when the `_current` file changed, apply the
+   * delta; a 304 means nothing new. Then reschedule near the next expected flush
+   * (or back off if the host has gone quiet). One request, no LIST.
+   */
+  private async pollHost(parsed: ParsedKey): Promise<void> {
+    if (!this.watched.has(parsed.key)) return; // reaped between scheduling + firing
+    let changed = false;
+    try {
+      const prev = this.states.get(parsed.key);
+      const res = await this.bucket.getObjectIfChanged(parsed.key, prev?.etag);
+      if (res !== 'unchanged') {
+        changed = true;
+        this.ingest(parsed, res.bytes, res.etag ?? '', res.lastModified ?? parsed.lastModified);
+      }
+    } catch {
+      // transient — treat as a miss; the back-off schedule retries
+    }
+    if (!this.watched.has(parsed.key)) return; // reaped during the await
+    const misses = changed ? 0 : (this.misses.get(parsed.key) ?? 0) + 1;
+    this.misses.set(parsed.key, misses);
+    const mtimes = this.states.get(parsed.key)?.mtimes ?? [];
+    this.scheduleFetch(parsed, nextPollDelay(mtimes, misses, Math.random()));
+  }
+
+  /**
+   * Apply fetched bytes to the store — a verified tail-append when the previous
+   * content is a prefix of the new, else a full replace — and extend the cadence
+   * window from the file's LastModified. Factored from the old tick; same rules.
+   */
+  private ingest(parsed: ParsedKey, bytes: Uint8Array, etag: string, lastModified?: Date): void {
+    const prev = this.states.get(parsed.key);
+    const tailBytes = prev ? appendPlan(prev, bytes) : null;
+    let mtimes = prev?.mtimes ?? [];
+    const mt = lastModified?.getTime();
+    if (mt) {
+      mtimes = pushMtime(mtimes, mt);
+      void recordMtimes(
+        this.bucket.bucket,
+        { key: parsed.key, channel: parsed.channel, interval: parsed.interval, size: parsed.size, etag },
+        mtimes,
+      );
+    }
+    const done = perf.begin('live', `live ${parsed.host}`);
+    const result = tailBytes
+      ? parseFile(tailBytes, parsed, prev!.lastMeta)
+      : parseFile(bytes, parsed);
+    if (tailBytes) {
+      this.store.registerFile(parsed, result.byteLength, true);
+      this.store.appendSorted(result.records);
+    } else {
+      this.store.registerFile(parsed, result.byteLength);
+      this.store.replaceFile(parsed.key, result.records);
+    }
+    this.states.set(parsed.key, {
+      etag,
+      byteLen: bytes.length,
+      tail: takeTail(bytes),
+      lastMeta: result.lastMeta,
+      mtimes,
+    });
+    done({ detail: `${parsed.host} +${result.records.length}`, records: result.records.length });
   }
 
   /**

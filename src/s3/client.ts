@@ -161,6 +161,34 @@ export class LogBucket {
   }
 
   /**
+   * Conditional GET for live per-host polling (SPEC §6.0): one request that
+   * returns the (decompressed) bytes + new ETag/LastModified when the object
+   * changed, or 'unchanged' on a 304 (no body — tiny). `If-None-Match` against
+   * the last ETag means no LIST and no separate HEAD; the LastModified is the
+   * agent's real flush time, feeding the cadence estimate.
+   */
+  async getObjectIfChanged(
+    key: string,
+    etag: string | undefined,
+  ): Promise<{ bytes: Uint8Array; etag?: string; lastModified?: Date } | 'unchanged'> {
+    try {
+      const res = await this.s3.send(
+        new GetObjectCommand({
+          Bucket: this.bucket,
+          Key: `${this.prefix}${key}`,
+          ...(etag ? { IfNoneMatch: etag } : {}),
+        }),
+      );
+      let bytes = res.Body ? await res.Body.transformToByteArray() : new Uint8Array(0);
+      if (isGzip(bytes)) bytes = await gunzip(bytes);
+      return { bytes, etag: res.ETag, lastModified: res.LastModified };
+    } catch (err) {
+      if (isNotModified(err)) return 'unchanged';
+      throw err;
+    }
+  }
+
+  /**
    * Fetch one file as STORED, without the fetch layer auto-inflating it
    * (SPEC §8). Tracelog objects carry `Content-Encoding: gzip`, so a plain
    * GET comes back already decompressed — wasteful when we want to *cache*
@@ -202,6 +230,13 @@ export class LogBucket {
       return null;
     }
   }
+}
+
+/** A conditional GET that hit the ETag returns 304 — surfaced by the SDK as an
+ *  error rather than a result. Match it without depending on one error shape. */
+function isNotModified(err: unknown): boolean {
+  const e = err as { $metadata?: { httpStatusCode?: number }; name?: string };
+  return e?.$metadata?.httpStatusCode === 304 || e?.name === 'NotModified' || e?.name === '304';
 }
 
 function toListed(obj: _Object, prefix: string): ListedObject {

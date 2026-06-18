@@ -4,7 +4,11 @@ import {
   cadence,
   isCurrent,
   nextExpected,
+  nextPollDelay,
   BOOTSTRAP_STALE_MS,
+  MIN_POLL_MS,
+  MAX_POLL_MS,
+  DEFAULT_POLL_MS,
 } from './cadence';
 
 const S = 1000;
@@ -108,6 +112,37 @@ describe('nextExpected', () => {
   it('is null without a cadence, else last + cadence', () => {
     expect(nextExpected([5000])).toBeNull();
     expect(nextExpected([0, 10 * S, 20 * S])).toBe(30 * S);
+  });
+});
+
+describe('nextPollDelay', () => {
+  const S = 1000;
+  it('waits ~one cadence (slightly early) after a change, when cadence is known', () => {
+    const m = [0, 60 * S, 120 * S]; // 60s cadence
+    expect(nextPollDelay(m, 0, 0.5)).toBe(Math.round(60 * S * 0.9)); // 54s, no jitter at rand 0.5
+  });
+  it('uses the default before a cadence is known', () => {
+    expect(nextPollDelay([1000], 0, 0.5)).toBe(DEFAULT_POLL_MS);
+  });
+  it('re-checks fast on the first 304, then backs off exponentially', () => {
+    const m = [0, 60 * S];
+    expect(nextPollDelay(m, 1, 0.5)).toBe(MIN_POLL_MS); // 5s
+    expect(nextPollDelay(m, 2, 0.5)).toBe(MIN_POLL_MS * 2); // 10s
+    expect(nextPollDelay(m, 3, 0.5)).toBe(MIN_POLL_MS * 4); // 20s
+  });
+  it('caps the back-off at MAX_POLL (a dead host becomes a cheap heartbeat)', () => {
+    expect(nextPollDelay([0, 60_000], 99, 0.5)).toBe(MAX_POLL_MS);
+  });
+  it('clamps a very long cadence to MAX_POLL', () => {
+    const m = [0, 30 * 60 * S, 60 * 60 * S]; // 30-min cadence
+    expect(nextPollDelay(m, 0, 0.5)).toBe(MAX_POLL_MS);
+  });
+  it('jitters within ±15%', () => {
+    const lo = nextPollDelay([0, 60_000], 0, 0);
+    const hi = nextPollDelay([0, 60_000], 0, 1);
+    expect(lo).toBeLessThan(hi);
+    expect(lo).toBeGreaterThanOrEqual(Math.round(54_000 * 0.85));
+    expect(hi).toBeLessThanOrEqual(Math.round(54_000 * 1.15));
   });
 });
 

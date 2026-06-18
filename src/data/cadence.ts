@@ -100,3 +100,32 @@ export function nextExpected(mtimes: number[]): number | null {
   const c = cadence(mtimes);
   return c != null ? mtimes[mtimes.length - 1] + c : null;
 }
+
+/** Per-host conditional-GET scheduling bounds (SPEC §6.0, phase 3). */
+export const MIN_POLL_MS = 5_000;
+export const MAX_POLL_MS = 300_000; // ≈ the agent's default 5-min upload cadence
+export const DEFAULT_POLL_MS = 20_000; // before a cadence is known
+
+/**
+ * Delay (ms) until a host's next conditional GET. `misses` is the count of
+ * consecutive 304s since the last change (0 right after a change):
+ *   - misses 0  → wait ~one cadence (slightly early) for the next expected flush;
+ *                 if the cadence isn't known yet, a steady default.
+ *   - misses ≥1 → the flush is imminent/overdue: re-check fast, then back off
+ *                 exponentially so a DEAD host settles to a cheap heartbeat
+ *                 instead of spinning every few seconds.
+ * All client-relative durations — cadence is a delta between server
+ * LastModifieds, so this is immune to client/server clock skew. Jittered ±15%
+ * (`rand` ∈ [0,1), supplied by the caller) to desync hosts that share a cadence.
+ */
+export function nextPollDelay(mtimes: number[], misses: number, rand = 0.5): number {
+  let base: number;
+  if (misses === 0) {
+    const c = cadence(mtimes);
+    base = c !== null ? c * 0.9 : DEFAULT_POLL_MS;
+  } else {
+    base = MIN_POLL_MS * 2 ** Math.min(misses - 1, 6); // 5s, 10s, 20s … capped below
+  }
+  base = Math.min(MAX_POLL_MS, Math.max(MIN_POLL_MS, base));
+  return Math.round(base * (1 + (rand - 0.5) * 0.3));
+}
