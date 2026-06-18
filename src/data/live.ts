@@ -21,6 +21,8 @@ import type { FileMeta } from './types';
 import type { Store } from './store';
 import { perf } from './perf';
 import { utcToday } from '../ui/format';
+import { pushMtime } from './cadence';
+import { recordMtimes } from './ledger';
 
 export const LIVE_CADENCE_MS = 60_000;
 
@@ -34,6 +36,9 @@ export interface FileState {
   tail: Uint8Array;
   /** metadata context in effect at end-of-file */
   lastMeta: FileMeta;
+  /** rolling window of distinct S3 LastModified values for a `_current` file —
+   *  the live update cadence (SPEC §6.0; data/cadence.ts). Empty for finalized. */
+  mtimes: number[];
 }
 
 /**
@@ -135,6 +140,28 @@ export class LiveUpdater {
           refetched++;
           const tailBytes = prev ? appendPlan(prev, bytes) : null;
 
+          // track the live update cadence from the file's S3 LastModified (the
+          // agent's real flush time, not our poll time); persist the window so a
+          // fresh load can judge currency before observing a tick (SPEC §6.0)
+          let mtimes = prev?.mtimes ?? [];
+          if (parsed.current) {
+            const mt = parsed.lastModified?.getTime();
+            if (mt) {
+              mtimes = pushMtime(mtimes, mt);
+              void recordMtimes(
+                this.bucket.bucket,
+                {
+                  key: parsed.key,
+                  channel: parsed.channel,
+                  interval: parsed.interval,
+                  size: obj.size,
+                  etag,
+                },
+                mtimes,
+              );
+            }
+          }
+
           if (tailBytes) {
             // verified append: parse + append only the new lines
             const result = parseFile(tailBytes, parsed, prev!.lastMeta);
@@ -146,6 +173,7 @@ export class LiveUpdater {
               byteLen: bytes.length,
               tail: takeTail(bytes),
               lastMeta: result.lastMeta,
+              mtimes,
             });
           } else {
             const result = parseFile(bytes, parsed);
@@ -157,6 +185,7 @@ export class LiveUpdater {
               byteLen: bytes.length,
               tail: takeTail(bytes),
               lastMeta: result.lastMeta,
+              mtimes,
             });
           }
         }

@@ -32,6 +32,11 @@ export interface SizeRecord {
   displayedAt: number;
   /** whether the file's bytes are currently in the cache (`files` store) */
   cached: boolean;
+  /** rolling window of recent distinct S3 LastModified values (epoch-ms) for a
+   *  live `_current` file — the durable copy of the poller's in-memory window,
+   *  so a fresh load can judge "is this host current?" before observing a tick
+   *  (SPEC §6.0; see data/cadence.ts) */
+  mtimes?: number[];
 }
 
 /** Per-channel decompressed/compressed ratio, for estimating unseen files. */
@@ -133,6 +138,7 @@ export async function recordListing(
       etag: f.etag ?? prev?.etag,
       displayedAt: prev?.displayedAt ?? 0,
       cached: prev?.cached ?? false,
+      mtimes: prev?.mtimes,
     });
   }
 }
@@ -173,6 +179,7 @@ export async function recordSidecarsBatch(
       etag: e.etag ?? prev?.etag,
       displayedAt: prev?.displayedAt ?? 0,
       cached: prev?.cached ?? false,
+      mtimes: prev?.mtimes,
     });
   }
 }
@@ -200,7 +207,51 @@ export async function recordFetched(
     etag: file.etag,
     displayedAt: now,
     cached,
+    mtimes: prev?.mtimes,
   });
+}
+
+/**
+ * Record a live `_current` file's update-cadence window (SPEC §6.0). Targeted
+ * single-record read-modify-write (the window is small and this fires per
+ * observed flush), create-or-annotate so a host first seen by the live poller
+ * still gets a valid ledger record. Other fields are preserved.
+ */
+export async function recordMtimes(
+  bucket: string,
+  file: { key: string; channel: string; interval: string; size: number; etag?: string },
+  mtimes: number[],
+): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  const id = bucket + SEP + file.key;
+  const store = txStore(db, 'readwrite');
+  try {
+    const req = store.get(id);
+    req.onsuccess = () => {
+      const prev = req.result as SizeRecord | undefined;
+      try {
+        store.put({
+          id,
+          channel: file.channel,
+          interval: file.interval,
+          compressed: file.size || prev?.compressed || 0,
+          decompressed: prev?.decompressed,
+          records: prev?.records,
+          intervals: prev?.intervals,
+          sidecarChecked: prev?.sidecarChecked,
+          etag: file.etag ?? prev?.etag,
+          displayedAt: prev?.displayedAt ?? 0,
+          cached: prev?.cached ?? false,
+          mtimes,
+        });
+      } catch {
+        /* storage disabled mid-tx */
+      }
+    };
+  } catch {
+    /* storage disabled */
+  }
 }
 
 /** Bump display recency for files just loaded to satisfy a view. */

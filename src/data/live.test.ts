@@ -12,7 +12,7 @@ const META = JSON.stringify({
 const EV = (type: string) => JSON.stringify({ event: { type, timestamp: 1_000_000 } });
 
 function state(bytes: Uint8Array, lastMeta = {}): FileState {
-  return { etag: 'e1', byteLen: bytes.length, tail: takeTail(bytes), lastMeta };
+  return { etag: 'e1', byteLen: bytes.length, tail: takeTail(bytes), lastMeta, mtimes: [] };
 }
 
 describe('appendPlan', () => {
