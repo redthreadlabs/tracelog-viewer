@@ -21,12 +21,24 @@ export const CADENCE_WINDOW = 8;
 
 /**
  * Staleness tolerance: a host is current if its newest update is within
- * max(STALE_FLOOR_MS, STALE_K × observed cadence) of now. The floor absorbs a
- * missed poll and the agent's ~60 s metricset heartbeat so a healthy host never
- * flaps out; STALE_K gives slow-updating hosts proportional headroom.
+ * max(STALE_FLOOR_MS, STALE_K × observed cadence) of now. The observable
+ * heartbeat is the agent's S3 UPLOAD (default `s3UploadIntervalMs` = 5 min),
+ * NOT the 60 s metricset generation — metricsets batch into a 5-min upload, so
+ * `LastModified` advances every ~5 min. STALE_K gives that proportional headroom
+ * (~15 min); the floor only matters for hosts that upload faster than the floor.
  */
-export const STALE_FLOOR_MS = 180_000; // 3 min
+export const STALE_FLOOR_MS = 180_000; // 3 min — anti-flap floor for fast uploaders
 export const STALE_K = 3;
+
+/**
+ * Staleness allowed before we've observed a cadence (a single LastModified). It
+ * must comfortably exceed the agent's upload cadence so a live host isn't marked
+ * dead between flushes — 12 min ≈ 2.4× the 5-min default, covering one missed
+ * upload. Once two observations give a cadence, STALE_K × cadence takes over.
+ * (False death is the costly failure — it strands the whole live UI — so this
+ * leans generous; a genuinely dead host just lingers a few extra minutes.)
+ */
+export const BOOTSTRAP_STALE_MS = 720_000; // 12 min
 
 /**
  * Append a freshly observed LastModified, keeping the window ascending,
@@ -58,21 +70,23 @@ export interface CurrencyOpts {
   floorMs?: number;
   /** multiplier on observed cadence; default STALE_K */
   k?: number;
+  /** staleness allowed before a cadence is known; default BOOTSTRAP_STALE_MS */
+  bootstrapMs?: number;
 }
 
 /**
  * Whether a file's host is still current at `now` (skew-corrected client time):
- * its newest update is within max(floor, k × cadence). With a single observation
- * (no cadence yet — the cold-start bootstrap) it falls back to the floor, so a
- * `_current` file freshly seen in a listing counts as live for a few minutes.
- * An empty window → never seen updating → not current.
+ * its newest update is within max(floor, k × cadence) once a cadence is known,
+ * else within the generous bootstrap window (a single observation can't reveal
+ * cadence, and the agent may upload only every few minutes). An empty window →
+ * never seen updating → not current.
  */
 export function isCurrent(now: number, mtimes: number[], opts: CurrencyOpts = {}): boolean {
   if (mtimes.length === 0) return false;
   const floor = opts.floorMs ?? STALE_FLOOR_MS;
   const k = opts.k ?? STALE_K;
   const c = cadence(mtimes);
-  const threshold = c != null ? Math.max(floor, k * c) : floor;
+  const threshold = c != null ? Math.max(floor, k * c) : (opts.bootstrapMs ?? BOOTSTRAP_STALE_MS);
   return now - mtimes[mtimes.length - 1] <= threshold;
 }
 

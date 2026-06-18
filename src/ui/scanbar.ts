@@ -236,7 +236,6 @@ export function renderScanbar(container: HTMLElement): void {
       state.liveAvailable = false;
       const moved = state.currentHosts.length > 0;
       state.currentHosts = [];
-      maybeStopLive();
       return moved;
     }
     try {
@@ -246,22 +245,16 @@ export function renderScanbar(container: HTMLElement): void {
       state.liveAvailable = st.available;
       const moved = !sameStrings(state.currentHosts, st.hosts);
       state.currentHosts = st.hosts;
-      maybeStopLive();
       render();
       return moved;
     } catch {
       return false; // transient — the next replan / tick retries
     }
   }
-
-  /** A running live session with nothing live left to watch turns itself off. */
-  function maybeStopLive(): void {
-    if (state.live && !state.liveAvailable) {
-      state.live = false;
-      stopCurrentTracking();
-      void storeClient.request('setLive', { on: false, channels: selectedChannels() });
-    }
-  }
+  // A running live session is NOT force-stopped when availability dips: one stale
+  // reading (a host mid-flush on its 5-min upload cadence) must not kill live or
+  // the UI strands. While live, the tracker keeps re-resolving so availability
+  // self-heals; the user can always turn LIVE off manually.
 
   // ---- "all current" dynamic membership ----
   // While LIVE + "all current", periodically re-resolve the live host set (a
@@ -924,7 +917,8 @@ export function renderScanbar(container: HTMLElement): void {
         : 'no live hosts in the selected channels — nothing to watch',
       on: {
         click: () => {
-          if (!state.liveAvailable) return; // gated: nothing live to watch
+          // can't ENABLE when nothing's live; a running session can always stop
+          if (!state.live && !state.liveAvailable) return;
           state.live = !state.live;
           // live mode watches today: extend the range to include now
           if (state.live && state.endMs < Date.now()) state.endMs = Date.now();
@@ -933,7 +927,7 @@ export function renderScanbar(container: HTMLElement): void {
         },
       },
     });
-    liveChip.disabled = !state.liveAvailable;
+    liveChip.disabled = !state.live && !state.liveAvailable;
     liveChip.append(el('span', { className: 'dot' }), el('span', { text: 'LIVE' }));
 
     const refreshChip = el('button', {
@@ -947,6 +941,7 @@ export function renderScanbar(container: HTMLElement): void {
       on: {
         click: () => {
           loadedSignature = null;
+          liveStatusSig = null; // force a fresh liveStatus probe (manual recovery)
           void replan();
         },
       },

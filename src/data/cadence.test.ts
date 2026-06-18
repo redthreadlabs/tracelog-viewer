@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { pushMtime, cadence, isCurrent, nextExpected, STALE_FLOOR_MS } from './cadence';
+import {
+  pushMtime,
+  cadence,
+  isCurrent,
+  nextExpected,
+  BOOTSTRAP_STALE_MS,
+} from './cadence';
 
 const S = 1000;
 const MIN = 60 * S;
@@ -50,10 +56,17 @@ describe('isCurrent', () => {
     expect(isCurrent(1_000_000, [])).toBe(false);
   });
 
-  it('bootstraps from a single observation against the floor', () => {
-    const now = 1_000_000;
-    expect(isCurrent(now, [now - 2 * MIN])).toBe(true); // within 3-min floor
-    expect(isCurrent(now, [now - 5 * MIN])).toBe(false); // past the floor
+  it('bootstraps a single observation against the generous bootstrap window', () => {
+    const now = 100 * MIN;
+    // a 5-min-upload agent between flushes must stay current with no cadence yet
+    expect(isCurrent(now, [now - 5 * MIN])).toBe(true);
+    expect(isCurrent(now, [now - 15 * MIN])).toBe(false); // long dead
+  });
+
+  it('keeps a 5-min upload-cadence host current between flushes (the regression)', () => {
+    const now = 100 * MIN;
+    const m = [now - 14 * MIN, now - 9 * MIN, now - 4 * MIN]; // ~5-min cadence, flushed 4 min ago
+    expect(isCurrent(now, m)).toBe(true); // threshold = max(3min, 3·5min) = 15 min
   });
 
   it('keeps a steadily-updating host current and drops one that stalls', () => {
@@ -75,10 +88,14 @@ describe('isCurrent', () => {
     expect(isCurrent(now, slowDead)).toBe(false);
   });
 
-  it('honors custom floor/k', () => {
-    const now = 1000;
-    expect(isCurrent(now, [now - 500], { floorMs: 400 })).toBe(false);
-    expect(isCurrent(now, [now - 500], { floorMs: 600 })).toBe(true);
+  it('honors custom floor, k, and bootstrap window', () => {
+    const now = 100 * MIN;
+    const m = [now - 20 * S, now - 10 * S]; // cadence 10s, last 10s ago
+    expect(isCurrent(now, m, { floorMs: 5 * S, k: 0.5 })).toBe(false); // max(5s, 5s) = 5s < 10s
+    expect(isCurrent(now, m, { floorMs: 30 * S, k: 0.5 })).toBe(true); // floor 30s ≥ 10s
+    // a single observation uses the bootstrap window, not the floor
+    expect(isCurrent(now, [now - 500], { bootstrapMs: 400 })).toBe(false);
+    expect(isCurrent(now, [now - 500], { bootstrapMs: 600 })).toBe(true);
   });
 
   it('treats a slightly-ahead server clock (now < last) as current', () => {
@@ -94,8 +111,8 @@ describe('nextExpected', () => {
   });
 });
 
-describe('STALE_FLOOR_MS', () => {
-  it('clears the ~60s metricset heartbeat with headroom', () => {
-    expect(STALE_FLOOR_MS).toBeGreaterThan(2 * MIN);
+describe('BOOTSTRAP_STALE_MS', () => {
+  it('exceeds the agent default 5-min S3 upload cadence with margin', () => {
+    expect(BOOTSTRAP_STALE_MS).toBeGreaterThan(5 * MIN);
   });
 });
