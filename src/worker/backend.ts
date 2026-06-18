@@ -118,6 +118,11 @@ class Session {
   /** hosts the live updater actively watches (null = all) — the manual subset,
    *  or the resolved live set in "all current" mode (SPEC §6.0) */
   liveHostFilter: string[] | null = null;
+  /** the two independent demands for live: the scanbar (derived from the view's
+   *  range), and the store inspector (which demands the latest intervals stay
+   *  live while it's open). The updater runs if EITHER wants it. */
+  scanbarLive = false;
+  inspectorLive = false;
   ports = new Set<PortLike>();
   lastUsed = Date.now();
   cacheLimitBytes: number | null;
@@ -160,6 +165,14 @@ class Session {
       this.broadcast('progress');
       void this.fireDeferred();
     });
+  }
+
+  /** Run the live updater if EITHER the scanbar or the store inspector wants it;
+   *  start() re-discovers with the latest channels/host-filter, so a fresh demand
+   *  (or a selection change) takes effect immediately. */
+  applyLive(): void {
+    if (this.scanbarLive || this.inspectorLive) this.live.start();
+    else this.live.stop();
   }
 
   // ---- deferred results (SPEC §11): a producer recomputes a bounded result as
@@ -856,12 +869,19 @@ const ops: Record<string, OpHandler> = {
   setLive: (s, a) => {
     s.liveChannels = a.channels as string[];
     // hosts: the active watch set (manual subset or resolved "all current");
-    // undefined/absent = all. Idempotent — re-calling while live just updates
-    // the set (start() no-ops), so "all current" can push a new set each tick.
+    // undefined/absent = all. The scanbar pushes channels/hosts on every replan
+    // even when off, so the inspector's demand always has a fresh selection.
     s.liveHostFilter = (a.hosts as string[] | undefined) ?? null;
-    if (a.on) s.live.start();
-    else s.live.stop();
+    s.scanbarLive = a.on === true;
+    s.applyLive();
     return s.live.running;
+  },
+  /** The store inspector demands the latest intervals stay live while it's open,
+   *  overriding the scanbar (even a paused / historical-range one) — so the
+   *  `_current` files keep updating and their "M:SS ago" counters tick. */
+  setInspectorLive: (s, a) => {
+    s.inspectorLive = a.on === true;
+    s.applyLive();
   },
   /** Which hosts in the selected channels are currently live (fresh `_current`
    *  heartbeat), and whether ANY are — gates the LIVE toggle and resolves the

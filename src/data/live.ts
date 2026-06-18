@@ -102,9 +102,10 @@ export class LiveUpdater {
   }
 
   start(): void {
-    if (this.discoverHandle) return;
-    void this.discover();
-    this.discoverHandle = setInterval(() => void this.discover(), DISCOVERY_CADENCE_MS);
+    if (!this.discoverHandle) {
+      this.discoverHandle = setInterval(() => void this.discover(), DISCOVERY_CADENCE_MS);
+    }
+    void this.discover(); // (re)discover now — picks up the latest channels / host filter
   }
 
   stop(): void {

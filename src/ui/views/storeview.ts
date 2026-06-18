@@ -811,6 +811,10 @@ export function renderStoreView(container: HTMLElement): () => void {
 
   const onData = () => void refreshKindCounts();
   storeClient.addEventListener('data', onData);
+  // the store inspector demands the latest intervals stay live while it's open,
+  // so the `_current` files keep updating + their counters tick — regardless of
+  // the scanbar's live state (it may be paused, hidden, or on a historical range)
+  void storeClient.request('setInspectorLive', { on: true });
   // tick the living `_current` "M:SS ago" counters between data events (a full
   // re-render on each data event refreshes the underlying lastModified)
   const ticker = setInterval(() => {
@@ -827,6 +831,7 @@ export function renderStoreView(container: HTMLElement): () => void {
   return () => {
     storeClient.removeEventListener('data', onData);
     clearInterval(ticker);
+    void storeClient.request('setInspectorLive', { on: false }); // release the live demand
   };
 }
 
