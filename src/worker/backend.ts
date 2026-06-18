@@ -628,6 +628,64 @@ async function solveTransactionTotals(
 }
 
 /**
+ * The overview's transaction-table totals — the plan is chosen INTERNALLY
+ * (SPEC §11): when every in-range file's records are loaded we scan them for
+ * EXACT totals (incl. exact p95, and correct for sub-hour windows the hourly
+ * cube can't tile); otherwise we serve from the index (estimated p95). The
+ * caller never picks — it gets the ranking + whether p95 is estimated.
+ */
+async function solveOverviewTotals(
+  s: Session,
+  range: TimeRange,
+  periodMs: number | null,
+  utc: boolean,
+): Promise<{ groups: TxnGroup[]; p95Estimated: boolean }> {
+  // a sub-hour grid can't be served by the hourly cube (the window may contain
+  // no whole-hour bucket) — and its few covering files are loaded for the chart
+  // scan anyway, so scan them for exact totals. Coarser grids serve from the
+  // index (instant; p95 estimated), avoiding a scan of a large loaded range.
+  const subHour =
+    !!range && periodGrid(range[0], range[1], range, periodMs, utc).periodMs < 3_600_000;
+  if (subHour) return { groups: groupTransactions(s.store.records, range), p95Estimated: false };
+  const { groups, p95Estimated } = await solveTransactionTotals(s, range);
+  return { groups, p95Estimated };
+}
+
+/**
+ * The overview as ONE solver entry (SPEC §11): chart series + table ranking +
+ * completeness, with the plan (index-only batch, scan, on-demand build, hybrid)
+ * chosen entirely inside. The op and the view never branch on it — they get
+ * { series, groups, ghostSpans, complete, p95Estimated } and render. Whether an
+ * index or a scan satisfied any part is the solver's private business.
+ */
+async function solveOverview(
+  s: Session,
+  range: TimeRange,
+  periodMs: number | null,
+  utc: boolean,
+  show: string[] | undefined,
+): Promise<{
+  series: SeriesResult;
+  groups: TxnGroup[];
+  ghostSpans: [number, number][];
+  complete: boolean;
+  p95Estimated: boolean;
+}> {
+  // fastest plan: when the whole overview is index-coverable, one batch pass
+  // yields both the series and the table (no scan — instant, complete).
+  const batch = await solveOverviewBatch(s, range, periodMs, utc, show);
+  if (batch) {
+    return { series: batch.series, groups: batch.groups, ghostSpans: [], complete: true, p95Estimated: true };
+  }
+  // otherwise the series scans loaded records + the not-loaded indexed remainder,
+  // and the totals choose their own plan (scan when loaded, else index).
+  const metric: Metric = { op: 'sum', field: 'duration', groupBy: 'transaction' };
+  const series = await solveSeriesAggregate(s, metric, range, periodMs, utc, show);
+  const { groups, p95Estimated } = await solveOverviewTotals(s, range, periodMs, utc);
+  return { series: series.result, groups, ghostSpans: series.ghostSpans, complete: series.complete, p95Estimated };
+}
+
+/**
  * The drill-down's INDEX-served headline (SPEC §11): count/avg/errors exact from
  * the cube; p50/p95/p99/max and the duration distribution from the sketch
  * (estimated). No records needed, so the detail page shows it instantly.
@@ -892,53 +950,14 @@ const ops: Record<string, OpHandler> = {
   // completeness) plus the transaction-table ranking. The chart names the metric
   // it wants — SUM(duration) GROUP BY transaction — and optionally `show`, the
   // exact transactions to display (its legend selection); absent → top-N.
-  overviewData: async (s, a) => {
-    const range = a.range as TimeRange;
-    const periodMs = a.periodMs as number | null;
-    const utc = a.utc !== false; // align the period grid to the active display zone
-    const metric = (a.metric as Metric | undefined) ?? {
-      op: 'sum',
-      field: 'duration',
-      groupBy: 'transaction',
-    };
-    const show = a.show as string[] | undefined;
-
-    // fastest plan: when the whole overview is index-coverable, solve the chart
-    // series and the table totals as ONE batch — a single cube pass + histogram
-    // pass for both, instead of two solves each re-reading the cube (SPEC §11).
-    const batch = await solveOverviewBatch(s, range, periodMs, utc, show);
-    if (batch) {
-      return {
-        series: batch.series,
-        ghostSpans: [] as [number, number][],
-        complete: true,
-        groups: batch.groups,
-        p95Estimated: true,
-      };
-    }
-
-    // fallback (cold range / sub-hour grid / a missing index): the chart scans
-    // the loaded records + the not-loaded indexed remainder.
-    const { result, ghostSpans, complete } = await solveSeriesAggregate(
+  overviewData: (s, a) =>
+    solveOverview(
       s,
-      metric,
-      range,
-      periodMs,
-      utc,
-      show,
-    );
-    // The table: on a SUB-HOUR grid the hourly cube can't serve it — a window
-    // with no whole-hour bucket (e.g. "last 1 hour" straddling two hours) would
-    // total to zero and blank the whole overview. The chart already scans the
-    // loaded records for such grids, so total the table from the same records
-    // (exact p95, not estimated). Coarser grids stay index-served.
-    const subHour =
-      !!range && periodGrid(range[0], range[1], range, periodMs, utc).periodMs < 3_600_000;
-    const { groups, p95Estimated } = subHour
-      ? { groups: groupTransactions(s.store.records, range), p95Estimated: false }
-      : await solveTransactionTotals(s, range);
-    return { series: result, ghostSpans, complete, groups, p95Estimated };
-  },
+      a.range as TimeRange,
+      a.periodMs as number | null,
+      a.utc !== false, // align the period grid to the active display zone
+      a.show as string[] | undefined,
+    ),
 
   /** The drill-down as one plan (SPEC §11): the index-served summary (count,
    *  percentiles, distribution) returns immediately, alongside the current
