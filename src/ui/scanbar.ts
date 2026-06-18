@@ -42,6 +42,9 @@ interface ScanbarState {
   plan: ScanPlan | null;
   planning: boolean;
   live: boolean;
+  /** is there a fresh `_current` host in the selected channels? — gates LIVE
+   *  (and, later, "all current"). False on a finalized-only bucket (SPEC §6.0). */
+  liveAvailable: boolean;
   error?: string;
 }
 
@@ -160,6 +163,7 @@ export function renderScanbar(container: HTMLElement): void {
     plan: null,
     planning: false,
     live: false,
+    liveAvailable: false,
   };
 
   const selectedChannels = () =>
@@ -204,6 +208,40 @@ export function renderScanbar(container: HTMLElement): void {
     channelsFromUrl = null; // deep-link intent consumed after first application
     hostsFromUrl = null;
     facetSig = sig;
+  }
+
+  /** Refresh the "is anything live?" gate for the selected channels (depends on
+   *  the channel set, not the range). Disables LIVE on a finalized-only bucket,
+   *  and stops a running live session if its last current host went away. */
+  let liveStatusSig: string | null = null;
+  async function refreshLiveStatus(): Promise<void> {
+    const channels = selectedChannels();
+    const sig = [...channels].sort().join(',');
+    if (sig === liveStatusSig) return;
+    liveStatusSig = sig;
+    if (channels.length === 0) {
+      state.liveAvailable = false;
+      maybeStopLive();
+      return;
+    }
+    try {
+      const st = await storeClient.request<{ available: boolean; hosts: string[] }>('liveStatus', {
+        channels,
+      });
+      state.liveAvailable = st.available;
+      maybeStopLive();
+      render();
+    } catch {
+      /* transient — the next replan retries */
+    }
+  }
+
+  /** A running live session with nothing live left to watch turns itself off. */
+  function maybeStopLive(): void {
+    if (state.live && !state.liveAvailable) {
+      state.live = false;
+      void storeClient.request('setLive', { on: false, channels: selectedChannels() });
+    }
   }
 
   /** Open dropdown (one at a time), persisted across re-renders like rangeOpen. */
@@ -345,6 +383,7 @@ export function renderScanbar(container: HTMLElement): void {
       render();
       return;
     }
+    void refreshLiveStatus(); // gate LIVE on whether any host is currently live
     const selected = selectedChannels();
     state.plan = null;
     state.error = undefined;
@@ -780,9 +819,12 @@ export function renderScanbar(container: HTMLElement): void {
     const right = el('div', { className: 'group', attrs: { style: 'margin-left:auto' } });
     const liveChip = el('button', {
       className: state.live ? 'chip live on' : 'chip live',
-      title: "refresh today's _current snapshots every 60 s",
+      title: state.liveAvailable
+        ? "refresh today's _current snapshots every 60 s"
+        : 'no live hosts in the selected channels — nothing to watch',
       on: {
         click: () => {
+          if (!state.liveAvailable) return; // gated: nothing live to watch
           state.live = !state.live;
           // live mode watches today: extend the range to include now
           if (state.live && state.endMs < Date.now()) state.endMs = Date.now();
@@ -791,6 +833,7 @@ export function renderScanbar(container: HTMLElement): void {
         },
       },
     });
+    liveChip.disabled = !state.liveAvailable;
     liveChip.append(el('span', { className: 'dot' }), el('span', { text: 'LIVE' }));
 
     const refreshChip = el('button', {

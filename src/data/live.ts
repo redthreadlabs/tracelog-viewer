@@ -21,7 +21,7 @@ import type { FileMeta } from './types';
 import type { Store } from './store';
 import { perf } from './perf';
 import { utcToday } from '../ui/format';
-import { pushMtime } from './cadence';
+import { pushMtime, isCurrent } from './cadence';
 import { recordMtimes } from './ledger';
 
 export const LIVE_CADENCE_MS = 60_000;
@@ -199,5 +199,40 @@ export class LiveUpdater {
         doneTick({ detail: `${refetched} snapshots refetched`, records: liveRecords });
       }
     }
+  }
+
+  /**
+   * The hosts in `channels` whose current-interval `_current` file is still live
+   * — its heartbeat is within the staleness window (data/cadence.ts). Gates the
+   * LIVE toggle and resolves the "all current" host selection (SPEC §6.0). Uses
+   * the in-memory cadence window when live is running (freshest, real cadence),
+   * else bootstraps from the listing's LastModified against the absolute floor.
+   * One discovery LIST per channel; `now` should be skew-corrected by the caller.
+   */
+  async currentHosts(channels: string[], now: number): Promise<string[]> {
+    const today = utcToday();
+    const hosts = new Set<string>();
+    for (const channel of channels) {
+      let listing;
+      try {
+        listing = await this.bucket.listChannelRange(channel, today, today);
+      } catch {
+        continue; // transient — the caller refreshes on the next change
+      }
+      // a _current shadowed by its finalized sibling is not live (§3.5)
+      const finalized = new Set<string>();
+      for (const obj of listing) {
+        const p = parseKey(obj.key, obj.size, obj.lastModified, obj.etag);
+        if (p && !p.current) finalized.add(`${p.host}/${p.seq}`);
+      }
+      for (const obj of listing) {
+        const p = parseKey(obj.key, obj.size, obj.lastModified, obj.etag);
+        if (!p || !p.current || finalized.has(`${p.host}/${p.seq}`)) continue;
+        const mtimes =
+          this.states.get(p.key)?.mtimes ?? (p.lastModified ? [p.lastModified.getTime()] : []);
+        if (isCurrent(now, mtimes)) hosts.add(p.host);
+      }
+    }
+    return [...hosts].sort();
   }
 }

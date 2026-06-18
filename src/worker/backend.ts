@@ -759,6 +759,16 @@ const ops: Record<string, OpHandler> = {
     else s.live.stop();
     return s.live.running;
   },
+  /** Which hosts in the selected channels are currently live (fresh `_current`
+   *  heartbeat), and whether ANY are — gates the LIVE toggle and resolves the
+   *  "all current" host selection (SPEC §6.0). A bucket of only finalized data
+   *  (e.g. the public demo) returns none, so live never engages there. */
+  liveStatus: async (s, a) => {
+    const channels = (a.channels as string[]) ?? [];
+    if (channels.length === 0) return { available: false, hosts: [] };
+    const hosts = await s.live.currentHosts(channels, Date.now());
+    return { available: hosts.length > 0, hosts };
+  },
 
   // ---- store inspector ----
   loadOneFile: (s, a) => loadOneFile(s.store, s.bucket, a.file as ParsedKey, s.cacheLimitBytes),
