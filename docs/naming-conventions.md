@@ -65,8 +65,8 @@ What a client SDK sends to the ingest endpoint and the server maps into records.
 
 | Term | Meaning |
 |------|---------|
-| **trace** (`trace_id`) | The id shared across an entire perf/span tree. |
-| **id** / **root_id** / **parent_id** | A node's own id, the tree root, and its parent within a trace. |
+| **trace** (`trace_id`) | The id shared across an entire trace (a transaction and its spans). |
+| **id** / **transaction_id** / **parent_id** | A span's own id, the transaction (trace root) it belongs to, and its immediate parent (the transaction or another span). |
 
 ### Timing & scheduling (code)
 
