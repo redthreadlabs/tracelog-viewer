@@ -145,6 +145,10 @@ function viewNeedsRecords(view: string): boolean {
   return true;
 }
 
+// DEBUG: whether the chip last rendered as PAUSED (module-level so it survives a
+// scanbar re-mount, which would otherwise reset a closure flag).
+let debugPrevChipPaused = false;
+
 // Re-rendering the scanbar (e.g. on profile change) must drop the previous
 // instance's listeners and handles.
 let activeHashHandler: (() => void) | null = null;
@@ -276,7 +280,8 @@ export function renderScanbar(container: HTMLElement): void {
     if (currentHandle) return;
     currentHandle = setInterval(() => {
       void (async () => {
-        if (state.paused) return; // frozen — don't re-resolve membership or replan
+        // eslint-disable-next-line no-console
+        if (state.paused) return void console.warn('[scanbar-debug] currentHandle fired while paused');
         if (await refreshLiveStatus(true)) {
           pushLiveHosts();
           void replan(); // re-scope the working set to the new live host set
@@ -637,7 +642,8 @@ export function renderScanbar(container: HTMLElement): void {
     if (relativeHandle || !state.rangeSpec || state.paused) return; // never slide while paused
     relativeHandle = setInterval(() => {
       if (!state.rangeSpec) return stopRelativeRefresh();
-      if (state.paused) return; // frozen for inspection — don't slide
+      // eslint-disable-next-line no-console
+      if (state.paused) return void console.warn('[scanbar-debug] relativeHandle fired while paused');
       const before = coveringSig(state.startMs, state.endMs);
       const [s, e] = resolveRange(state.rangeSpec, Date.now(), isUtcMode());
       if (s === state.startMs && e === state.endMs) return; // no movement (e.g. yesterday)
@@ -1056,6 +1062,16 @@ export function renderScanbar(container: HTMLElement): void {
     // never fights its own auto on/off.
     const relevant = liveRelevant();
     const live = relevant && !state.paused;
+    // DEBUG: trace the exact moment the chip leaves PAUSED, with the call stack
+    // of whatever rendered it — to pin the auto-unpause trigger.
+    const showingPaused = relevant && state.paused;
+    if (debugPrevChipPaused && !showingPaused) {
+      // eslint-disable-next-line no-console
+      console.trace(
+        `[scanbar-debug] chip left PAUSED → relevant=${relevant} paused=${state.paused} liveAvailable=${state.liveAvailable}`,
+      );
+    }
+    debugPrevChipPaused = showingPaused;
     const liveChip = el('button', {
       className: live ? 'chip live on' : relevant ? 'chip live paused' : 'chip live',
       title: !relevant
