@@ -200,10 +200,14 @@ export function startApp(root: HTMLElement): void {
       setParams({ ch: null, w: null });
     }
     if (active) {
-      void storeClient.attach(active).then(() => {
-        renderHeader();
-        renderScanbarIfConnected();
-      });
+      // attach() posts its worker message SYNCHRONOUSLY (the Promise executor
+      // runs now), so it's already queued ahead of the scanbar's requests below
+      // — the synchronous mount talks to the right session, and attach's
+      // data/progress events refresh it once the snapshot lands. So we do NOT
+      // re-mount the scanbar here: a second renderScanbar would tear the first
+      // down and re-arm its timers, and any async work the first kicked off
+      // (listChannels → replan → auto-refresh timers) would resolve orphaned.
+      void storeClient.attach(active).then(() => renderHeader());
     }
     renderHeader();
     renderScanbarIfConnected();
