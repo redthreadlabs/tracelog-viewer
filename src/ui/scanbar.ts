@@ -608,6 +608,8 @@ export function renderScanbar(container: HTMLElement): void {
    *  relative spec and stops the auto-refresh. */
   function setRange(startMs: number, endMs: number, wholeDays: boolean): void {
     state.rangeSpec = null;
+    // eslint-disable-next-line no-console
+    if (state.paused) console.trace('[scanbar-debug] paused→false @ setRange');
     state.paused = false; // a range change is fresh intent → resume
     stopRelativeRefresh();
     state.startMs = startMs;
@@ -620,6 +622,8 @@ export function renderScanbar(container: HTMLElement): void {
    *  resolve it now, plan, and start the auto-refresh that keeps it sliding. */
   function applySpec(spec: RangeSpec): void {
     state.rangeSpec = spec;
+    // eslint-disable-next-line no-console
+    if (state.paused) console.trace('[scanbar-debug] paused→false @ applySpec');
     state.paused = false; // a range change is fresh intent → resume
     const [s, e] = resolveRange(spec, Date.now(), isUtcMode());
     state.startMs = s;
@@ -696,6 +700,11 @@ export function renderScanbar(container: HTMLElement): void {
     }
     state.rangeSpec = spec;
     if (specChanged) {
+      // eslint-disable-next-line no-console
+      if (state.paused)
+        console.trace(
+          `[scanbar-debug] paused→false @ syncFromUrl (urlRange=${getParam('range')} stateSpec=${tokenOf(state.rangeSpec)})`,
+        );
       state.paused = false; // a genuinely different range resumes (incl. a brush)
       if (spec) startRelativeRefresh();
       else stopRelativeRefresh();
@@ -1082,6 +1091,8 @@ export function renderScanbar(container: HTMLElement): void {
       on: {
         click: () => {
           if (!relevant) return; // display-only on a historical window
+          // eslint-disable-next-line no-console
+          console.trace(`[scanbar-debug] chip click: paused ${state.paused}→${!state.paused}`);
           state.paused = !state.paused;
           if (state.paused) {
             // HARD freeze: stop both auto-refresh timers entirely (not just guard
