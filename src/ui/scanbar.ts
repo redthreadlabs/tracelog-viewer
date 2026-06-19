@@ -485,6 +485,14 @@ export function renderScanbar(container: HTMLElement): void {
 
   async function replan(): Promise<void> {
     if (disposed) return; // torn down — don't LIST / setLive / paint on a dead instance
+    // A picker is open → its edits are "apply on OK": the checkbox/summary update
+    // live (onChange mutates state.channels) but the chart/table must NOT change
+    // until OK. A BACKGROUND replan now — chiefly the "all current" tracker, which
+    // fires as the live host set shifts ("the next batch of current data") — would
+    // re-plan from the half-edited selection and silently apply it. commitPicker
+    // clears openPicker before it replans, so OK still applies; Cancel/tap-away
+    // revert state.channels untouched.
+    if (openPicker) return;
     // refresh the channel/host candidate sets for the range first, so the
     // selection below (and the zero-channels check) sees the reconciled pickers
     try {
@@ -543,9 +551,10 @@ export function renderScanbar(container: HTMLElement): void {
     // the worker now knows the selection's files — let metadata-served views
     // (the overview Volume chart) render before any records are loaded
     if (state.plan) storeClient.dispatchEvent(new Event('plan'));
-    // never auto-load while a picker is open — the user is still choosing; the
-    // load fires when they close it (setOpenPicker)
-    if (!openPicker) void maybeAutoLoad();
+    // replan only runs with no picker open (guarded at the top), i.e. on commit /
+    // range / navigation — so the load always fires; mid-selection is excluded
+    // upstream, not here.
+    void maybeAutoLoad();
     syncLiveWatch(); // keep the live updater's watch set in step with the selection
     render();
   }
