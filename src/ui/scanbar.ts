@@ -634,7 +634,7 @@ export function renderScanbar(container: HTMLElement): void {
   const coveringSig = (a: number, b: number): string => `${utcDayOf(a)}..${utcDayOf(b)}`;
 
   function startRelativeRefresh(): void {
-    if (relativeHandle || !state.rangeSpec) return;
+    if (relativeHandle || !state.rangeSpec || state.paused) return; // never slide while paused
     relativeHandle = setInterval(() => {
       if (!state.rangeSpec) return stopRelativeRefresh();
       if (state.paused) return; // frozen for inspection — don't slide
@@ -1067,11 +1067,17 @@ export function renderScanbar(container: HTMLElement): void {
         click: () => {
           if (!relevant) return; // display-only on a historical window
           state.paused = !state.paused;
-          // resuming a relative range: catch the frozen window up to now at once
-          // (the auto-refresh would otherwise wait up to one tick)
-          if (!state.paused && state.rangeSpec) {
+          if (state.paused) {
+            // HARD freeze: stop both auto-refresh timers entirely (not just guard
+            // them) so nothing fires while paused
+            stopRelativeRefresh();
+            stopCurrentTracking();
+          } else if (state.rangeSpec) {
+            // resume: catch the frozen window up to now at once, then re-arm the
+            // slide (the tracker re-arms via syncLiveWatch below)
             [state.startMs, state.endMs] = resolveRange(state.rangeSpec, Date.now(), isUtcMode());
             softRefreshView();
+            startRelativeRefresh();
           }
           syncLiveWatch();
           render();
