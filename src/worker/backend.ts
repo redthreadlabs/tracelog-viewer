@@ -243,6 +243,31 @@ class Session {
     for (const port of this.ports) port.postMessage(message);
   }
 
+  // ---- selection scoping ----
+  // The selection (channels × hosts, in `currentPlan`) is a VIEW over the loaded
+  // store: a record-iterating query must see only the selected channel/host pairs,
+  // exactly as the index path does via `currentPlan.filter(...)`. This is why a
+  // deselected channel/host stops appearing WITHOUT being evicted — the store is
+  // bounded by the memory limit alone, never by a selection change. (Range scoping
+  // stays each query's `rangeSlice`; a distributed trace is exempt — it's one
+  // cross-channel unit.)
+  private inSelection(): (r: Rec) => boolean {
+    const sel = new Set(this.currentPlan.map((f) => `${f.channel} ${f.host}`));
+    return (r) => sel.has(`${r.channel} ${r.host}`);
+  }
+  /** All loaded records, scoped to the selected channel/host set. */
+  selectedRecords(): Rec[] {
+    return this.store.records.filter(this.inSelection());
+  }
+  /** Loaded records of one kind, scoped to the selection. */
+  selectedKind(kind: RecordKind): Rec[] {
+    return this.store.kindRecords(kind).filter(this.inSelection());
+  }
+  /** A transaction's loaded instances, scoped to the selection. */
+  selectedNamed(name: string): Rec[] {
+    return this.store.transactionsNamed(name).filter(this.inSelection());
+  }
+
 }
 
 const sessions = new Map<string, Session>();
@@ -494,7 +519,7 @@ async function solveSeriesAggregate(
   // default → the top-N by total. No "Other" in either case.
   const result = blankPartialSeries(
     aggregateBySeries(
-      indexOnly ? [] : s.store.records,
+      indexOnly ? [] : s.selectedRecords(),
       range,
       periodMs,
       utc,
@@ -661,7 +686,7 @@ async function solveOverviewTotals(
   // index (instant; p95 estimated), avoiding a scan of a large loaded range.
   const subHour =
     !!range && periodGrid(range[0], range[1], range, periodMs, utc).periodMs < 3_600_000;
-  if (subHour) return { groups: groupTransactions(s.store.records, range), p95Estimated: false };
+  if (subHour) return { groups: groupTransactions(s.selectedRecords(), range), p95Estimated: false };
   const { groups, p95Estimated } = await solveTransactionTotals(s, range);
   return { groups, p95Estimated };
 }
@@ -713,7 +738,7 @@ async function txnSummaryData(s: Session, name: string, range: TimeRange) {
   // like the scatter/slowest already do. Coarser windows serve from the index
   // (instant, estimated). The plan is chosen HERE, never by the view.
   if (resolvePeriodMs(Math.max(to - from, 1), null) < 3_600_000) {
-    const stats = transactionStats(s.store.transactionsNamed(name), name, [from, to]);
+    const stats = transactionStats(s.selectedNamed(name), name, [from, to]);
     let sum = 0;
     let errors = 0;
     const durations: number[] = [];
@@ -783,7 +808,7 @@ async function txnSummaryData(s: Session, name: string, range: TimeRange) {
  * the drill-down; the scatter spans `domain` whole and ghosts `incompleteSpans`.
  */
 function txnRecords(s: Session, name: string, range: TimeRange) {
-  const stats = transactionStats(s.store.transactionsNamed(name), name, range);
+  const stats = transactionStats(s.selectedNamed(name), name, range);
   const [lo, hi] = range ?? operatingRange(s);
   const ghostSpans = mergeSpans(incompleteSpans(s), lo, hi);
   const slowest = [...stats.instances]
@@ -852,9 +877,11 @@ const ops: Record<string, OpHandler> = {
     if ('range' in a) s.currentRange = (a.range as TimeRange) ?? null;
     s.loader.setBackground(a.background === true); // a prefetch loads throttled
     const plan = a.plan as ScanPlan;
-    // additive on a range change (keep parsed records, fetch only the delta);
-    // wipe only when the channel selection changes (SPEC §8)
-    s.loader.setPlan(plan.files, plan.channels);
+    // ALWAYS additive (SPEC §8): the selection is a view over loaded data, so any
+    // change — range, channels, or hosts — keeps every parsed record and fetches
+    // only the new plan's missing files. The solver scopes queries to the
+    // selection; the store evicts on the memory limit alone.
+    s.loader.setPlan(plan.files);
   },
   /** Re-prioritise an in-flight load: foreground (a view now waits on the
    *  records) un-throttles it, background (back to an index-served view) throttles
@@ -1047,7 +1074,7 @@ const ops: Record<string, OpHandler> = {
     const channel = a.channel as string | null;
     const host = (a.host as string | null) ?? null;
     const q = ((a.q as string) ?? '').toLowerCase();
-    const pool = rangeSlice(s.store.records, a.range as TimeRange);
+    const pool = rangeSlice(s.selectedRecords(), a.range as TimeRange);
     const filtered = pool.filter((r) => {
       if (!kinds.has(r.kind)) return false;
       if (r.kind === 'event' && r.level && !levels.has(r.level)) return false;
@@ -1074,7 +1101,7 @@ const ops: Record<string, OpHandler> = {
     const q = ((a.q as string) ?? '').toLowerCase();
     const range = (a.contextWindow as TimeRange) ?? (a.range as TimeRange);
     const pool = rangeSlice(
-      mergeByTime(s.store.kindRecords('event'), s.store.kindRecords('error')),
+      mergeByTime(s.selectedKind('event'), s.selectedKind('error')),
       range,
     );
     const typeCounts = new Map<string, number>();
@@ -1110,7 +1137,7 @@ const ops: Record<string, OpHandler> = {
   metricsData: (s, a) => {
     const range = a.range as TimeRange;
     const utc = a.utc !== false; // align the breakdown period grid to the active zone
-    const sets = s.store.kindRecords('metricset');
+    const sets = s.selectedKind('metricset');
     const series = new Map<string, Map<string, { t: number; v: number }[]>>();
     for (const name of a.sampleNames as string[]) {
       series.set(name, runtimeSeries(sets, name, range));
@@ -1118,13 +1145,13 @@ const ops: Record<string, OpHandler> = {
     return {
       series,
       breakdown: breakdownSelfTime(sets, range, a.periodMs as number | null, utc),
-      markers: deploymentMarkers(s.store.records),
+      markers: deploymentMarkers(s.selectedRecords()),
     };
   },
 
   clientsData: (s, a) => {
     const range = a.range as TimeRange;
-    const pool = mergeByTime(s.store.kindRecords('event'), s.store.kindRecords('error'));
+    const pool = mergeByTime(s.selectedKind('event'), s.selectedKind('error'));
     return {
       profiles: clientProfiles(pool, range),
       versions: appVersions(pool, range),
@@ -1133,7 +1160,7 @@ const ops: Record<string, OpHandler> = {
     };
   },
 
-  scannerData: (s, a) => scannerStats(s.store.kindRecords('transaction'), a.range as TimeRange),
+  scannerData: (s, a) => scannerStats(s.selectedKind('transaction'), a.range as TimeRange),
 
   /** raw body for the drawer: retained line, else stream the file to line N.
    *  Finalized files are cached compressed — we inflate just up to the line and

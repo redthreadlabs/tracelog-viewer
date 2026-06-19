@@ -76,7 +76,7 @@ function makeHarness(
     },
     setPlan: (hours: number[], channel = 'server', window: [number, number] | null = win) => {
       win = window;
-      controller.setPlan(plan(hours, channel), [channel]);
+      controller.setPlan(plan(hours, channel));
     },
     setWindow: (window: [number, number] | null) => {
       win = window;
@@ -272,14 +272,19 @@ describe('LoadController setPlan (incremental, keep-on-narrow)', () => {
     expect(h.started).toEqual([k(1), k(2)]); // hour 0 already loaded → only 1,2
   });
 
-  it('wipes the store when the channel selection changes', async () => {
+  it('keeps records on a channel change — additive, never a wipe (selection is a view)', async () => {
     const h = makeHarness(null);
     h.setPlan([0, 1], 'server');
     await h.complete(k(0));
     await h.complete(k(1));
     expect(h.sourceKeys()).toEqual(new Set([k(0), k(1)]));
-    h.setPlan([0], 'other'); // different channel → wipe (store reflects the new selection)
-    expect(h.sourceKeys()).toEqual(new Set());
+    h.started.length = 0;
+    // a DIFFERENT channel is just a different view over the loaded data: the
+    // 'server' records are KEPT (the solver scopes them out of queries; only the
+    // memory limit evicts), and the loader pursues the newly-selected file.
+    h.setPlan([0], 'other');
+    expect(h.sourceKeys()).toEqual(new Set([k(0), k(1)])); // not wiped
+    expect(h.started).toEqual([plan([0], 'other')[0].key]); // new channel fetched
   });
 });
 

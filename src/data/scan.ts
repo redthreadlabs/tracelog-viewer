@@ -144,7 +144,6 @@ export type FileLoader = (file: ParsedKey) => Promise<LoadedFile>;
  */
 export class LoadController {
   private plan: ParsedKey[] = [];
-  private planChannels: string[] = []; // the plan's channel selection (a change wipes; a range-only change is additive)
   private ws: ParsedKey[] = []; // cached working set (plan ∩ range)
   /** per-file recency: a monotonic tick set each time the file is in the working
    *  set, so eviction can pick the least-recently-in-set out-of-set file first */
@@ -186,7 +185,6 @@ export class LoadController {
   reset(plan: ParsedKey[]): void {
     this.epoch++; // in-flight loads from the old plan will be discarded on land
     this.plan = plan;
-    this.planChannels = [...new Set(plan.map((f) => f.channel))];
     this.cached = 0;
     this.failed = undefined;
     this.dirty = false;
@@ -199,26 +197,18 @@ export class LoadController {
   }
 
   /**
-   * Set the plan for the active selection, keeping records we already parsed
-   * (SPEC §8). A **range** change (same channels) is ADDITIVE: narrowing keeps
-   * everything (the views `rangeSlice` the out-of-range records away — no effect,
-   * no re-parse), widening only fetches the new delta. A **channel** change is a
-   * different displayed set, so it wipes (else deselected channels would linger
-   * in views that don't filter by channel). Bounding the retained set under
-   * memory pressure is the eviction pass's job, not this.
+   * Set the plan for the active selection — PURELY ADDITIVE (SPEC §8). The
+   * selection (channels × hosts × range) is a *view* over the loaded data, so
+   * changing it never evicts: we keep every parsed record (re-selecting is
+   * instant, no re-parse), fetch only the new plan's not-yet-loaded files, and
+   * drop only the now-out-of-plan PENDING fetches (in-flight ones finish, kept).
+   * The solver scopes each query to the selection (currentPlan), so a deselected
+   * channel/host simply stops appearing — its records aren't wiped. The store is
+   * bounded by the eviction pass (memory limit) ALONE. Genuine wipes — clearStore,
+   * profile switch, deselect-all — go through `reset`, not here.
    */
-  setPlan(files: ParsedKey[], channels: string[]): void {
-    const sameChannels =
-      channels.length === this.planChannels.length &&
-      channels.every((c) => this.planChannels.includes(c));
-    if (!sameChannels) {
-      this.epoch++; // discard in-flight from the old selection
-      this.store.clear();
-      this.cached = 0;
-      this.dirty = false;
-    }
+  setPlan(files: ParsedKey[]): void {
     this.plan = files;
-    this.planChannels = channels;
     this.failed = undefined;
     this.doneScan ??= perf.begin('scan', `scan s3://${this.bucket.bucket}`);
     this.resync();
