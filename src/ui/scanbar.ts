@@ -145,10 +145,6 @@ function viewNeedsRecords(view: string): boolean {
   return true;
 }
 
-// DEBUG: whether the chip last rendered as PAUSED (module-level so it survives a
-// scanbar re-mount, which would otherwise reset a closure flag).
-let debugPrevChipPaused = false;
-
 // Re-rendering the scanbar (e.g. on profile change) must drop the previous
 // instance's listeners and handles.
 let activeHashHandler: (() => void) | null = null;
@@ -167,6 +163,14 @@ export function teardownScanbar(): void {
 
 export function renderScanbar(container: HTMLElement): void {
   teardownScanbar();
+
+  // This instance's liveness. renderScanbar kicks off async work (listChannels →
+  // replan → start the auto-refresh timers) that can resolve AFTER a re-mount has
+  // already torn this instance down — at which point its timers wouldn't yet have
+  // existed to be cleared, so they'd escape cleanup and keep rendering/​LISTing
+  // against the shared scanbar host (clobbering the live instance, e.g. flipping a
+  // paused chip back to LIVE). Teardown sets this; every async continuation bails.
+  let disposed = false;
 
   // initial range: a relative `range=` token (re-resolved now) wins; else the
   // URL's from/to (absolute); else today (a placeholder until we auto-detect the
@@ -277,11 +281,10 @@ export function renderScanbar(container: HTMLElement): void {
   let currentHandle: ReturnType<typeof setInterval> | null = null;
   const CURRENT_TRACK_MS = 30_000;
   function startCurrentTracking(): void {
-    if (currentHandle) return;
+    if (currentHandle || disposed) return;
     currentHandle = setInterval(() => {
       void (async () => {
-        // eslint-disable-next-line no-console
-        if (state.paused) return void console.warn('[scanbar-debug] currentHandle fired while paused');
+        if (state.paused) return; // frozen — don't re-resolve membership or replan
         if (await refreshLiveStatus(true)) {
           pushLiveHosts();
           void replan(); // re-scope the working set to the new live host set
@@ -472,6 +475,7 @@ export function renderScanbar(container: HTMLElement): void {
           state.wholeDays = !latest!.includes('T'); // daily interval → whole-day range
         }
       }
+      if (disposed) return; // torn down before the channel list arrived
       void replan();
     })
     .catch((err) => {
@@ -480,6 +484,7 @@ export function renderScanbar(container: HTMLElement): void {
     });
 
   async function replan(): Promise<void> {
+    if (disposed) return; // torn down — don't LIST / setLive / paint on a dead instance
     // refresh the channel/host candidate sets for the range first, so the
     // selection below (and the zero-channels check) sees the reconciled pickers
     try {
@@ -608,8 +613,6 @@ export function renderScanbar(container: HTMLElement): void {
    *  relative spec and stops the auto-refresh. */
   function setRange(startMs: number, endMs: number, wholeDays: boolean): void {
     state.rangeSpec = null;
-    // eslint-disable-next-line no-console
-    if (state.paused) console.trace('[scanbar-debug] paused→false @ setRange');
     state.paused = false; // a range change is fresh intent → resume
     stopRelativeRefresh();
     state.startMs = startMs;
@@ -622,8 +625,6 @@ export function renderScanbar(container: HTMLElement): void {
    *  resolve it now, plan, and start the auto-refresh that keeps it sliding. */
   function applySpec(spec: RangeSpec): void {
     state.rangeSpec = spec;
-    // eslint-disable-next-line no-console
-    if (state.paused) console.trace('[scanbar-debug] paused→false @ applySpec');
     state.paused = false; // a range change is fresh intent → resume
     const [s, e] = resolveRange(spec, Date.now(), isUtcMode());
     state.startMs = s;
@@ -643,11 +644,10 @@ export function renderScanbar(container: HTMLElement): void {
   const coveringSig = (a: number, b: number): string => `${utcDayOf(a)}..${utcDayOf(b)}`;
 
   function startRelativeRefresh(): void {
-    if (relativeHandle || !state.rangeSpec || state.paused) return; // never slide while paused
+    if (relativeHandle || !state.rangeSpec || state.paused || disposed) return; // never slide while paused / torn down
     relativeHandle = setInterval(() => {
       if (!state.rangeSpec) return stopRelativeRefresh();
-      // eslint-disable-next-line no-console
-      if (state.paused) return void console.warn('[scanbar-debug] relativeHandle fired while paused');
+      if (state.paused) return; // frozen for inspection — don't slide
       const before = coveringSig(state.startMs, state.endMs);
       const [s, e] = resolveRange(state.rangeSpec, Date.now(), isUtcMode());
       if (s === state.startMs && e === state.endMs) return; // no movement (e.g. yesterday)
@@ -700,11 +700,6 @@ export function renderScanbar(container: HTMLElement): void {
     }
     state.rangeSpec = spec;
     if (specChanged) {
-      // eslint-disable-next-line no-console
-      if (state.paused)
-        console.trace(
-          `[scanbar-debug] paused→false @ syncFromUrl (urlRange=${getParam('range')} stateSpec=${tokenOf(state.rangeSpec)})`,
-        );
       state.paused = false; // a genuinely different range resumes (incl. a brush)
       if (spec) startRelativeRefresh();
       else stopRelativeRefresh();
@@ -1022,6 +1017,7 @@ export function renderScanbar(container: HTMLElement): void {
   }
 
   function render(): void {
+    if (disposed) return; // a torn-down instance must never paint the shared host
     clear(container);
     const bar = el('div', { className: 'scanbar' });
 
@@ -1071,16 +1067,6 @@ export function renderScanbar(container: HTMLElement): void {
     // never fights its own auto on/off.
     const relevant = liveRelevant();
     const live = relevant && !state.paused;
-    // DEBUG: trace the exact moment the chip leaves PAUSED, with the call stack
-    // of whatever rendered it — to pin the auto-unpause trigger.
-    const showingPaused = relevant && state.paused;
-    if (debugPrevChipPaused && !showingPaused) {
-      // eslint-disable-next-line no-console
-      console.trace(
-        `[scanbar-debug] chip left PAUSED → relevant=${relevant} paused=${state.paused} liveAvailable=${state.liveAvailable}`,
-      );
-    }
-    debugPrevChipPaused = showingPaused;
     const liveChip = el('button', {
       className: live ? 'chip live on' : relevant ? 'chip live paused' : 'chip live',
       title: !relevant
@@ -1091,8 +1077,6 @@ export function renderScanbar(container: HTMLElement): void {
       on: {
         click: () => {
           if (!relevant) return; // display-only on a historical window
-          // eslint-disable-next-line no-console
-          console.trace(`[scanbar-debug] chip click: paused ${state.paused}→${!state.paused}`);
           state.paused = !state.paused;
           if (state.paused) {
             // HARD freeze: stop both auto-refresh timers entirely (not just guard
@@ -1173,6 +1157,7 @@ export function renderScanbar(container: HTMLElement): void {
   storeClient.addEventListener('progress', onProgress);
   storeClient.addEventListener('data', updateLoadedText);
   activeClientListeners = () => {
+    disposed = true; // any in-flight async continuation must now bail
     storeClient.removeEventListener('progress', onProgress);
     storeClient.removeEventListener('data', updateLoadedText);
     stopCurrentTracking(); // drop the "all current" discovery timer
