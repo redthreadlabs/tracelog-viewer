@@ -1182,6 +1182,12 @@ export function handlePort(port: PortLike & { onmessage?: unknown }): void {
           session?.ports.delete(port);
           session = getSession(msg.profile!);
           session.ports.add(port);
+          // a page (re)load starts with no live demands — the store view's
+          // teardown never runs on reload, so its `inspectorLive` would otherwise
+          // persist in this (worker-lived) session and keep live running forever.
+          // The store view + scanbar re-assert their demands as they mount.
+          session.inspectorLive = false;
+          session.applyLive();
           port.postMessage({ id: msg.id, ok: true, result: session.snapshot() });
           return;
         }
