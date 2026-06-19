@@ -685,12 +685,16 @@ export function renderScanbar(container: HTMLElement): void {
     // range — a relative `range=` token or absolute from/to
     const spec = parseRangeToken(getParam('range'));
     const specChanged = tokenOf(state.rangeSpec) !== tokenOf(spec);
-    // While PAUSED on the same relative spec, the window is FROZEN: a stray
-    // hashchange (navigation, a filter change) must not re-resolve it to `now`
-    // — that would slide the view and look like an un-pause. Only a genuinely
-    // different range (specChanged) re-resolves and resumes.
-    const frozen = state.paused && !specChanged && !!spec;
-    const r = frozen ? null : spec ? resolveRange(spec, Date.now(), isUtcMode()) : rangeFromParams();
+    // A relative spec is resolved to `now` only when it CHANGES (a newly chosen
+    // or navigated-to range). For an UNCHANGED relative spec the window is left
+    // as-is — the live auto-refresh (relativeHandle, started at mount) slides it
+    // on its own cadence, and a paused spec stays frozen. Re-resolving here on
+    // every hashchange would (a) while paused, slide the view and look like an
+    // un-pause, and (b) while live, let a self-dispatched re-render hashchange
+    // (maybeAutoLoad on a non-overview view) resolve to a ms-later `now`, count
+    // as "changed", replan, and re-dispatch — an infinite flicker loop.
+    const keepWindow = !!spec && !specChanged;
+    const r = keepWindow ? null : spec ? resolveRange(spec, Date.now(), isUtcMode()) : rangeFromParams();
     let startMs = state.startMs;
     let endMs = state.endMs;
     let wholeDays = state.wholeDays;
