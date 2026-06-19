@@ -47,8 +47,8 @@ What a client SDK sends to the ingest endpoint and the server maps into records.
 
 | Term | Meaning |
 |------|---------|
-| **event** | A client log entry: level, message, params (`LogEventItem`). |
-| **perf** | A client-side performance measurement — a timed, span-shaped operation with trace/parent linkage. The platform-wide word for client timing: `startPerf`/`endPerf`, `PerfToken`, `LogPerfItem`, the `perfs` batch field, record type `client-perf`. |
+| **event** | A discrete log entry — a log line or behavioral event that happened *at an instant*: level, message, params (`LogEventItem`). Events are **never timed**: there is no duration on an event. A timed operation is a **perf**, not an event. |
+| **perf** | A client-side performance measurement — a *timed*, span-shaped operation with trace/parent linkage. The platform-wide word for client timing: `startPerf`/`endPerf`/`recordPerf`, `PerfToken`, `LogPerfItem`, the `perfs` batch field, record type `client-perf`. A parent-less perf maps to a `transaction`, a child to a `span`. |
 | **batch** | One envelope of events + perfs plus client info (`LogBatch`). |
 
 ### Charts & aggregation (viewer)
@@ -86,6 +86,9 @@ These generic words each name exactly one concept. Don't reuse them for another:
 - **perf** → a client performance measurement. (For a scheduling primitive, use
   **handle**; for a loop's spacing, use **cadence**.)
 - **bar** → the drawn rectangle only; its underlying datum is a **period**.
+- **event** → a discrete, *instant* log entry. It never carries a duration — if a
+  thing is timed, it's a **perf** (→ `transaction`/`span`), not an event.
+- **duration** → belongs to a `transaction`/`span`/`perf` only, never an event.
 
 ## Spelling across layers
 
