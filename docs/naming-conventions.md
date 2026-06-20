@@ -61,6 +61,19 @@ What a client SDK sends to the ingest endpoint and the server maps into records.
 | **series** | A named dataset drawn as its own colored band or line (e.g. a transaction name). |
 | **step** | A gridline tier on the time axis (minor / medium / major). A grid concept only. |
 
+### Solver & loading (viewer)
+
+The viewer separates *loading* data (fetching files into memory) from *solving* a
+query (computing an answer from what's loaded). "scan" belongs to the first only.
+
+| Term | Meaning |
+|------|---------|
+| **scan** | The **loader** fetching + parsing the working-set files from S3 — the load itself. `LoadController`, `planScan` / `runScan` / `executeScan`, `ScanProgress`, the perf `scan` timer, and the **scanbar** (the UI strip that drives and shows it). User-facing "scan a range" = load that range. NOT the solver reading records. |
+| **index** | A durable, per-file precomputed aggregate (the transaction cube, the duration-histogram sketch) that answers a query *without* reading records. |
+| **records-served** | Answering a query by iterating the loaded **records** — the alternative to index-served. The solver chooses index- vs records-served internally (SPEC §11); a caller never sees which. Never call this a "scan" — that word is the loader's. |
+| **working set** | The files implied by the current selection (channels × hosts, ∩ range) — what the loader loads and the solver scopes each query to (`currentPlan`). |
+| **selection** | The user's channels × hosts × range. A *view* over loaded data, never an eviction trigger — only the memory limit evicts (SPEC §8). |
+
 ### Identity & tracing
 
 | Term | Meaning |
@@ -89,6 +102,9 @@ These generic words each name exactly one concept. Don't reuse them for another:
 - **event** → a discrete, *instant* log entry. It never carries a duration — if a
   thing is timed, it's a **perf** (→ `transaction`/`span`), not an event.
 - **duration** → belongs to a `transaction`/`span`/`perf` only, never an event.
+- **scan** → the loader's working-set load from S3 (and the **scanbar** UI that
+  drives it). The solver answering a query from records is **records-served**,
+  never a "scan"; a precomputed per-file aggregate is an **index**.
 
 ## Spelling across layers
 

@@ -611,10 +611,13 @@ than a NOC dashboard — restrained, humane, with color spent only on data.
   tier; the memory limit (in **compressed bytes** — the heap proxy: `Rec` interns
   low-cardinality fields, so heap tracks the entropy gzip collapses, and the size
   is exact + free from the listing) bounds it two ways. (1) **Eviction:** the
-  loader retains records across a range narrow (`setPlan` is additive — narrowing
-  has no effect, no re-parse; only a channel change wipes), and when the resident
-  compressed total exceeds the limit it evicts out-of-working-set files — least-
-  recently-in-set, then biggest — never one a view is showing. (2) The **load
+  loader retains records across **any** selection change — `setPlan` is purely
+  additive: a channel, host, or range change keeps every parsed record and fetches
+  only the new plan's missing files (the selection is a *view*, so the solver
+  scopes each query to it — a deselected channel just stops appearing, it isn't
+  wiped). The memory limit is the **only** thing that evicts: when the resident
+  compressed total exceeds it, out-of-working-set files go — least-recently-in-set,
+  then biggest — never one a view is showing. (2) The **load
   clamp** (below) caps a single load's working set, also by compressed size. (The
   limit is factor-1 — raw compressed size, which under-estimates heap; calibrating
   it to map to actual heap is a parked follow-up, see `MEMORY_MANAGEMENT_GOTCHAS.md`.)
@@ -809,8 +812,8 @@ or date rather than abandon tracelog entirely.
 ## 11. The aggregate solver (planned)
 
 A query-planning layer that lets the worker answer a chart's question the
-cheapest way available — from a sidecar index, an in-memory index, or a full
-scan of loaded records — while the caller stays blind to which. It is the formal
+cheapest way available — from a sidecar index, an in-memory index, or by
+reading the loaded records — while the caller stays blind to which. It is the formal
 home for the responsibility boundary set in §6.1: **the front end states *what*
 it wants; the worker decides *how*.** No chart ever learns whether its numbers
 came from metadata or records (the "· from metadata" label was removed
@@ -835,7 +838,7 @@ and therefore where the ghost band falls), never replace it.
 ### 11.2 What an index can satisfy: the decomposability algebra
 
 Whether an aggregate can be answered from per-interval summaries — rather than
-re-scanning records — depends on how it composes when intervals are merged (the
+re-reading records — depends on how it composes when intervals are merged (the
 data-cube taxonomy):
 
 - **Distributive** — `COUNT`, `SUM`, `MIN`, `MAX`. A range's answer is the
@@ -848,7 +851,7 @@ data-cube taxonomy):
 - **Holistic** — exact percentiles (`p95`), `COUNT(DISTINCT)`, median. *Not*
   reconstructable from fixed-size per-interval summaries. Servable from an index
   only if it stores **mergeable sketches** (t-digest for quantiles, HyperLogLog
-  for distinct counts); otherwise the request falls to a scan.
+  for distinct counts); otherwise the request falls to reading records.
 
 The solver's job is exactly this membership test: is the requested metric in the
 closure of the available indexes under interval-merge?
@@ -867,11 +870,11 @@ matches them on three axes:
   (or a parent it can roll up), and actually covers the interval.
 
 The result is a *plan* that partitions the range into three interval sets:
-`fromIndex` (answered from the index), `scan` (records loaded and tallied), and
+`fromIndex` (answered from the index), `records` (records loaded and tallied), and
 `ghost` (coverable by neither — not in any index, not loaded, or budget-refused).
 The honesty invariant is that these three **partition the range exactly** — which
 means **the ghost band is a derivation of the plan, not a special case bolted
-on.** Today **no index is registered**, so every aggregate scans the loaded
+on.** Today **no index is registered**, so every aggregate reads the loaded
 records and the uncovered remainder (budget-refused intervals) is ghosted —
 `solveSeriesAggregate` in `backend.ts`. (An earlier `COUNT[kind]@hourly`
 sidecar index served the old volume chart from metadata; it was retired with
@@ -894,7 +897,7 @@ the schema-on-read work below.)
    colored band (no "Other"): it defaults to the top-N by total, and the
    transaction table is its legend — a colored toggle per row adds/removes any
    transaction (even off the top-N) with a stable auto-assigned color. No index
-   advertises this metric, so the solver scans loaded records with ghost bands:
+   advertises this metric, so the solver reads loaded records with ghost bands:
    correct from day one, just not yet cheap.
 4. **Consumer-side durable indexes** *(done, 2026-06-15)* — per-file parse-time
    rollups that outlive the byte cache (the schema-on-read index plan).
@@ -904,7 +907,7 @@ the schema-on-read work below.)
    once, keep the rollup, drop the bytes). The solver (`solveSeriesAggregate`)
    now **matches**: each selected file is served from its index when it's not
    loaded, lies fully inside the range, is ETag-valid, and the grid is ≥1h and
-   hour-aligned — otherwise its loaded records are scanned. The two sources merge
+   hour-aligned — otherwise its loaded records are read. The two sources merge
    through `aggregateBySeries`'s `extra` weighted-points input (a record and an
    equivalent index point produce the identical tally — verified by test), and an
    index-covered interval no longer blanks or ghosts. So an over-budget range now
@@ -933,7 +936,7 @@ the schema-on-read work below.)
 
 5. **The transaction table, fully index-served** *(done, 2026-06-15)* — count, Σ
    duration, errors and avg now come from the cube (distributive, exact) with no
-   record scan even over a 90-day range; only **P95** is special, because it's
+   record read even over a 90-day range; only **P95** is special, because it's
    *holistic* (can't be summed across intervals from a single weight). Two pieces:
 
    - **A mergeable P95 sketch** (`data/durhist.ts`, DB v7): per (UTC hour,
@@ -948,10 +951,10 @@ the schema-on-read work below.)
      safe direction for a latency P95.
 
    - **P95 is always the estimate** (the fastest plan): `solveTransactionTotals`
-     reads it off the merged histograms, never scans. It's marked — an
+     reads it off the merged histograms, never reads records. It's marked — an
      asterisk-with-tooltip on the P95 header, grey-italic cells — and estimates
      **stay** estimates (no background churn upgrades them). Exact P95 still lives
-     in the drill-down, which scans for its scatter/histogram anyway. The
+     in the drill-down, which reads records for its scatter/histogram anyway. The
      `/internals/indexing` page surfaces the measured per-transaction
      estimated-vs-exact error (on whatever records are loaded) so the bin
      resolution stays tunable on real data.
@@ -969,11 +972,11 @@ the schema-on-read work below.)
 
    - **#1a — index-only serving, independent of what's loaded.** `indexContributions`
      now has two regimes: when EVERY in-range file has a valid stored payload it
-     serves them ALL from the cube and scans **nothing** (`indexOnly`), so the
+     serves them ALL from the cube and reads **no records** (`indexOnly`), so the
      chart is instant whether or not records happen to be in memory; otherwise it
-     falls back to the disjoint mixed path (cube for not-loaded files + scan the
+     falls back to the disjoint mixed path (cube for not-loaded files + read the
      rest) for cold ranges, sub-hour grids, or a missing index. The table is
-     likewise pure cube + histogram. The overview therefore never scans the record
+     likewise pure cube + histogram. The overview therefore never reads the record
      store, even right after a record view loaded it.
    - **#1b — coverage-gated load.** A worker `overviewIndexed(range, grid)` answers
      whether an index satisfies the chart grid AND every in-range file has a valid
@@ -1006,10 +1009,11 @@ the schema-on-read work below.)
    `overviewData` solves the chart's Σ-duration series and the table's
    count/Σ/errors/P95 totals as **one batch** — a single cube pass for both —
    when the window is fully index-coverable; it falls back to the per-metric
-   solves (chart scan + index table) for a cold range, sub-hour grid, or a
-   missing index. `sourceOf` classifies a metric whose cheapest plan is a `scan`.
+   solves (chart records-served + index table) for a cold range, sub-hour grid, or
+   a missing index. `sourceOf` classifies a metric whose cheapest plan reads
+   records (`records`).
 
-   **The deferred path** carries a plan's scan-served parts across the
+   **The deferred path** carries a plan's records-served parts across the
    SharedWorker boundary. A `Promise` can't survive structured-clone, so it
    becomes a **token + a later message**: the worker returns the index-served
    parts immediately plus a token; a per-session producer recomputes the bounded
@@ -1028,8 +1032,8 @@ the schema-on-read work below.)
 - **Declarative separation.** A chart names a question; it never encodes a
   retrieval strategy. That is what lets the strategy improve underneath it
   forever without touching a view.
-- **Optimization, never correctness.** The scan path is the ground truth and is
-  always available; indexes only let the solver *skip* work it could otherwise
+- **Optimization, never correctness.** Reading the records is the ground truth and
+  is always available; indexes only let the solver *skip* work it could otherwise
   do the slow way. A stale or missing index degrades performance, never
   accuracy.
 - **Honesty by construction.** Completeness is part of the answer, and the ghost
@@ -1046,7 +1050,7 @@ the schema-on-read work below.)
   - **Immutability.** A finalized log object never changes, so a per-file index
     is correct forever once built — compute it once, keep the tiny rollup after
     evicting the heavy bytes (cf. `ledger.ts`).
-  - **Time locality & recency bias.** Queries cluster on recent windows and scan
+  - **Time locality & recency bias.** Queries cluster on recent windows and read
     contiguous ranges; interval-aligned, recent-first indexes pay off, and a
     bounded working set keeps memory in check (§8).
   - **Bounded categorical cardinality.** Record kinds are a fixed set of five —

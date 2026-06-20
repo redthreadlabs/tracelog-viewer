@@ -1,6 +1,6 @@
 /**
  * Duration histogram (SPEC §11.6 mergeable sketch): the holistic companion to
- * the transaction cube, for estimating P95 without scanning records. Per file it
+ * the transaction cube, for estimating P95 without reading records. Per file it
  * stores, per (UTC hour, transaction), a log-spaced histogram of durations on
  * FIXED bins (10 µs → 1 h, 5 per decade). Fixed edges are the whole point —
  * every file's histogram aligns, so they merge by summing bin counts, and a

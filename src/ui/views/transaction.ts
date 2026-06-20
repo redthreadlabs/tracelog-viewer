@@ -130,7 +130,7 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
     clear(body);
 
     // stat cards (latency cells italicised only when the solver marks them
-    // estimated — an index sketch; an exact scan isn't) + the result mix
+    // estimated — an index sketch; an exact record read isn't) + the result mix
     mixHost = el('div', { className: 'result-mix' });
     statCardsHost = el('div', { className: 'stat-cards-host' });
     statCardsHost.append(statCards(s));
@@ -283,7 +283,7 @@ export function renderTransactionView(container: HTMLElement, name: string): () 
       );
     };
     // latency cells are marked estimated only when the SOLVER says so (index
-    // sketch); an exact scan (sub-hour window) reports estimated=false
+    // sketch); an exact record read (sub-hour window) reports estimated=false
     const est = s.estimated;
     card('requests', fmtCount(s.count));
     if (s.rpm !== undefined) {

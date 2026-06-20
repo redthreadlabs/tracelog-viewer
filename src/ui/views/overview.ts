@@ -147,7 +147,7 @@ export function renderOverview(container: HTMLElement): () => void {
   // spinners shown while each widget is still populating: the chart's corner
   // spinner only while its answer is still incomplete (ghost present) and
   // loading; the table's lives in the toggle-column header (re-homed there by
-  // renderTable) and shows whenever a scan is feeding it
+  // renderTable) and shows whenever records are feeding it
   const chartSpin = el('div', { className: 'corner-spinner' });
   const tableSpin = el('div', { className: 'col-spinner' });
   chartSpin.style.display = 'none';
@@ -420,7 +420,7 @@ export function renderOverview(container: HTMLElement): () => void {
       attrs: style ? { style } : undefined,
     });
     // mark P95 as estimated when the solver served it from the histogram sketch
-    // rather than an exact scan+sort (SPEC §11.5)
+    // rather than an exact record read + sort (SPEC §11.5)
     if (key === 'p95' && p95Estimated) {
       th.append(
         el('abbr', {
@@ -429,7 +429,7 @@ export function renderOverview(container: HTMLElement): () => void {
           attrs: {
             title:
               'Estimated from a duration-histogram sketch — exact P95 would mean ' +
-              'scanning over a million transactions. Typically within a few percent; ' +
+              'reading over a million transactions. Typically within a few percent; ' +
               'see /internals/indexing for the measured error.',
           },
         }),
@@ -481,7 +481,7 @@ export function renderOverview(container: HTMLElement): () => void {
   const onData = () => {
     // when the overview is complete from the indexes, records streaming in (the
     // background prefetch) don't change it — so don't re-solve/redraw on every
-    // batch. Only the incomplete (cold/scan) overview fills in as records arrive.
+    // batch. Only the incomplete (cold / records-served) overview fills in as records arrive.
     if (lastComplete) return;
     if (storeClient.snapshot.generation !== lastGeneration) void render();
   };

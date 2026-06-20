@@ -4,10 +4,10 @@
  * transaction name within each UTC hour. Built once at parse time and persisted
  * in its own IndexedDB store, so it OUTLIVES the byte cache — a later query for
  * COUNT / SUM(duration) GROUP BY transaction at ≥1h granularity can be served by
- * merging these rollups, without re-fetching or re-scanning the records.
+ * merging these rollups, without re-fetching or re-reading the records.
  *
  * Hourly UTC granularity matches the sidecar convention and the ≥1h queries it
- * can satisfy; finer periods fall back to the record scan. An index is always an
+ * can satisfy; finer periods fall back to reading records. An index is always an
  * optimization, never a correctness requirement (drop it → same answers, slower).
  */
 import type { Rec } from './types';
@@ -114,7 +114,7 @@ export type TxnTotals = { c: number; d: number; e: number };
  * `txnIndexPoints`: where that emits per-period points for a series chart, this
  * collapses to one totals row per name for the transaction table. Distributive,
  * so summing across files is exact. (`count` here also serves as the up-front
- * cost estimate for whether an exact P95 scan is affordable — SPEC §11.5.)
+ * cost estimate for whether an exact P95 record read is affordable — SPEC §11.5.)
  */
 export function mergeRangeTotals(
   index: TxnFileIndex,
@@ -142,7 +142,7 @@ export function mergeRangeTotals(
 /**
  * Persist a file's transaction index, keyed by bucket+key with its ETag for
  * validity (the matcher re-checks the ETag before trusting it). Best-effort —
- * storage disabled degrades silently to the scan path.
+ * storage disabled degrades silently to reading records.
  */
 export async function putTxnIndex(
   bucket: string,

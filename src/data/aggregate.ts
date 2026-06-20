@@ -130,7 +130,7 @@ export interface SeriesSpec {
  * A pre-aggregated contribution to the series: a group (`name`) gets `weight`
  * added at time `t`. Lets an index supply already-rolled-up points (e.g. an
  * hour's Σ duration for a transaction) into the same periods as raw records —
- * the solver merges index + scan through this (SPEC §11).
+ * the solver merges index + records through this (SPEC §11).
  */
 export interface WeightedPoint {
   name: string;

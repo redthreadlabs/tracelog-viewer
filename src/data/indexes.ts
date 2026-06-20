@@ -190,7 +190,7 @@ export const INDEXES: AggregateIndex[] = [txnIndex, durHistIndex];
  * The first registered index that can satisfy the metric at this bucket grid:
  * it provides the (op, field), is grouped by the same dimension, merges
  * distributively, and its granularity divides the (hour-or-coarser, aligned)
- * grid. Undefined → no index applies; the caller scans records.
+ * grid. Undefined → no index applies; the caller reads records.
  */
 export function matchIndex(
   op: AggOp,

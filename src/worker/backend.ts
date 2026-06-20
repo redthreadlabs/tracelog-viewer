@@ -415,8 +415,8 @@ const SERIES_TOP_N = 8;
  *    regardless of what's loaded in memory. This is the overview's common case.
  *  - **mixed** (`indexOnly: false`): otherwise, only files that are NOT loaded
  *    and lie FULLY inside the range are index-served (disjoint from the record
- *    scan, no double count); the rest are scanned. The fallback for cold ranges,
- *    sub-hour grids, or a file whose index is missing/stale.
+ *    read, no double count); the rest are records-served. The fallback for cold
+ *    ranges, sub-hour grids, or a file whose index is missing/stale.
  */
 async function indexContributions(
   s: Session,
@@ -429,7 +429,7 @@ async function indexContributions(
   const empty = { extra: [] as WeightedPoint[], covered: new Set<string>(), indexOnly: false };
   const grid = periodGrid(range[0], range[1], range, periodMs, utc);
   const ix = matchIndex(metric.op, metric.field, metric.groupBy, grid.periodMs, grid.start);
-  if (!ix?.points) return empty; // no distributive index satisfies this metric/grid → scan
+  if (!ix?.points) return empty; // no distributive index satisfies this metric/grid → read records
   const points = ix.points;
 
   const overlapping = s.currentPlan.filter((f) => overlapsRange(f, range[0], range[1]));
@@ -463,9 +463,9 @@ async function indexContributions(
     return { extra, covered, indexOnly: true };
   }
 
-  // mixed: only not-loaded, fully-in-range files (disjoint from the scan)
+  // mixed: only not-loaded, fully-in-range files (disjoint from the record read)
   for (const f of overlapping) {
-    if (s.store.files.has(f.key)) continue; // loaded → scanned
+    if (s.store.files.has(f.key)) continue; // loaded → records-served
     const span = intervalSpan(f.interval);
     if (!(span && span[0] >= range[0] && span[1] <= range[1])) continue; // fully in range only
     const rec = valid(f);
@@ -478,10 +478,11 @@ async function indexContributions(
  * The aggregate solver for grouped, series-shaped metrics (SPEC §11) — e.g.
  * SUM(duration) GROUP BY transaction for the overview chart. It serves each file
  * the cheapest way available: from its persisted index when possible (not
- * loaded, fully in range, ETag-valid, ≥1h aligned grid), else by scanning the
+ * loaded, fully in range, ETag-valid, ≥1h aligned grid), else by reading the
  * loaded records. The two sources merge into one tally; the uncovered remainder
  * (budget-refused, un-indexed) becomes the ghost band, partial intervals blank.
- * The scan is always the correctness fallback the index optimizes, never replaces.
+ * Reading the records is always the correctness fallback the index optimizes,
+ * never replaces.
  */
 async function solveSeriesAggregate(
   s: Session,
@@ -508,8 +509,8 @@ async function solveSeriesAggregate(
   const showSet = show && new Set(show);
 
   // index-served files contribute pre-aggregated points. When EVERY in-range
-  // file is index-covered (indexOnly), nothing is scanned — instant, complete,
-  // regardless of what's loaded. Otherwise loaded files are scanned and the
+  // file is index-covered (indexOnly), no records are read — instant, complete,
+  // regardless of what's loaded. Otherwise loaded files are records-served and the
   // not-loaded indexed ones merged in (disjoint, no double count).
   const { extra, covered, indexOnly } = range
     ? await indexContributions(s, range, metric, showSet, periodMs, utc)
@@ -628,11 +629,11 @@ export function filePayload<P>(
 /**
  * The transaction TABLE, served entirely from the durable indexes (SPEC §11,
  * #1a). count / Σ duration / errors / avg sum exactly out of the cube; P95 is
- * read off the merged duration-histogram sketch. No record scan, no load —
+ * read off the merged duration-histogram sketch. No records read, no load —
  * instant at any range size, independent of what's in memory. This is the
  * "fastest plan, indexes first" rule: the overview always prefers the index, so
  * its P95 is always the (clearly-marked) estimate. Exact P95 still lives in the
- * drill-down, which scans for the scatter/histogram anyway.
+ * drill-down, which reads records for the scatter/histogram anyway.
  */
 async function solveTransactionTotals(
   s: Session,
@@ -669,7 +670,7 @@ async function solveTransactionTotals(
 
 /**
  * The overview's transaction-table totals — the plan is chosen INTERNALLY
- * (SPEC §11): when every in-range file's records are loaded we scan them for
+ * (SPEC §11): when every in-range file's records are loaded we read them for
  * EXACT totals (incl. exact p95, and correct for sub-hour windows the hourly
  * cube can't tile); otherwise we serve from the index (estimated p95). The
  * caller never picks — it gets the ranking + whether p95 is estimated.
@@ -681,9 +682,9 @@ async function solveOverviewTotals(
   utc: boolean,
 ): Promise<{ groups: TxnGroup[]; p95Estimated: boolean }> {
   // a sub-hour grid can't be served by the hourly cube (the window may contain
-  // no whole-hour bucket) — and its few covering files are loaded for the chart
-  // scan anyway, so scan them for exact totals. Coarser grids serve from the
-  // index (instant; p95 estimated), avoiding a scan of a large loaded range.
+  // no whole-hour bucket) — and its few covering files are loaded for the chart's
+  // record read anyway, so read them for exact totals. Coarser grids serve from
+  // the index (instant; p95 estimated), avoiding reading a large loaded range.
   const subHour =
     !!range && periodGrid(range[0], range[1], range, periodMs, utc).periodMs < 3_600_000;
   if (subHour) return { groups: groupTransactions(s.selectedRecords(), range), p95Estimated: false };
@@ -693,8 +694,8 @@ async function solveOverviewTotals(
 
 /**
  * The overview as ONE solver entry (SPEC §11): chart series + table ranking +
- * completeness, with the plan (index-only batch, scan, on-demand build, hybrid)
- * chosen entirely inside. The op and the view never branch on it — they get
+ * completeness, with the plan (index-only batch, record read, on-demand build,
+ * hybrid) chosen entirely inside. The op and the view never branch on it — they get
  * { series, groups, ghostSpans, complete, p95Estimated } and render. Whether an
  * index or a scan satisfied any part is the solver's private business.
  */
@@ -712,13 +713,13 @@ async function solveOverview(
   p95Estimated: boolean;
 }> {
   // fastest plan: when the whole overview is index-coverable, one batch pass
-  // yields both the series and the table (no scan — instant, complete).
+  // yields both the series and the table (no records read — instant, complete).
   const batch = await solveOverviewBatch(s, range, periodMs, utc, show);
   if (batch) {
     return { series: batch.series, groups: batch.groups, ghostSpans: [], complete: true, p95Estimated: true };
   }
-  // otherwise the series scans loaded records + the not-loaded indexed remainder,
-  // and the totals choose their own plan (scan when loaded, else index).
+  // otherwise the series reads loaded records + the not-loaded indexed remainder,
+  // and the totals choose their own plan (read records when loaded, else index).
   const metric: Metric = { op: 'sum', field: 'duration', groupBy: 'transaction' };
   const series = await solveSeriesAggregate(s, metric, range, periodMs, utc, show);
   const { groups, p95Estimated } = await solveOverviewTotals(s, range, periodMs, utc);
@@ -759,7 +760,7 @@ async function txnSummaryData(s: Session, name: string, range: TimeRange) {
       max: stats.max,
       rpm: stats.count > 0 && spanMin > 0 ? stats.count / spanMin : undefined,
       histogram: logHistogram(durations),
-      estimated: false, // exact — scanned from loaded records
+      estimated: false, // exact — read from loaded records
     };
   }
 

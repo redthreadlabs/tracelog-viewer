@@ -11,8 +11,8 @@
  * pre-aggregated points (handed to `aggregateBySeries` for ranking/aggregation);
  * total-shaped metrics fold straight into a per-group tally.
  *
- * This is the index-served batch. A metric whose cheapest plan is a raw scan
- * (e.g. the drill-down's instances) is a `scan` source — classified here but
+ * This is the index-served batch. A metric whose cheapest plan reads records
+ * (e.g. the drill-down's instances) is a `records` source — classified here but
  * delivered by the deferred path, not this synchronous pass.
  */
 import type { AggOp } from './indexes';
@@ -35,7 +35,7 @@ export interface MetricSpec {
   shape: MetricShape;
 }
 
-export type MetricSource = 'cube' | 'histogram' | 'scan' | null;
+export type MetricSource = 'cube' | 'histogram' | 'records' | null;
 
 /** Which source serves a metric — the seam a real cost-based planner widens. */
 export function sourceOf(m: MetricSpec): MetricSource {
