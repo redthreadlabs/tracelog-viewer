@@ -213,3 +213,48 @@ describe('rangeBounds / rangeSlice (binary-searched time filters)', () => {
     expect(rangeSlice([], [1, 2])).toEqual([]);
   });
 });
+
+describe('Store origin join (lifetimeId → RecordOrigin)', () => {
+  const origin = {
+    lifetimeId: 'L1', appVersion: '1.4.0', device: 'iPhone 16 Pro',
+    deviceId: 'install-9', os: 'iOS 26.5',
+  };
+
+  it('enriches records whose origin is registered before they land', () => {
+    const store = new Store();
+    store.registerOrigins([origin]);
+    store.addBatch([rec({ lifetimeId: 'L1', ts: 1 }), rec({ lifetimeId: 'L2', ts: 2 })]);
+
+    const [a, b] = store.records;
+    expect(a.appVersion).toBe('1.4.0');
+    expect(a.device).toBe('iPhone 16 Pro');
+    expect(a.deviceId).toBe('install-9');
+    expect(a.os).toBe('iOS 26.5');
+    expect(b.appVersion).toBeUndefined(); // L2's origin not loaded
+  });
+
+  it('back-fills already-loaded records when their origin arrives later (out-of-order files)', () => {
+    const store = new Store();
+    store.addBatch([rec({ lifetimeId: 'L1', ts: 1 })]); // record first, no origin yet
+    expect(store.records[0].device).toBeUndefined();
+
+    store.registerOrigins([origin]); // origin file lands afterwards
+    expect(store.records[0].device).toBe('iPhone 16 Pro');
+    expect(store.records[0].appVersion).toBe('1.4.0');
+  });
+
+  it('originFor resolves a known lifetime and ignores unknown / undefined', () => {
+    const store = new Store();
+    store.registerOrigins([origin]);
+    expect(store.originFor('L1')?.device).toBe('iPhone 16 Pro');
+    expect(store.originFor('nope')).toBeUndefined();
+    expect(store.originFor(undefined)).toBeUndefined();
+  });
+
+  it('clear() drops accumulated origins', () => {
+    const store = new Store();
+    store.registerOrigins([origin]);
+    store.clear();
+    expect(store.originFor('L1')).toBeUndefined();
+  });
+});

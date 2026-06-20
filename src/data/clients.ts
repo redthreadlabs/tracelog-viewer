@@ -1,11 +1,11 @@
 /**
  * Client analytics (SPEC §6.6): client-originated records cut by user and
- * device. Selection is content-based — a record "comes from a client" when
- * it carries client identity (device / OS / app version from
- * `event.client.*`) — with a channel conventionally named `client` honored
- * as a secondary hint for deployments whose older clients sent no identity.
- * Channel names are deployment-specific; content is the contract (§3.2).
- * Pure logic.
+ * device. Selection is content-based — a record "comes from a client" when it
+ * carries a `lifetimeId` (the launch join key) or the device / OS / app version
+ * the store resolved from its RecordOrigin — with a channel conventionally named
+ * `client` honored as a secondary hint for deployments whose older clients sent
+ * no identity. Channel names are deployment-specific; content is the contract
+ * (§3.2). Pure logic.
  */
 import type { Rec } from './types';
 import { rangeSlice } from './store';
@@ -32,7 +32,8 @@ export interface ClientProfile {
 export function isClientRec(r: Rec): boolean {
   return (
     (r.kind === 'event' || r.kind === 'error') &&
-    (r.device !== undefined ||
+    (r.lifetimeId !== undefined ||
+      r.device !== undefined ||
       r.os !== undefined ||
       r.appVersion !== undefined ||
       r.channel === 'client')

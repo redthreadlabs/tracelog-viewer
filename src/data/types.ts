@@ -15,6 +15,22 @@ export interface FileMeta {
 }
 
 /**
+ * A RecordOrigin (tracelog-schema): who/what produced a set of records. Server
+ * writers emit it as the per-file metadata header; clients emit it in-stream
+ * once per launch, keyed by `lifetimeId`, and their records join to it by
+ * carrying that same `lifetimeId`. The fields below are the display-relevant
+ * slice the viewer extracts (app version = service.version, device = device.model,
+ * os = "name version").
+ */
+export interface Origin {
+  lifetimeId: string;
+  appVersion?: string;
+  device?: string;
+  deviceId?: string;
+  os?: string;
+}
+
+/**
  * Normalized record envelope. `ts` is epoch-ms — the µs→ms conversion
  * happens exactly once, at parse time (SPEC §3.4).
  *
@@ -63,9 +79,18 @@ export interface Rec {
   message?: string;
   /** metricsets: numeric samples (name → value) */
   samples?: Record<string, number>;
-  /** client events: app version / device model / "OS version" */
+  /** the producing launch (client records); joins to a RecordOrigin (store) */
+  lifetimeId?: string;
+  /** context.labels — the arbitrary key/value attribute bag (all kinds) */
+  labels?: Record<string, unknown>;
+  /**
+   * Client identity, resolved by the store from the record's `lifetimeId` →
+   * RecordOrigin (NOT parsed per-record): app version / device model / "OS
+   * version". Undefined until/unless the origin is in the loaded window.
+   */
   appVersion?: string;
   device?: string;
+  deviceId?: string;
   os?: string;
   /** minutes east of UTC at record time (client events): local = UTC + tzOffset */
   tzOffset?: number;

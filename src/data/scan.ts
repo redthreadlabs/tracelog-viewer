@@ -10,7 +10,7 @@ import { recordFetched, enforceCacheLimit, recordSidecarsBatch, ledgerRecords } 
 import { INDEXES } from './indexes';
 import { SEP, cacheGet, cachePut } from './cache';
 import type { Store } from './store';
-import type { Rec } from './types';
+import type { Origin, Rec } from './types';
 import { perf } from './perf';
 
 export const CONCURRENCY = 4;
@@ -118,6 +118,8 @@ type TimeRange = [number, number] | null;
 /** One file's loaded result — decompressed records + their byte size. */
 export interface LoadedFile {
   records: Rec[];
+  /** in-stream client origins (metadata records keyed by lifetime_id) */
+  origins: Origin[];
   byteLength: number;
   fromCache: boolean;
 }
@@ -176,6 +178,7 @@ export class LoadController {
       ((file) =>
         fetchAndParse(this.bucket, file).then(({ result, fromCache }) => ({
           records: result.records,
+          origins: result.origins,
           byteLength: result.byteLength,
           fromCache,
         })));
@@ -300,9 +303,10 @@ export class LoadController {
       // (SPEC §8). _current snapshots are never cached. The fetch caches the
       // bytes as they land, so a completed download is never wasted even if the
       // epoch moved on (new plan) and we discard its records here.
-      const { records, byteLength, fromCache } = await this.loadFile(file);
+      const { records, origins, byteLength, fromCache } = await this.loadFile(file);
       if (epoch === this.epoch) {
         this.store.registerFile(file, byteLength);
+        this.store.registerOrigins(origins); // before addBatch: same-file enrich
         this.store.addBatch(records);
         if (fromCache) this.cached++;
         this.dirty = true;
@@ -377,6 +381,7 @@ export async function loadOneFile(
 ): Promise<void> {
   const { result } = await fetchAndParse(bucket, file);
   store.registerFile(file, result.byteLength);
+  store.registerOrigins(result.origins);
   store.replaceFile(file.key, result.records);
   if (cacheLimitBytes != null) await enforceCacheLimit(bucket.bucket, cacheLimitBytes);
 }

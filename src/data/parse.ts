@@ -18,12 +18,18 @@
  * slice as before; the shared parent is just the small tail.
  */
 import type { ParsedKey } from '../s3/keys';
-import { RECORD_KINDS, type FileMeta, type Rec, type RecordKind } from './types';
+import { RECORD_KINDS, type FileMeta, type Origin, type Rec, type RecordKind } from './types';
 import { gunzipForEachLine } from './gzip';
 
 export interface ParseResult {
   records: Rec[];
   metas: FileMeta[];
+  /**
+   * In-stream client origins: metadata records that carry a `lifetime_id`. Unlike
+   * the positional file-header metadata, these are KEYED (records join by
+   * lifetime_id), not positional — one client file interleaves many launches.
+   */
+  origins: Origin[];
   /** the metadata context in effect at end-of-file (for incremental tails) */
   lastMeta: FileMeta;
   /** decompressed size of what was parsed */
@@ -120,6 +126,7 @@ function createLineParser(file: ParsedKey, initialMeta: FileMeta, shedRaw: boole
   const pool: InternPool = new Map();
   const records: Rec[] = [];
   const metas: FileMeta[] = [];
+  const origins: Origin[] = [];
   let meta: FileMeta = initialMeta;
   let skippedLines = 0;
   let unknownKinds = 0;
@@ -140,8 +147,17 @@ function createLineParser(file: ParsedKey, initialMeta: FileMeta, shedRaw: boole
         return;
       }
       if (kind === 'metadata') {
-        meta = extractMeta(body);
-        metas.push(meta);
+        // A metadata record carrying a lifetime_id is a KEYED client origin
+        // (records join by lifetime_id) — it does NOT change the positional
+        // file-header context, which would clobber interleaved launches. One
+        // without lifetime_id is the positional file header (server writer).
+        const lifetimeId = istr(pool, body.lifetime_id);
+        if (lifetimeId !== undefined) {
+          origins.push(extractOrigin(lifetimeId, body, pool));
+        } else {
+          meta = extractMeta(body);
+          metas.push(meta);
+        }
         return;
       }
       if (!RECORD_KINDS.includes(kind as RecordKind)) {
@@ -151,7 +167,7 @@ function createLineParser(file: ParsedKey, initialMeta: FileMeta, shedRaw: boole
       records.push(normalize(kind as RecordKind, body, line, lineNo, shedRaw, file, meta, pool));
     },
     finish(byteLength) {
-      return { records, metas, lastMeta: meta, byteLength, skippedLines, unknownKinds };
+      return { records, metas, origins, lastMeta: meta, byteLength, skippedLines, unknownKinds };
     },
   };
 }
@@ -193,18 +209,39 @@ export async function parseFileStreaming(
 }
 
 function extractMeta(body: Record<string, unknown>): FileMeta {
+  // Both the RecordOrigin (current) and legacy Elastic metadata nest service
+  // name/version the same way; the rest is read where present (RecordOrigin:
+  // host/runtime; legacy: service.agent/node, process).
   const service = (body.service ?? {}) as Record<string, unknown>;
   const agent = (service.agent ?? {}) as Record<string, unknown>;
   const node = (service.node ?? {}) as Record<string, unknown>;
+  const host = (body.host ?? {}) as Record<string, unknown>;
+  const runtime = (body.runtime ?? {}) as Record<string, unknown>;
   const process = (body.process ?? {}) as Record<string, unknown>;
   return {
     serviceName: str(service.name),
     serviceVersion: str(service.version),
     environment: str(service.environment),
-    agentVersion: str(agent.version),
-    nodeName: str(node.configured_name),
+    agentVersion: str(agent.version) ?? str(runtime.version),
+    nodeName: str(host.name) ?? str(node.configured_name),
     channel: str(body.channel),
     pid: typeof process.pid === 'number' ? process.pid : undefined,
+  };
+}
+
+/** Extract the display slice of a client RecordOrigin metadata record. */
+function extractOrigin(lifetimeId: string, body: Record<string, unknown>, pool: InternPool): Origin {
+  const service = (body.service ?? {}) as Record<string, unknown>;
+  const device = (body.device ?? {}) as Record<string, unknown>;
+  const osObj = (body.os ?? {}) as Record<string, unknown>;
+  const osName = str(osObj.name);
+  const osVersion = str(osObj.version);
+  return {
+    lifetimeId,
+    appVersion: istr(pool, service.version),
+    device: istr(pool, device.model),
+    deviceId: istr(pool, device.id),
+    os: osName ? intern(pool, osVersion ? `${osName} ${osVersion}` : osName) : undefined,
   };
 }
 
@@ -230,15 +267,18 @@ function normalize(
   let userId: string | undefined;
   let message: string | undefined;
   let samples: Record<string, number> | undefined;
-  let appVersion: string | undefined;
-  let device: string | undefined;
-  let os: string | undefined;
   let path: string | undefined;
   let agent: string | undefined;
   let ip: string | undefined;
 
   const context = (body.context ?? {}) as Record<string, unknown>;
   const ctxUser = (context.user ?? {}) as Record<string, unknown>;
+  // The producing launch (client records) and the shared attribute bag — both
+  // present on every kind. device/os/appVersion are NOT read here: the store
+  // resolves them from lifetimeId → RecordOrigin.
+  const lifetimeId = istr(pool, body.lifetime_id);
+  const rawLabels = (context.labels ?? undefined) as Record<string, unknown> | undefined;
+  const labels = rawLabels && typeof rawLabels === 'object' ? rawLabels : undefined;
 
   switch (kind) {
     case 'transaction': {
@@ -278,26 +318,16 @@ function normalize(
       break;
     }
     case 'event': {
+      // Events are NOT timed (no duration) and no longer inline client identity
+      // — that rides on the RecordOrigin, joined via lifetimeId by the store.
       name = istr(pool, body.type) ?? 'event';
       level = istr(pool, body.level) ?? 'info';
       message = str(body.message);
-      duration = num(body.duration);
       traceId = istr(pool, body.trace_id);
       transactionId = istr(pool, body.transaction_id);
-      const user = (body.user ?? {}) as Record<string, unknown>;
-      userId = istr(pool, user.id);
+      userId = istr(pool, ctxUser.id);
       const error = body.error as Record<string, unknown> | undefined;
       if (error && message === undefined) message = str(error.message);
-      const client = body.client as Record<string, unknown> | undefined;
-      if (client) {
-        appVersion = istr(pool, client.version);
-        const dev = client.device as Record<string, unknown> | undefined;
-        const osObj = client.os as Record<string, unknown> | undefined;
-        device = istr(pool, dev?.model);
-        const osName = str(osObj?.name);
-        const osVersion = str(osObj?.version);
-        os = osName ? intern(pool, osVersion ? `${osName} ${osVersion}` : osName) : undefined;
-      }
       break;
     }
     case 'error': {
@@ -359,9 +389,14 @@ function normalize(
     userId,
     message,
     samples,
-    appVersion,
-    device,
-    os,
+    lifetimeId,
+    labels,
+    // Resolved later by the store from lifetimeId → RecordOrigin (kept on the
+    // literal so every record shares one hidden class).
+    appVersion: undefined,
+    device: undefined,
+    deviceId: undefined,
+    os: undefined,
     path,
     agent,
     ip,

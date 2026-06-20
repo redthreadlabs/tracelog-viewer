@@ -237,6 +237,7 @@ export class LiveUpdater {
     const result = tailBytes
       ? parseFile(tailBytes, parsed, prev!.lastMeta)
       : parseFile(bytes, parsed);
+    this.store.registerOrigins(result.origins); // before append/replace: same-tail enrich
     if (tailBytes) {
       this.store.registerFile(parsed, result.byteLength, true);
       this.store.appendSorted(result.records);

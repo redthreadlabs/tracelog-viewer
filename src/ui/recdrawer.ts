@@ -87,6 +87,7 @@ export function renderRecDrawer(
   metaRow('service', rec.meta.serviceVersion && `${rec.meta.serviceName} ${rec.meta.serviceVersion}`);
   metaRow('app version', rec.appVersion);
   metaRow('device', rec.device);
+  metaRow('device id', rec.deviceId);
   metaRow('os', rec.os);
 
   // ── what it is: the record's own substance, the request it served, and when ──
@@ -100,6 +101,13 @@ export function renderRecDrawer(
     'samples',
     rec.samples && Object.entries(rec.samples).map(([k, v]) => `${k} ${v}`).join(', '),
   );
+  // context.labels — the arbitrary attribute bag, each key surfaced as its own
+  // row (prefixed so it can't be mistaken for a built-in field).
+  if (rec.labels) {
+    for (const [k, v] of Object.entries(rec.labels)) {
+      metaRow(`· ${k}`, fmtLabelValue(v));
+    }
+  }
   metaRow('path', rec.path);
   metaRow('agent', rec.agent);
   metaRow('ip', rec.ip);
@@ -132,6 +140,18 @@ export function renderRecDrawer(
     if (errorBlock) body.append(errorBlock);
     body.append(prettyJson(raw));
   });
+}
+
+/** Render a label value: primitives as-is, structures as compact JSON. */
+function fmtLabelValue(v: unknown): string {
+  if (v === null) return 'null';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
 }
 
 /** Wall-clock time at a given UTC offset (minutes east), as 'YYYY-MM-DD HH:MM:SS'. */

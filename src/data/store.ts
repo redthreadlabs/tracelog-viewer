@@ -3,7 +3,7 @@
  * updates; the scan layer appends batches as files land so views populate
  * incrementally (stream-render, SPEC §7).
  */
-import type { Rec, RecordKind } from './types';
+import type { Origin, Rec, RecordKind } from './types';
 import type { ParsedKey } from '../s3/keys';
 import { perf } from './perf';
 
@@ -85,6 +85,49 @@ export class Store extends EventTarget {
   private fileIndexes = new Map<string, FileIndex>();
   /** merged per-kind arrays, memoized per generation (built on first use) */
   private kindCache = new Map<RecordKind, { gen: number; arr: Rec[] }>();
+
+  /**
+   * lifetime_id → RecordOrigin, accumulated from in-stream client `metadata`
+   * records across all loaded files. Client records resolve their device / os /
+   * app version from here (the origin is sent once per launch, not per record);
+   * a lifetime whose origin is outside the loaded window stays unresolved.
+   */
+  private origins = new Map<string, Origin>();
+
+  /** The RecordOrigin a client record joins to, if its origin is loaded. */
+  originFor(lifetimeId: string | undefined): Origin | undefined {
+    return lifetimeId !== undefined ? this.origins.get(lifetimeId) : undefined;
+  }
+
+  /**
+   * Register client origins (from a file's `metadata` records). Last write wins
+   * (an origin can change mid-lifetime). Newly-seen lifetimes back-fill any
+   * already-loaded records that were waiting on them (cross-file / out-of-order
+   * arrival); same-file records are enriched by the addBatch/replaceFile pass.
+   */
+  registerOrigins(origins: Origin[]): void {
+    if (origins.length === 0) return;
+    const fresh = new Set<string>();
+    for (const o of origins) {
+      if (!this.origins.has(o.lifetimeId)) fresh.add(o.lifetimeId);
+      this.origins.set(o.lifetimeId, o);
+    }
+    if (fresh.size > 0) {
+      for (const rec of this.records) {
+        if (rec.lifetimeId !== undefined && fresh.has(rec.lifetimeId)) this.applyOrigin(rec);
+      }
+    }
+  }
+
+  /** Copy a record's resolved client identity from its origin, if known. */
+  private applyOrigin(rec: Rec): void {
+    const o = rec.lifetimeId !== undefined ? this.origins.get(rec.lifetimeId) : undefined;
+    if (!o) return;
+    rec.appVersion = o.appVersion;
+    rec.device = o.device;
+    rec.deviceId = o.deviceId;
+    rec.os = o.os;
+  }
 
   private indexBatch(batch: Rec[]): void {
     for (const rec of batch) {
@@ -186,6 +229,7 @@ export class Store extends EventTarget {
 
   addBatch(batch: Rec[]): void {
     for (const rec of batch) {
+      this.applyOrigin(rec);
       this.records.push(rec);
       bump(this.kindCounts, rec.kind);
       bump(this.channelCounts, rec.channel);
@@ -208,6 +252,7 @@ export class Store extends EventTarget {
   appendSorted(batch: Rec[]): void {
     if (batch.length === 0) return;
     for (const rec of batch) {
+      this.applyOrigin(rec);
       bump(this.kindCounts, rec.kind);
       bump(this.channelCounts, rec.channel);
       if (rec.level) bump(this.levelCounts, rec.level);
@@ -226,6 +271,7 @@ export class Store extends EventTarget {
    * purges a `_current` that was finalized away).
    */
   replaceFile(sourceKey: string, batch: Rec[]): void {
+    for (const rec of batch) this.applyOrigin(rec);
     this.records = this.records.filter((r) => r.sourceKey !== sourceKey);
     this.records.push(...batch);
     this.records.sort((a, b) => a.ts - b.ts);
@@ -251,6 +297,7 @@ export class Store extends EventTarget {
 
   clear(): void {
     this.records = [];
+    this.origins.clear();
     this.fileIndexes.clear();
     this.kindCache.clear();
     this.kindCounts.clear();

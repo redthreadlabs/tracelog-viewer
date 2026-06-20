@@ -64,7 +64,7 @@ describe('parseFile', () => {
           message: 'code verified',
           trace_id: 'c'.repeat(32),
           transaction_id: 'd'.repeat(16),
-          user: { id: 'u-1' },
+          context: { user: { id: 'u-1' } },
           error: { message: 'nope', code: '4017' },
         },
       },
@@ -145,7 +145,7 @@ describe('parseFile', () => {
 });
 
 describe('eager extraction (lazy-raw memory model)', () => {
-  it('extracts span ids, metricset samples, and client fields at parse time', () => {
+  it('extracts span ids, metricset samples, and lifetime/labels at parse time', () => {
     const bytes = ndjson([
       META,
       {
@@ -173,11 +173,8 @@ describe('eager extraction (lazy-raw memory model)', () => {
         event: {
           type: 'app-startup',
           timestamp: 7000000,
-          client: {
-            version: '1.4.0',
-            device: { model: 'iPhone 16 Pro' },
-            os: { name: 'iOS', version: '26.5' },
-          },
+          lifetime_id: 'f'.repeat(16),
+          context: { labels: { cold: true, route: '/home' } },
         },
       },
     ]);
@@ -187,9 +184,41 @@ describe('eager extraction (lazy-raw memory model)', () => {
     expect(span.parentId).toBe('c'.repeat(16));
     expect(metricset.samples).toEqual({ 'nodejs.eventloop.delay.avg.ms': 1.5 });
     expect(metricset.result).toBe('db/mongodb');
-    expect(event.appVersion).toBe('1.4.0');
-    expect(event.device).toBe('iPhone 16 Pro');
-    expect(event.os).toBe('iOS 26.5');
+    // Client identity is NOT parsed per-record any more — it's resolved by the
+    // store from lifetimeId → RecordOrigin. Parse extracts the join key + labels.
+    expect(event.lifetimeId).toBe('f'.repeat(16));
+    expect(event.labels).toEqual({ cold: true, route: '/home' });
+    expect(event.appVersion).toBeUndefined();
+  });
+
+  it('surfaces in-stream client origins (metadata with lifetime_id) keyed, not positional', () => {
+    const bytes = ndjson([
+      META, // positional file header (no lifetime_id)
+      {
+        metadata: {
+          lifetime_id: 'f'.repeat(16),
+          service: { name: 'duiduidui-app', version: '1.4.0' },
+          runtime: { name: 'react-native', version: '0.85' },
+          os: { name: 'iOS', version: '26.5' },
+          device: { id: 'install-9', model: 'iPhone 16 Pro', type: 'phone' },
+        },
+      },
+      { event: { type: 'after-origin', timestamp: 7000000, lifetime_id: 'f'.repeat(16) } },
+    ]);
+    const { records, metas, origins } = parseFile(bytes, FILE);
+    // the keyed origin does NOT become a positional file-header meta
+    expect(metas).toHaveLength(1);
+    expect(origins).toHaveLength(1);
+    expect(origins[0]).toMatchObject({
+      lifetimeId: 'f'.repeat(16),
+      appVersion: '1.4.0',
+      device: 'iPhone 16 Pro',
+      deviceId: 'install-9',
+      os: 'iOS 26.5',
+    });
+    // the event still carries the positional server-header meta (unchanged)
+    expect(records[0].meta.serviceVersion).toBe('1.19.1');
+    expect(records[0].lifetimeId).toBe('f'.repeat(16));
   });
 
   it('keeps the original line and parseRaw round-trips it', () => {

@@ -56,6 +56,7 @@ function makeHarness(
         resolve: () =>
           resolve({
             records: [makeRec(file)],
+            origins: [],
             byteLength: file.size,
             fromCache: false,
           }),

@@ -37,19 +37,25 @@ The canonical key is `channel/interval/host` (under an optional `prefix`).
 
 | Term | Meaning |
 |------|---------|
-| **record** | One parsed log line — the on-disk unit. |
-| **kind** | A record's category: `transaction`, `span`, `event`, `error`, `metricset`. |
+| **record** | One parsed line — the unit, on the wire and on disk. |
+| **kind** | A record's category: `transaction`, `span`, `event`, `error`, `metricset`. `metadata` is separate — it carries an **origin**, not data, and is excluded from the data kinds + the sidecar histogram. |
 | **field** | A named value on a record. |
+| **labels** | The arbitrary key-value attribute bag, under `context.labels`, on every kind. One name everywhere (was event `params` / span `tags` / the agent's deprecated `tags`). SDK verb: `withLabel`/`withLabels`. |
 
 ### The `/logs` wire format
 
-What a client SDK sends to the ingest endpoint and the server maps into records.
+What a client SDK sends to the ingest endpoint and the server forwards as records.
+The wire records ARE the on-disk records (same fields + units), so the endpoint
+stamps batch-level facts and forwards — it never re-shapes per record.
 
 | Term | Meaning |
 |------|---------|
-| **event** | A discrete log entry — a log line or behavioral event that happened *at an instant*: level, message, params (`LogEventItem`). Events are **never timed**: there is no duration on an event. A timed operation is a **perf**, not an event. |
-| **perf** | A client-side performance measurement — a *timed*, span-shaped operation with trace/parent linkage. The platform-wide word for client timing: `startPerf`/`endPerf`/`recordPerf`, `PerfToken`, `LogPerfItem`, the `perfs` batch field, record type `client-perf`. A parent-less perf maps to a `transaction`, a child to a `span`. |
-| **batch** | One envelope of events + perfs plus client info (`LogBatch`). |
+| **event** | A discrete log entry — a log line or behavioral event that happened *at an instant*: level, message, `context.labels` (`EventRecord`). Events are **never timed**: there is no duration on an event. A timed operation is a **transaction** or **span**, not an event. |
+| **transaction** | A root timed operation — the top of a trace, e.g. a request or an agent run (`TransactionRecord`). SDK: `startTransaction` / `recordTransaction`. |
+| **span** | A timed sub-operation within a transaction (`SpanRecord`), linked by `transaction_id` + `parent_id`. SDK: `startSpan` / `recordSpan`. |
+| **origin** | Who/what produced a set of records — a service + its environment (`RecordOrigin`). Rides as a `metadata` record: the per-file header for a server writer, and in-stream once per **lifetime** for a client. Records join to it (never inline it). |
+| **lifetime** (`lifetime_id`) | One SDK lifetime — a single app launch / process run. The join key between a client's records and the once-per-launch **origin** that describes them. |
+| **batch** | One ingest envelope (`RecordBatch`): `events` + `transactions` + `spans`, plus `lifetime_id` and (first batch / on change) the `origin`. |
 
 ### Charts & aggregation (viewer)
 
@@ -80,6 +86,8 @@ query (computing an answer from what's loaded). "scan" belongs to the first only
 |------|---------|
 | **trace** (`trace_id`) | The id shared across an entire trace (a transaction and its spans). |
 | **id** / **transaction_id** / **parent_id** | A span's own id, the transaction (trace root) it belongs to, and its immediate parent (the transaction or another span). |
+| **lifetime** (`lifetime_id`) | One SDK launch / process run; the join key from a client record to its **origin**. |
+| **device id** (`device.id`) | An opaque, consumer-defined device/installation id, carried on the **origin** (`device.id`), stable across that device's lifetimes. |
 
 ### Timing & scheduling (code)
 
@@ -96,12 +104,14 @@ These generic words each name exactly one concept. Don't reuse them for another:
   slot is a **bin**.
 - **interval** → a storage partition. A chart's aggregation width is a
   **period**; a recurring loop's spacing is a **cadence**.
-- **perf** → a client performance measurement. (For a scheduling primitive, use
-  **handle**; for a loop's spacing, use **cadence**.)
 - **bar** → the drawn rectangle only; its underlying datum is a **period**.
 - **event** → a discrete, *instant* log entry. It never carries a duration — if a
-  thing is timed, it's a **perf** (→ `transaction`/`span`), not an event.
-- **duration** → belongs to a `transaction`/`span`/`perf` only, never an event.
+  thing is timed, it's a **transaction** or **span**, not an event.
+- **duration** → belongs to a `transaction` / `span` only, never an event.
+- **labels** → the `context.labels` attribute bag. Not "tags" (the deprecated
+  Elastic name) and not "params" (the old event-only name) — one word, every kind.
+- **metadata** → the record kind that carries an **origin** (file header or
+  in-stream per-lifetime). Not a data kind; a scheduling primitive is a **handle**.
 - **scan** → the loader's working-set load from S3 (and the **scanbar** UI that
   drives it). The solver answering a query from records is **records-served**,
   never a "scan"; a precomputed per-file aggregate is an **index**.
@@ -112,17 +122,19 @@ The root word stays the same; each layer applies its own casing:
 
 | Layer | Convention | Example (same concept) |
 |-------|-----------|------------------------|
-| Code values / functions | `camelCase` | `periodMs`, `startPerf` |
-| Code types / classes | `PascalCase` | `LogPerfItem`, `PeriodPicker` |
+| Code values / functions | `camelCase` | `periodMs`, `startTransaction` |
+| Code types / classes | `PascalCase` | `TransactionRecord`, `PeriodPicker` |
 | Code module constants | `SCREAMING_SNAKE_CASE` | `PERIOD_STEPS_MS` |
-| Wire JSON & sidecar fields | `snake_case` | `trace_id`, `tz_offset`, `parent_id` |
+| Wire JSON & sidecar fields | `snake_case` | `trace_id`, `tz_offset`, `parent_id`, `lifetime_id` |
 | S3 key segments | lowercase path parts | `channel/interval/host` |
 | URL / hash params | short lowercase tokens | `ch`, `from`, `to`, `w`, `period` |
 | UI labels | lowercase, humane | `period: 1 day` |
 
 So one concept reads, layer to layer, as the same word in different dress —
-e.g. perf: `startPerf` (code) → `perfs` (wire field) → `client-perf` (record
-type); period: `period` (URL) → `periodMs` (code) → `period: …` (UI label).
+e.g. transaction: `startTransaction` (code) → `transactions` (wire field) →
+`transaction` (record kind); labels: `withLabel` (code) → `context.labels`
+(wire) → `· key` (UI drawer); period: `period` (URL) → `periodMs` (code) →
+`period: …` (UI label).
 
 ## Adding a new term
 
