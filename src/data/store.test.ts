@@ -258,3 +258,44 @@ describe('Store origin join (lifetimeId → RecordOrigin)', () => {
     expect(store.originFor('L1')).toBeUndefined();
   });
 });
+
+describe('Store.unresolvedOrigins + back-fill emit', () => {
+  it('lists distinct unresolved lifetimes at their earliest record (channel + sourceKey)', () => {
+    const store = new Store();
+    store.addBatch([
+      rec({ lifetimeId: 'L1', channel: 'client', sourceKey: 'client/2026-06-12/h', ts: 50 }),
+      rec({ lifetimeId: 'L1', channel: 'client', sourceKey: 'client/2026-06-10/h', ts: 10 }), // earliest
+      rec({ lifetimeId: 'L2', channel: 'client', sourceKey: 'client/2026-06-12/h', ts: 20 }),
+      rec({ ts: 5 }), // no lifetimeId → not a client record
+    ]);
+    const u = store.unresolvedOrigins();
+    expect([...u.keys()].sort()).toEqual(['L1', 'L2']);
+    expect(u.get('L1')).toEqual({ channel: 'client', sourceKey: 'client/2026-06-10/h' });
+  });
+
+  it('excludes lifetimes whose origin is already resolved', () => {
+    const store = new Store();
+    store.registerOrigins([{ lifetimeId: 'L1', device: 'iPhone' }]);
+    store.addBatch([rec({ lifetimeId: 'L1', ts: 1 }), rec({ lifetimeId: 'L2', ts: 2 })]);
+    expect([...store.unresolvedOrigins().keys()]).toEqual(['L2']);
+  });
+
+  it('emits data when a late origin back-fills loaded records', () => {
+    const store = new Store();
+    store.addBatch([rec({ lifetimeId: 'L1', ts: 1 })]);
+    let emitted = 0;
+    store.addEventListener('data', () => emitted++);
+    store.registerOrigins([{ lifetimeId: 'L1', device: 'iPhone' }]); // back-fill
+    expect(emitted).toBe(1);
+    expect(store.records[0].device).toBe('iPhone');
+  });
+
+  it('does not emit when a registered origin matches no loaded record', () => {
+    const store = new Store();
+    store.addBatch([rec({ lifetimeId: 'L1', ts: 1 })]);
+    let emitted = 0;
+    store.addEventListener('data', () => emitted++);
+    store.registerOrigins([{ lifetimeId: 'L2', device: 'Pixel' }]); // nothing to fill
+    expect(emitted).toBe(0);
+  });
+});

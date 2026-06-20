@@ -113,20 +113,50 @@ export class Store extends EventTarget {
       this.origins.set(o.lifetimeId, o);
     }
     if (fresh.size > 0) {
+      let changed = 0;
       for (const rec of this.records) {
-        if (rec.lifetimeId !== undefined && fresh.has(rec.lifetimeId)) this.applyOrigin(rec);
+        if (rec.lifetimeId !== undefined && fresh.has(rec.lifetimeId)) changed += this.applyOrigin(rec);
+      }
+      // When origins arrive AFTER their records (out-of-order files, or the
+      // post-scan hop resolver), back-filling mutates already-loaded records in
+      // place — bump the generation + emit so views re-render with the resolved
+      // device/os/app version. (On the in-scan path, the records aren't loaded
+      // yet, so `changed` is 0 and this is a no-op.)
+      if (changed > 0) {
+        this.generation++;
+        this.emitData();
       }
     }
   }
 
-  /** Copy a record's resolved client identity from its origin, if known. */
-  private applyOrigin(rec: Rec): void {
+  /** Copy a record's resolved client identity from its origin. Returns 1 if it
+   *  actually filled a previously-blank field, else 0. */
+  private applyOrigin(rec: Rec): number {
     const o = rec.lifetimeId !== undefined ? this.origins.get(rec.lifetimeId) : undefined;
-    if (!o) return;
+    if (!o) return 0;
+    const was = rec.appVersion === undefined && rec.device === undefined && rec.os === undefined;
     rec.appVersion = o.appVersion;
     rec.device = o.device;
     rec.deviceId = o.deviceId;
     rec.os = o.os;
+    return was ? 1 : 0;
+  }
+
+  /**
+   * Distinct client lifetimes among loaded records with no resolved origin, each
+   * mapped to its EARLIEST record's channel + source file — the start point for
+   * the backward-hop origin resolver (the origin is at or before that record).
+   */
+  unresolvedOrigins(): Map<string, { channel: string; sourceKey: string }> {
+    const earliest = new Map<string, { channel: string; sourceKey: string; ts: number }>();
+    for (const r of this.records) {
+      if (r.lifetimeId === undefined || this.origins.has(r.lifetimeId)) continue;
+      const cur = earliest.get(r.lifetimeId);
+      if (!cur || r.ts < cur.ts) earliest.set(r.lifetimeId, { channel: r.channel, sourceKey: r.sourceKey, ts: r.ts });
+    }
+    const out = new Map<string, { channel: string; sourceKey: string }>();
+    for (const [lid, v] of earliest) out.set(lid, { channel: v.channel, sourceKey: v.sourceKey });
+    return out;
   }
 
   private indexBatch(batch: Rec[]): void {

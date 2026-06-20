@@ -21,11 +21,17 @@ import { planScan, type ScanPlan } from '../s3/scanner';
 import { LoadController, loadOneFile, hydrateSidecars } from '../data/scan';
 import { LiveUpdater } from '../data/live';
 import { perf, type PerfEntry } from '../data/perf';
-import { cacheKeys, cacheWipeBucket, cacheGetAny, SEP } from '../data/cache';
+import { cacheKeys, cacheWipeBucket, cacheGetAny, cachePut, SEP } from '../data/cache';
 import { gunzipLineN, isGzip } from '../data/gzip';
 import { parseKey, dedupeCurrents, overlapsRange, intervalSpan, type ParsedKey } from '../s3/keys';
 import { nthLine } from '../data/parse';
-import type { Rec, RecordKind } from '../data/types';
+import {
+  originIndexRecords,
+  resolveOrigin,
+  type OriginResolverDeps,
+} from '../data/originindex';
+import type { Origin, Rec, RecordKind } from '../data/types';
+import type { RecordOrigin } from '@redthreadlabs/tracelog-schema';
 import {
   aggregateBySeries,
   blankPartialSeries,
@@ -105,6 +111,25 @@ interface PortLike {
 const MAX_INSTANCES = 20_000;
 const MAX_SLOW_EVENTS = 500;
 
+/** How many prior existing intervals the origin hop walks back (SPEC §6.6). A
+ *  launch's origin is temporally near its records; sessions rarely stay hot for
+ *  many consecutive intervals, so a few hops find it (a miss is normal). */
+const ORIGIN_MAX_HOPS = 6;
+
+/** Map a resolved RecordOrigin to the viewer's display Origin (lifetimeId is the
+ *  key we searched for; service.version = app version, device.model = device,
+ *  os = "name version"). Mirrors parse.ts `extractOrigin`. */
+function viewerOrigin(lifetimeId: string, ro: RecordOrigin): Origin {
+  const os = ro.os;
+  return {
+    lifetimeId,
+    appVersion: ro.service?.version,
+    device: ro.device?.model,
+    deviceId: ro.device?.id,
+    os: os?.name ? (os.version ? `${os.name} ${os.version}` : os.name) : undefined,
+  };
+}
+
 /** MB → bytes, or null when no limit is set. */
 function mbToBytes(mb: number | undefined): number | null {
   return mb != null && mb > 0 ? mb * 1024 * 1024 : null;
@@ -160,6 +185,7 @@ class Session {
     this.store.addEventListener('data', () => {
       this.broadcast('data');
       void this.fireDeferred();
+      void this.maybeResolveOrigins();
     });
     this.store.addEventListener('progress', () => {
       this.broadcast('progress');
@@ -266,6 +292,99 @@ class Session {
   /** A transaction's loaded instances, scoped to the selection. */
   selectedNamed(name: string): Rec[] {
     return this.store.transactionsNamed(name).filter(this.inSelection());
+  }
+
+  // ---- origin resolution (SPEC §6.6): the point-lookup origin index ----
+  // A client lifetime emits its RecordOrigin once at launch; a window that
+  // excludes that interval has records with a lifetime_id but no origin in view.
+  // After a load settles, resolve those by hopping back over the channel's
+  // previously-indexed files (data/originindex.ts) and reading the located line.
+
+  private resolvingOrigins = false;
+  /** lifetimes already hop-attempted (resolved OR a normal miss), so a miss isn't
+   *  re-hopped on every settle. Reset when the indexed-file set grows, since new
+   *  origin indexes may make a prior miss resolvable. */
+  private originAttempted = new Set<string>();
+  private originIndexCountAtAttempt = -1;
+
+  /** Read line `line` of a finalized file and parse its `{metadata: RecordOrigin}`
+   *  body. Fetch-on-evict: the origin INDEX outlives the byte cache, so if the
+   *  bytes were evicted we re-fetch the (immutable) file and re-cache it — a
+   *  targeted retrieval, since the index told us exactly where the origin is. */
+  private async readOriginLine(file: ParsedKey, line: number): Promise<RecordOrigin | null> {
+    let bytes = await cacheGetAny(this.bucket.bucket, file.key);
+    if (!bytes) {
+      try {
+        bytes = await this.bucket.getObjectCompressed(file.key);
+      } catch {
+        return null;
+      }
+      if (bytes && file.etag) void cachePut(this.bucket.bucket, file.key, file.etag, bytes);
+    }
+    if (!bytes) return null;
+    const raw = isGzip(bytes)
+      ? await gunzipLineN(bytes, line)
+      : nthLine(new TextDecoder().decode(bytes), line);
+    if (!raw) return null;
+    try {
+      const md = (JSON.parse(raw) as { metadata?: unknown }).metadata;
+      return md && typeof md === 'object' ? (md as RecordOrigin) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Once a load settles, hop-resolve any loaded records whose origin is outside
+   *  the window. Re-entrancy-guarded; only touches not-yet-attempted lifetimes. */
+  private async maybeResolveOrigins(): Promise<void> {
+    if (this.resolvingOrigins || this.store.progress.running) return;
+    const unresolved = this.store.unresolvedOrigins();
+    if (unresolved.size === 0) return;
+
+    this.resolvingOrigins = true;
+    try {
+      const indexes = await originIndexRecords(this.bucket.bucket);
+      // The indexed-file set grew → new origins may now be reachable, so re-attempt
+      // prior misses (this also bounds `originAttempted`'s growth).
+      if (indexes.size !== this.originIndexCountAtAttempt) {
+        this.originAttempted.clear();
+        this.originIndexCountAtAttempt = indexes.size;
+      }
+      const todo = [...unresolved].filter(([lid]) => !this.originAttempted.has(lid));
+      if (todo.length === 0 || indexes.size === 0) {
+        for (const [lid] of todo) this.originAttempted.add(lid);
+        return;
+      }
+      // Candidate files come from the index keys (the previously-scanned set) —
+      // no S3 listing needed — grouped by channel for the per-lifetime hop.
+      const byChannel = new Map<string, ParsedKey[]>();
+      for (const id of indexes.keys()) {
+        const pk = parseKey(id.slice(id.indexOf(SEP) + 1));
+        if (!pk) continue;
+        let list = byChannel.get(pk.channel);
+        if (!list) byChannel.set(pk.channel, (list = []));
+        list.push(pk);
+      }
+      const deps: OriginResolverDeps = {
+        loadIndex: (f) => Promise.resolve(indexes.get(this.bucket.bucket + SEP + f.key)?.index ?? null),
+        readOriginLine: (f, line) => this.readOriginLine(f, line),
+      };
+
+      const resolved: Origin[] = [];
+      for (const [lid, where] of todo) {
+        this.originAttempted.add(lid); // attempted (resolved or normal miss)
+        const from = parseKey(where.sourceKey);
+        const files = byChannel.get(where.channel);
+        if (!from || !files) continue;
+        const ro = await resolveOrigin(lid, from.interval, files, ORIGIN_MAX_HOPS, deps);
+        if (ro) resolved.push(viewerOrigin(lid, ro));
+      }
+      // back-fills the records + emits 'data' (which re-fires this — but the now
+      // resolved/attempted lifetimes are all skipped, so it settles immediately).
+      if (resolved.length > 0) this.store.registerOrigins(resolved);
+    } finally {
+      this.resolvingOrigins = false;
+    }
   }
 
 }
