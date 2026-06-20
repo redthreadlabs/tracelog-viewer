@@ -57,19 +57,33 @@ describe('assembleTrace', () => {
     kind: 'event',
     name: 'speech-cache-miss',
     ts: 1012,
+    transactionId: 'root0000root0000',
   });
 
-  it('orders transaction → spans (DFS by start), nests children, appends points', () => {
+  it('orders transaction → spans (DFS by start), interleaving points by start time', () => {
     const model = assembleTrace([spanB, event, txn, spanChild, spanA], TRACE);
     expect(model.root?.name).toBe('POST /speech/generate');
+    // the event (ts 1012) sorts between spanA (1010) and spanB (1035) as a
+    // sibling under the transaction — NOT dumped at the end.
     expect(model.rows.map((r) => r.rec.name)).toEqual([
       'POST /speech/generate',
       'S3 ListObjectsV2',
+      'speech-cache-miss',
       'POST api.openai.com',
       'dns lookup',
-      'speech-cache-miss',
     ]);
-    expect(model.rows.map((r) => r.depth)).toEqual([0, 1, 1, 2, 1]);
+    expect(model.rows.map((r) => r.depth)).toEqual([0, 1, 1, 1, 2]);
+  });
+
+  it('places a point with no in-trace parent at depth 1, after the tree', () => {
+    const orphanEvent = rec({ kind: 'event', name: 'unlinked-event', ts: 1015 });
+    const model = assembleTrace([txn, spanA, orphanEvent], TRACE);
+    expect(model.rows.map((r) => r.rec.name)).toEqual([
+      'POST /speech/generate',
+      'S3 ListObjectsV2',
+      'unlinked-event',
+    ]);
+    expect(model.rows[2].depth).toBe(1);
   });
 
   it('nests a downstream service transaction under the caller span (distributed trace)', () => {
