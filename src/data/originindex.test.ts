@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildLocatorIndex,
+  originIndexStats,
   has,
   linesFor,
   resolveOrigin,
@@ -98,5 +99,23 @@ describe('resolveOrigin (the bespoke backward hop)', () => {
     const d = deps({ [future.key]: { L1: [4] } }, { [future.key]: { 4: ORIGIN('L1') } });
     const origin = await resolveOrigin('L1', '2026-06-10', [recFile, future], 6, d);
     expect(origin).toBeNull();
+  });
+});
+
+describe('originIndexStats (internals inventory)', () => {
+  it('aggregates files, distinct lifetimes, locators, bytes', () => {
+    const recs = new Map<string, { etag?: string; index: LocatorFileIndex }>([
+      ['b\0client/2026-06-10/h', { etag: 'a', index: { L1: [3], L2: [5, 9] } }],
+      ['b\0client/2026-06-11/h', { etag: 'b', index: { L3: [1] } }],
+    ]);
+    const s = originIndexStats(recs);
+    expect(s.files).toBe(2);
+    expect(s.lifetimes).toBe(3);   // L1, L2, L3
+    expect(s.locators).toBe(4);    // 1 + 2 + 1
+    expect(s.bytes).toBeGreaterThan(0);
+  });
+
+  it('is empty for a bucket with no origin indexes', () => {
+    expect(originIndexStats(new Map())).toEqual({ files: 0, lifetimes: 0, locators: 0, bytes: 0 });
   });
 });

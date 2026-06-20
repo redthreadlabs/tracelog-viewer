@@ -112,6 +112,34 @@ export async function originIndexRecords(
   });
 }
 
+/** Inventory of the persisted origin indexes for a bucket — for the internals
+ *  page. `lifetimes` is the distinct join keys; `locators` the total line
+ *  pointers (≥ lifetimes only if an origin is indexed in more than one file). */
+export interface OriginIndexStats {
+  files: number;
+  lifetimes: number;
+  locators: number;
+  bytes: number;
+}
+
+export function originIndexStats(
+  records: Map<string, { etag?: string; index: LocatorFileIndex }>,
+): OriginIndexStats {
+  const lifetimes = new Set<string>();
+  let files = 0;
+  let locators = 0;
+  let bytes = 0;
+  for (const { index } of records.values()) {
+    files++;
+    bytes += JSON.stringify(index).length;
+    for (const key in index) {
+      lifetimes.add(key);
+      locators += index[key].length;
+    }
+  }
+  return { files, lifetimes: lifetimes.size, locators, bytes };
+}
+
 // ── bespoke (does NOT generalize): the backward interval hop + body read ────
 
 export interface OriginResolverDeps {

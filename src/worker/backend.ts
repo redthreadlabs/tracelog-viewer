@@ -27,6 +27,7 @@ import { parseKey, dedupeCurrents, overlapsRange, intervalSpan, type ParsedKey }
 import { nthLine } from '../data/parse';
 import {
   originIndexRecords,
+  originIndexStats,
   resolveOrigin,
   type OriginResolverDeps,
 } from '../data/originindex';
@@ -1085,6 +1086,18 @@ const ops: Record<string, OpHandler> = {
         ...(ix.stats ? ix.stats(payloads as never[]) : {}),
       });
     }
+    // The origin index is a POINT-LOOKUP index, not an AggregateIndex — reported
+    // separately (its own kind + inventory: files indexed, distinct lifetimes).
+    const os = originIndexStats(await originIndexRecords(s.bucket.bucket));
+    out.push({
+      name: 'origin',
+      kind: 'point-lookup',
+      detail: 'lifetime_id → line  —  client-origin locator, backward-hop resolved',
+      files: os.files,
+      lifetimes: os.lifetimes,
+      locators: os.locators,
+      bytes: os.bytes,
+    });
     return out;
   },
   /** Can the overview RENDER this range+grid without the working set? — a

@@ -64,6 +64,28 @@ export function renderIndexingView(container: HTMLElement): () => void {
     );
 
     for (const ix of stats) {
+      // Point-lookup indexes (e.g. the origin locator) aren't aggregates — they
+      // have no capability line; show their `detail` + their own inventory.
+      if (ix.kind === 'point-lookup') {
+        const storage = [
+          `${ix.files as number} files`,
+          `${fmtCount(ix.lifetimes as number)} lifetimes`,
+          `${fmtCount(ix.locators as number)} locators`,
+          fmtBytes(ix.bytes as number),
+        ].join(' · ');
+        section.append(
+          el('div', { className: 'index-row' }, [
+            el('span', { className: 'index-name' }, [
+              String(ix.name),
+              el('span', { className: 'chip', text: 'point-lookup', attrs: { style: 'margin-left:6px;cursor:default' } }),
+            ]),
+            el('span', { className: 'index-capability', text: String(ix.detail) }),
+            el('span', { className: 'index-storage', text: storage }),
+          ]),
+        );
+        continue;
+      }
+
       const cells = ix.cells as number | undefined;
       const storage = [
         `${ix.files as number} files`,
