@@ -18,6 +18,10 @@ export const INDEX_STORE = 'txnindex';
 /** per-file duration histograms (data/durhist.ts) — the holistic P95 sketch,
  *  kept separate so the chart's hot path doesn't load it */
 export const DURHIST_STORE = 'durhist';
+/** per-file origin locator index (data/originindex.ts) — the first POINT-LOOKUP
+ *  index: lifetime_id → the line(s) of its metadata record, for cross-window
+ *  origin resolution. (Generalizes to a keyed-locator/containment store.) */
+export const ORIGIN_STORE = 'origins';
 // v2: record keys gained the bucket namespace. v3: added the `sizes` ledger,
 // which survives byte eviction (so we still know file sizes after a purge).
 // v4: `files` now holds gzip-COMPRESSED bytes (was decompressed), so the old
@@ -26,7 +30,8 @@ export const DURHIST_STORE = 'durhist';
 // v6: txnindex cells gained an error counter ({c,d}→{c,d,e}); drop the stale
 //     payloads once so they rebuild on next load.
 // v7: added the `durhist` store (per-file duration histograms for P95).
-const DB_VERSION = 7;
+// v8: added the `origins` store (per-file lifetime_id → line locator index).
+const DB_VERSION = 8;
 
 /** `bucket + \0 + key` — \0 can appear in neither, so the join is unambiguous. */
 export const SEP = '\u0000';
@@ -71,6 +76,9 @@ export function openDb(): Promise<IDBDatabase | null> {
         }
         if (!db.objectStoreNames.contains(DURHIST_STORE)) {
           db.createObjectStore(DURHIST_STORE, { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains(ORIGIN_STORE)) {
+          db.createObjectStore(ORIGIN_STORE, { keyPath: 'id' });
         }
       };
       request.onsuccess = () => resolve(request.result);

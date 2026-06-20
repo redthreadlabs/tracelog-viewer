@@ -12,4 +12,9 @@ export {
   dedupeCurrents,
   normalizeHost,
 } from '@redthreadlabs/tracelog-schema';
-export type { ParsedKey, KeyVars } from '@redthreadlabs/tracelog-schema';
+// The schema renamed these to be object-store-neutral (0.4.0); the viewer keeps
+// its local `ParsedKey` / `KeyVars` names via aliased re-export.
+export type {
+  ParsedObjectKey as ParsedKey,
+  ObjectKeyVars as KeyVars,
+} from '@redthreadlabs/tracelog-schema';

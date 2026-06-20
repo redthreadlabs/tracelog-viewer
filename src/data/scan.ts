@@ -8,6 +8,7 @@ import { parseFile, parseFileStreaming, type ParseResult } from './parse';
 import { gzip, isGzip } from './gzip';
 import { recordFetched, enforceCacheLimit, recordSidecarsBatch, ledgerRecords } from './ledger';
 import { INDEXES } from './indexes';
+import { buildLocatorIndex, putOriginIndex } from './originindex';
 import { SEP, cacheGet, cachePut } from './cache';
 import type { Store } from './store';
 import type { Origin, Rec } from './types';
@@ -108,6 +109,12 @@ async function fetchAndParse(
   if (!file.current) {
     for (const ix of INDEXES) {
       void ix.persist(bucket.bucket, file.key, file.etag, ix.build(result.records));
+    }
+    // The point-lookup origin index: lifetime_id → line, built from the file's
+    // origin metadata lines (not records). Lets a later, window-disjoint scan
+    // resolve a client's device/os/app version by hopping back to this file.
+    if (result.originLines.length > 0) {
+      void putOriginIndex(bucket.bucket, file.key, file.etag, buildLocatorIndex(result.originLines));
     }
   }
   return { result, fromCache };

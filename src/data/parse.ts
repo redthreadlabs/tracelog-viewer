@@ -19,6 +19,7 @@
  */
 import type { ParsedKey } from '../s3/keys';
 import { RECORD_KINDS, type FileMeta, type Origin, type Rec, type RecordKind } from './types';
+import type { KeyedLine } from './originindex';
 import { gunzipForEachLine } from './gzip';
 
 export interface ParseResult {
@@ -28,8 +29,11 @@ export interface ParseResult {
    * In-stream client origins: metadata records that carry a `lifetime_id`. Unlike
    * the positional file-header metadata, these are KEYED (records join by
    * lifetime_id), not positional — one client file interleaves many launches.
+   * `origins` is the body (the in-window fast path → store map); `originLines`
+   * is the locator side (lifetime_id → line) → the durable origin index.
    */
   origins: Origin[];
+  originLines: KeyedLine[];
   /** the metadata context in effect at end-of-file (for incremental tails) */
   lastMeta: FileMeta;
   /** decompressed size of what was parsed */
@@ -127,6 +131,7 @@ function createLineParser(file: ParsedKey, initialMeta: FileMeta, shedRaw: boole
   const records: Rec[] = [];
   const metas: FileMeta[] = [];
   const origins: Origin[] = [];
+  const originLines: KeyedLine[] = [];
   let meta: FileMeta = initialMeta;
   let skippedLines = 0;
   let unknownKinds = 0;
@@ -153,7 +158,11 @@ function createLineParser(file: ParsedKey, initialMeta: FileMeta, shedRaw: boole
         // without lifetime_id is the positional file header (server writer).
         const lifetimeId = istr(pool, body.lifetime_id);
         if (lifetimeId !== undefined) {
+          // SELECTOR kind==='metadata' (this branch) + KEY lifetime_id — the two
+          // choices a general keyed-locator index would parameterize. The body
+          // feeds the in-window fast path; the (key, line) feeds the locator index.
           origins.push(extractOrigin(lifetimeId, body, pool));
+          originLines.push({ key: lifetimeId, line: lineNo });
         } else {
           meta = extractMeta(body);
           metas.push(meta);
@@ -167,7 +176,7 @@ function createLineParser(file: ParsedKey, initialMeta: FileMeta, shedRaw: boole
       records.push(normalize(kind as RecordKind, body, line, lineNo, shedRaw, file, meta, pool));
     },
     finish(byteLength) {
-      return { records, metas, origins, lastMeta: meta, byteLength, skippedLines, unknownKinds };
+      return { records, metas, origins, originLines, lastMeta: meta, byteLength, skippedLines, unknownKinds };
     },
   };
 }
