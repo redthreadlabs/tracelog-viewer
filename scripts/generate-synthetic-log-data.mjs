@@ -6,7 +6,8 @@
  *
  * The model: a small product backend of FOUR services, each its own channel
  * (public-api, auth-service, analytics-service, media-service), plus a `client`
- * channel (mobile/web app events + client-perf) and an `unknown-route` channel
+ * channel (mobile/web app events + client traces, joined to per-launch origins)
+ * and an `unknown-route` channel
  * (internet-scanner noise hitting the public API). Each service has its own
  * endpoints and dependency profile (postgres/redis/clickhouse/kafka/s3/cdn), and
  * requests to the public API fan out to the others as **distributed traces**: a
@@ -211,7 +212,7 @@ const EVENT_TYPES = [
   { type: 'log', w: 4 },
 ];
 const EVENT_W = EVENT_TYPES.reduce((s, e) => s + e.w, 0);
-// client-perf operations (a root perf with child perfs — a client-side trace)
+// client trace flows: a root transaction (type 'app') with child spans
 const PERF_FLOWS = [
   { root: 'app launch', children: ['load config', 'fetch feed', 'render feed'], med: 900, sig: 0.5 },
   { root: 'open content', children: ['fetch content', 'fetch media', 'render'], med: 600, sig: 0.6 },
@@ -313,16 +314,25 @@ SERVICE_NAMES.forEach((name, i) => { FLEET[name] = buildFleet(i); });
 
 let bucket; // reset per day
 
+// Client lifetimes: a launch of the mobile/web app. Each emits its RecordOrigin
+// ONCE (an in-stream `metadata` record keyed by lifetime_id), then events +
+// client traces that carry that lifetime_id; the viewer joins them to resolve
+// device / os / app version. A rolling pool (some lifetimes persist across days)
+// means a lifetime's origin can sit in an EARLIER interval than its later
+// records — exercising the origin index + backward-hop resolver.
+const emittedOrigins = new Set();
+let lifetimePool = [];
+
 function emit(channel, host, ts, obj) {
   const perHost = (bucket[channel] ??= {});
   (perHost[host] ??= []).push({ ts, line: JSON.stringify(obj) });
 }
 
-function spanRecord(channel, host, traceId, parentId, depKey, tsMs, durMs) {
+function spanRecord(channel, host, traceId, txnId, depKey, tsMs, durMs) {
   const dep = SPAN_TYPES[depKey];
   const tsUs = Math.round(tsMs * 1000);
   emit(channel, host, tsUs, { span: {
-    id: t.hex(16), trace_id: traceId, parent_id: parentId,
+    id: t.hex(16), trace_id: traceId, transaction_id: txnId, parent_id: txnId,
     name: t.pick(dep.names), type: dep.type,
     ...(dep.subtype && { subtype: dep.subtype }),
     ...(dep.action && { action: dep.action }),
@@ -374,7 +384,7 @@ function makeTransaction(svc, route, host, tsMs, version, errMult, traceId, inbo
     const exitDur = calleeDur + 0.5 + t.rng() * 4; // + network overhead
     const tsUs = Math.round(callTsMs * 1000);
     emit(svc.name, host, tsUs, { span: {
-      id: exitId, trace_id: traceId, parent_id: txnId,
+      id: exitId, trace_id: traceId, transaction_id: txnId, parent_id: txnId,
       name: `${calleeRoute.name.split(' ')[0]} ${call.to}${calleeRoute.name.includes(' ') ? ' ' + calleeRoute.name.split(' ')[1] : ''}`,
       type: 'external', subtype: 'http',
       duration: Math.round(exitDur * 1000) / 1000, timestamp: tsUs,
@@ -441,49 +451,83 @@ function makeScannerHit(host, tsMs) {
   } });
 }
 
-function makeClientEvent(host, tsMs, version) {
+// A client lifetime: identity carried by its RecordOrigin (device / os / app
+// version / opaque device id) and joined to records by lifetime_id.
+function spawnLifetime(version) {
+  const dev = t.pick(DEVICES);
+  const loc = t.pick(LOCALE_TZ);
+  return {
+    id: t.hex(16),
+    deviceId: t.hex(16), // opaque install id → origin.device.id
+    dev, locale: loc.locale, tz: loc.tz, version,
+    user: t.pick(USERS),
+    yearClass: t.pick([2019, 2020, 2021, 2022, 2023]),
+  };
+}
+
+// The once-per-lifetime RecordOrigin, as an in-stream `metadata` record keyed by
+// lifetime_id (the new schema: service + runtime + os + device, device.id is the
+// opaque install id). Emitted before the lifetime's first record in this file.
+function ensureOrigin(host, tsMs, lt) {
+  if (emittedOrigins.has(lt.id)) return;
+  emittedOrigins.add(lt.id);
+  emit('client', host, Math.round(tsMs * 1000) - 1, { metadata: {
+    lifetime_id: lt.id,
+    service: { name: 'duiduidui-app', version: lt.version },
+    runtime: { name: 'react-native', version: '0.79.2' },
+    os: { name: lt.dev.os, version: lt.dev.osv },
+    device: { id: lt.deviceId, model: lt.dev.model, brand: lt.dev.brand,
+      type: lt.dev.model.includes('iPad') ? 'tablet' : 'phone', year_class: lt.yearClass },
+  } });
+}
+
+function makeClientEvent(host, tsMs, lt) {
   const ev = t.weighted(EVENT_TYPES, EVENT_W);
   const r = t.rng();
   const level = ev.type === 'log' ? (r < 0.8 ? 'info' : r < 0.95 ? 'warn' : 'error') : (r < 0.95 ? 'info' : 'warn');
   const tsUs = Math.round(tsMs * 1000);
-  const dev = t.pick(DEVICES);
-  const loc = t.pick(LOCALE_TZ);
+  ensureOrigin(host, tsMs, lt);
   emit('client', host, tsUs, { event: {
-    type: ev.type, timestamp: tsUs, level, tz_offset: loc.tz,
+    // Events are untimed (no duration) and don't inline client identity — it
+    // rides on the RecordOrigin (joined via lifetime_id). locale is per-event;
+    // labels is the attribute bag (was `params`); user is in context.
+    type: ev.type, timestamp: tsUs, level, tz_offset: lt.tz, locale: lt.locale,
+    lifetime_id: lt.id,
     ...(ev.type === 'log' ? { message: t.pick(['cache warmed', 'queue drained', 'retrying request', 'slow frame observed', 'config reloaded']) } : {}),
     ...(t.rng() < 0.05 && level !== 'info' ? { error: { message: 'request retried after upstream timeout', type: 'RetryableError' } } : {}),
-    ...(ev.type !== 'log' && { duration: Math.round(t.rng() * 4000) / 1000 }),
-    user: { id: t.pick(USERS) },
-    ...(t.rng() < 0.7 && { client: { name: 'app', version, os: { name: dev.os, version: dev.osv },
-      device: { model: dev.model, brand: dev.brand, type: dev.model.includes('iPad') ? 'tablet' : 'phone' }, locale: loc.locale } }),
-    params: { screen: t.pick(['home', 'search', 'content', 'checkout', 'account', 'settings']),
-      ...(ev.type === 'purchase' && { items: t.int(1, 8), total: Math.round(t.rng() * 24000 + 500) / 100 }),
-      ...(ev.type === 'feature_used' && { feature: t.pick(['bulk-edit', 'saved-search', 'dark-mode', 'export', 'api-token']) }) },
+    context: {
+      user: { id: lt.user },
+      labels: { screen: t.pick(['home', 'search', 'content', 'checkout', 'account', 'settings']),
+        ...(ev.type === 'purchase' && { items: t.int(1, 8), total: Math.round(t.rng() * 24000 + 500) / 100 }),
+        ...(ev.type === 'feature_used' && { feature: t.pick(['bulk-edit', 'saved-search', 'dark-mode', 'export', 'api-token']) }) },
+    },
   } });
 }
 
-// a client-perf flow: a root perf (transaction-shaped, type client-perf) with
-// child perfs (span-shaped) — a client-side trace
-function makeClientPerf(host, tsMs) {
+// A client trace: a root transaction (type 'app') with child spans — the SDK's
+// startTransaction/startSpan. Carries the lifetime_id so the viewer resolves its
+// origin.
+function makeClientPerf(host, tsMs, lt) {
   const flow = t.pick(PERF_FLOWS);
   const traceId = t.hex(32);
   const rootId = t.hex(16);
-  const loc = t.pick(LOCALE_TZ);
   const total = Math.max(50, Math.exp(Math.log(flow.med) + flow.sig * t.normal()));
   const tsUs = Math.round(tsMs * 1000);
+  ensureOrigin(host, tsMs, lt);
   emit('client', host, tsUs, { transaction: {
-    id: rootId, trace_id: traceId, name: flow.root, type: 'client-perf',
+    id: rootId, trace_id: traceId, name: flow.root, type: 'app',
     duration: Math.round(total * 1000) / 1000, timestamp: tsUs,
     result: 'success', outcome: 'success', sampled: true, span_count: { started: flow.children.length },
-    tz_offset: loc.tz, context: { user: { id: t.pick(USERS) } },
+    tz_offset: lt.tz, lifetime_id: lt.id, context: { user: { id: lt.user } },
   } });
   let cursor = 0.02;
   for (const child of flow.children) {
     const frac = (0.95 - cursor) * (0.3 + t.rng() * 0.5);
     const cTs = Math.round((tsMs + total * cursor) * 1000);
     emit('client', host, cTs, { span: {
-      id: t.hex(16), trace_id: traceId, parent_id: rootId, name: child, type: 'client-perf',
+      id: t.hex(16), trace_id: traceId, transaction_id: rootId, parent_id: rootId, name: child, type: 'app',
       duration: Math.round(Math.max(1, total * frac) * 1000) / 1000, timestamp: cTs, sync: false, outcome: 'success',
+      lifetime_id: lt.id,
     } });
     cursor += frac + 0.02;
   }
@@ -632,6 +676,12 @@ for (let d = 0; d < TOTAL_DAYS; d++) {
   //     a slice of events is back-dated 1–2 days (a buffered offline client
   //     flushing late) so this file's sidecar shows interval drift.
   const dayClientRecords = Math.round(clientBudget * share);
+  // Roll the lifetime pool: retire ~half of yesterday's launches, refill with new
+  // ones. Carried-over lifetimes keep their origin in an earlier interval, so
+  // their records today resolve via the backward hop, not the in-window map.
+  const POOL_SIZE = 40;
+  lifetimePool = lifetimePool.filter(() => t.rng() < 0.5);
+  while (lifetimePool.length < POOL_SIZE) lifetimePool.push(spawnLifetime(fleetOn('public-api', d).version));
   let clientMade = 0;
   while (clientMade < dayClientRecords) {
     let hAcc = t.rng() * HOUR_W_SUM; let hour = 0;
@@ -639,9 +689,10 @@ for (let d = 0; d < TOTAL_DAYS; d++) {
     let tsMs = dayStartMs + hour * 3600_000 + t.rng() * 3600_000;
     if (t.rng() < 0.04) tsMs -= t.int(1, 2) * 86400_000; // buffered late flush
     const host = t.pick(fleetOn('public-api', d).hosts);
+    const lt = t.pick(lifetimePool);
     const before = recordCount();
-    if (t.rng() < 0.25) makeClientPerf(host, tsMs);
-    else makeClientEvent(host, tsMs, fleetOn('public-api', d).version);
+    if (t.rng() < 0.25) makeClientPerf(host, tsMs, lt);
+    else makeClientEvent(host, tsMs, lt);
     clientMade += recordCount() - before;
   }
 
