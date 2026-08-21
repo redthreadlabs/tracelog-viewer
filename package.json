@@ -1,7 +1,15 @@
 {
   "name": "tracelog-viewer",
-  "private": true,
   "version": "0.1.0",
+  "description": "Browser viewer for tracelog JSONL logs, read directly from your own S3 bucket",
+  "homepage": "https://github.com/redthreadlabs/tracelog-viewer#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/redthreadlabs/tracelog-viewer.git"
+  },
+  "license": "BSD-2-Clause",
+  "author": "Benji Smith <benji@redthreadlabs.com>",
+  "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
