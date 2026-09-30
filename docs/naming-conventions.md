@@ -88,6 +88,13 @@ query (computing an answer from what's loaded). "scan" belongs to the first only
 | **id** / **transaction_id** / **parent_id** | A span's own id, the transaction (trace root) it belongs to, and its immediate parent (the transaction or another span). |
 | **lifetime** (`lifetime_id`) | One SDK launch / process run; the join key from a client record to its **origin**. |
 | **device id** (`device.id`) | An opaque, consumer-defined device/installation id, carried on the **origin** (`device.id`), stable across that device's lifetimes. |
+| **visitor** (`context.visitor`) | The long-lived first-party identity behind records, one per person or agent credential, signed in or not (`id`, `kind`: `human` / `agent` / `system`). Schema 0.6.0. |
+| **visit** (`context.visit`) | One bounded stretch of a visitor's activity, client-generated and carried as `context.visit.id`. The viewer groups by `visit.id` when records carry it and falls back to its 15-minute-gap inference otherwise (not yet read: a later task). Never "session". |
+| **actor** / **via** (`context.actor`) | What acted on a record, and the surface it came through (`via`: `browser`, `fetch`, `cli`, `mcp`, `thread`, `edge`, `server`). |
+| **entity** (`context.entity`) | A consumer thing a record concerns, by id or address; a flat string map. |
+
+The full list of analytics context fields (`page`, `campaign`, `geo` too) is in
+tracelog-schema's `docs/ANALYTICS_CONTEXT.md`.
 
 ### Timing & scheduling (code)
 
@@ -112,6 +119,8 @@ These generic words each name exactly one concept. Don't reuse them for another:
   Elastic name) and not "params" (the old event-only name) — one word, every kind.
 - **metadata** → the record kind that carries an **origin** (file header or
   in-stream per-lifetime). Not a data kind; a scheduling primitive is a **handle**.
+- **session** → not used. The inferred grouping of a visitor's records is a
+  **visit**.
 - **scan** → the loader's working-set load from S3 (and the **scanbar** UI that
   drives it). The solver answering a query from records is **records-served**,
   never a "scan"; a precomputed per-file aggregate is an **index**.
